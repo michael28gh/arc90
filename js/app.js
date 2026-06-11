@@ -1915,7 +1915,7 @@ function obWelcome() {
       <div class="logo-mark">
         <svg viewBox="0 0 108 108">
           <circle cx="54" cy="54" r="46" fill="none" stroke="var(--line-2)" stroke-width="10"/>
-          <circle cx="54" cy="54" r="46" fill="none" stroke="var(--accent)" stroke-width="10" stroke-linecap="round" stroke-dasharray="217 72"/>
+          <circle cx="54" cy="54" r="46" fill="none" stroke="url(#ringGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="217 72"/>
         </svg>
       </div>
       <div class="brand-name">Arc<em>90</em></div>
@@ -2653,6 +2653,12 @@ function checkReminders() {
 
 setInterval(checkReminders, 30000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); checkReminders(); } });
+
+/* sticky glass header: gains blur + hairline once the page scrolls */
+window.addEventListener('scroll', () => {
+  const bar = document.querySelector('.brandbar');
+  if (bar) bar.classList.toggle('stuck', window.scrollY > 8);
+}, { passive: true });
 
 /* ============================================================
    DEV / DEMO HELPERS

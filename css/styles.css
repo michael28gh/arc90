@@ -1089,11 +1089,21 @@ input[type="range"]::-moz-range-thumb {
    PRO POLISH — wordmark, votes, milestones, staggered motion
    ============================================================ */
 .brandbar {
+  position: sticky; top: 0; z-index: 40;
   display: flex; align-items: center; justify-content: center; gap: 7px;
-  padding: 2px 0 14px; color: var(--tx-3);
+  margin: calc(-14px - env(safe-area-inset-top)) -18px 8px;
+  padding: calc(12px + env(safe-area-inset-top)) 18px 11px;
+  color: var(--tx-3);
   font-size: 11px; font-weight: 700; letter-spacing: 0.34em;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.25s, background 0.25s, backdrop-filter 0.25s;
 }
 .brandbar b { color: var(--accent-2); }
+.brandbar.stuck {
+  background: color-mix(in srgb, var(--bg) 72%, transparent);
+  -webkit-backdrop-filter: blur(22px) saturate(1.35); backdrop-filter: blur(22px) saturate(1.35);
+  border-bottom-color: var(--line);
+}
 
 .votes {
   margin-top: 14px; padding-top: 13px; border-top: 1px solid var(--line);
@@ -1177,3 +1187,49 @@ input[type="range"]::-moz-range-thumb {
   .rhythm-grid { grid-template-columns: 1fr; }
   .habit-pulse, .habit-edit-grid { grid-template-columns: 1fr; }
 }
+
+/* ============================================================
+   CINEMATIC GLOW PASS — breathing ring halo, dual hero ambient,
+   richer chart & CTA light. Dark theme leads; light stays clean.
+   ============================================================ */
+.ring-wrap::before {
+  content: ''; position: absolute; inset: -16%;
+  background: radial-gradient(circle, var(--accent-glow), transparent 62%);
+  filter: blur(6px); opacity: 0.55; pointer-events: none;
+  animation: breathe 4.2s ease-in-out infinite;
+}
+@keyframes breathe {
+  0%, 100% { opacity: 0.4; transform: scale(0.96); }
+  50% { opacity: 0.75; transform: scale(1.04); }
+}
+[data-theme="light"] .ring-wrap::before { opacity: 0.25; }
+
+.hero-card::after {
+  content: ''; position: absolute; bottom: -45%; left: -18%; width: 260px; height: 260px;
+  background: radial-gradient(circle, rgba(242, 184, 75, 0.10), transparent 70%);
+  pointer-events: none;
+}
+[data-theme="light"] .hero-card::after { opacity: 0.4; }
+
+.area-dot { stroke-width: 3; filter: drop-shadow(0 0 4px var(--accent-glow)) drop-shadow(0 0 14px var(--accent-glow)); }
+.area-line { filter: drop-shadow(0 2px 5px var(--accent-glow)) drop-shadow(0 4px 18px var(--accent-glow)); }
+
+.btn { box-shadow: var(--btn-shadow), 0 0 28px -10px var(--accent-glow); }
+.daydone { box-shadow: 0 0 34px -14px var(--mint), var(--card-edge); }
+.donut-fill { filter: drop-shadow(0 0 5px var(--accent-glow)) drop-shadow(0 0 16px var(--accent-glow)); }
+
+@media (prefers-reduced-motion: reduce) {
+  .ring-wrap::before { animation: none; }
+}
+
+
+/* ============================================================
+   CINEMATIC WELCOME — Higgsfield obsidian arc backdrop (dark theme)
+   ============================================================ */
+[data-theme="dark"] .ob.welcome {
+  background:
+    linear-gradient(180deg, rgba(5, 6, 9, 0.88) 0%, rgba(5, 6, 9, 0.42) 46%, rgba(5, 6, 9, 0.74) 100%),
+    url('../assets/welcome-bg.jpg') center / cover no-repeat;
+}
+[data-theme="dark"] .ob.welcome .brand-tag { color: #b9c2d4; }
+[data-theme="dark"] .ob.welcome .logo-mark svg { filter: drop-shadow(0 10px 34px var(--accent-glow)); }

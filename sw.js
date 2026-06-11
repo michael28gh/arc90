@@ -1,5 +1,5 @@
 /* Arc90 service worker — network-first app shell with offline fallback */
-const CACHE = 'arc90-v13';
+const CACHE = 'arc90-v14';
 const SHELL = [
   './',
   './index.html',
@@ -9,6 +9,7 @@ const SHELL = [
   './manifest.webmanifest',
   './icons/icon-180.png',
   './icons/icon-512.png',
+  './assets/welcome-bg.jpg',
 ];
 
 self.addEventListener('install', (e) => {
