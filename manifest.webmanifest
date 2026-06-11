@@ -1,0 +1,15 @@
+{
+  "name": "Arc90 — Build your next 90 days",
+  "short_name": "Arc90",
+  "description": "Turn one meaningful goal into a realistic daily system. Track the habits that matter and build momentum for the next 90 days.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07080c",
+  "theme_color": "#07080c",
+  "icons": [
+    { "src": "icons/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

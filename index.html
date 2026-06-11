@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <title>Arc90 — Build your next 90 days</title>
+  <meta name="description" content="Turn one meaningful goal into a realistic daily system. Track the habits that matter, see where you're falling behind, and build momentum for the next 90 days." />
+
+  <!-- iOS home-screen app -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Arc90" />
+  <meta name="theme-color" content="#07080c" />
+  <link rel="apple-touch-icon" href="icons/icon-180.png" />
+  <link rel="icon" href="icons/icon-180.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app"></div>
+
+  <!-- shared SVG defs: signature Arc90 gradient (cobalt → violet → magenta) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#2f7df6"/>
+        <stop offset="54%" stop-color="#20c5a5"/>
+        <stop offset="100%" stop-color="#f2b84b"/>
+      </linearGradient>
+      <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#20c5a5" stop-opacity="0.34"/>
+        <stop offset="100%" stop-color="#20c5a5" stop-opacity="0"/>
+      </linearGradient>
+      <linearGradient id="donutGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#2f7df6"/>
+        <stop offset="52%" stop-color="#20c5a5"/>
+        <stop offset="100%" stop-color="#f2b84b"/>
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <script src="js/data.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
