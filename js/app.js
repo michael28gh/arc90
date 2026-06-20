@@ -1,7 +1,7 @@
 /* ============================================================
    ARC90 — app logic
    Vanilla JS single-page app · localStorage persistence
-   Tabs: Today · Habits · Progress · Coach · Profile
+   Tabs: Today · Progress · Protocol · Guidance · Profile
    Premium is SIMULATED locally (StoreKit 2 in the native build).
    ============================================================ */
 
@@ -10,25 +10,50 @@
 /* ---------------- state ---------------- */
 
 const KEY = 'arc90.v1';
-const FREE_HABITS = 5;
+const FREE_HABITS = 8;
 const FREE_CUSTOM = 2;
+const PREMIUM_OFFER = {
+  name: 'Founding Premium',
+  price: '$49',
+  interval: '/year',
+  cadence: 'about $4/month',
+  cta: 'Get Founder Premium',
+  note: 'Launch price for early users. Cancel anytime.',
+};
+
+function defaultFocusState() {
+  return {
+    mode: 'soft',
+    apps: [],
+    sites: [],
+    plans: [],
+    sessions: [],
+    active: null,
+    unlocks: [],
+    seq: 0,
+  };
+}
 
 function defaultState() {
   return {
     onboarded: false,
     premium: false,
-    theme: 'auto',
+    theme: 'dark',
     profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null },
     ai: { provider: 'anthropic', key: '' },
     aiChat: [],                  // [{role:'user'|'assistant', content}]
     habits: [],                  // [{id, emoji, name, cat, min}]
     customSeq: 0,
     log: {},                     // { 'YYYY-MM-DD': {done:[], min:[], skip:[]} }
+    health: { water: {}, weight: {}, steps: {}, sleep: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7 } },
+    weeklyReviews: {},           // { 'YYYY-WW-ish': {summary, focus, action, generated} }
+    product: { stripeMode: 'server-required', nativeBridge: false },
     reminders: { mode: 'daily', time: '08:00' },
     tipSeed: 0,
     firedSlots: {},
     forge: null,                 // {start, focus:[ids], anchor:id}
-    protocols: [],               // [{id, name, type, freq, time, notes, logs:[{date, symptoms, note, urgent}]}]
+    focus: defaultFocusState(),  // shield list, focus sessions, schedules, unlocks
+    protocols: [],               // [{id, name, type, amount, freq, time, notes, logs:[{date, symptoms, note, urgent}]}]
     protoSeq: 0,
   };
 }
@@ -39,6 +64,15 @@ function normalizeState(data) {
   s.profile = Object.assign(defaultState().profile, data.profile || {});
   s.ai = Object.assign(defaultState().ai, data.ai || {});
   s.reminders = Object.assign(defaultState().reminders, data.reminders || {});
+  if (s.reminders.mode === '5h') s.reminders.mode = '4h';
+  s.health = Object.assign(defaultState().health, data.health || {});
+  s.health.settings = Object.assign(defaultState().health.settings, (data.health && data.health.settings) || {});
+  s.health.water = s.health.water && typeof s.health.water === 'object' ? s.health.water : {};
+  s.health.weight = s.health.weight && typeof s.health.weight === 'object' ? s.health.weight : {};
+  s.health.steps = s.health.steps && typeof s.health.steps === 'object' ? s.health.steps : {};
+  s.health.sleep = s.health.sleep && typeof s.health.sleep === 'object' ? s.health.sleep : {};
+  s.weeklyReviews = data.weeklyReviews && typeof data.weeklyReviews === 'object' ? data.weeklyReviews : {};
+  s.product = Object.assign(defaultState().product, data.product || {});
   s.log = data.log && typeof data.log === 'object' ? data.log : {};
   for (const k of Object.keys(s.log)) {
     if (Array.isArray(s.log[k])) s.log[k] = { done: s.log[k], min: [], skip: [] };
@@ -46,7 +80,19 @@ function normalizeState(data) {
   }
   s.habits = Array.isArray(data.habits) ? data.habits.map((h) => ({ rhythm: 'daily', emoji: '•', name: 'Untitled habit', cat: 'custom', min: '2-minute version', ...h })) : [];
   s.aiChat = Array.isArray(data.aiChat) ? data.aiChat : [];
-  s.protocols = Array.isArray(data.protocols) ? data.protocols : [];
+  s.focus = normalizeFocusState(data.focus || {});
+  s.protocols = Array.isArray(data.protocols) ? data.protocols.map((p) => ({
+    id: p.id,
+    name: p.name || 'Untitled protocol',
+    type: p.type || 'supplement',
+    freq: p.freq || 'Daily',
+    time: p.time || '08:00',
+    slot: p.slot || inferDoseSlot(p.time || '08:00'),
+    amount: p.amount || p.dose || '',
+    reason: p.reason || '',
+    notes: p.notes || '',
+    logs: Array.isArray(p.logs) ? p.logs : [],
+  })) : [];
   s.firedSlots = data.firedSlots && typeof data.firedSlots === 'object' ? data.firedSlots : {};
   return s;
 }
@@ -56,11 +102,14 @@ let tab = 'today';
 let sheet = null;                // {type:'paywall'|'protocol'|'task'|'edit', ...}
 let libCat = 'all';
 let libQuery = '';
+let libraryOpen = false;
 let openQA = null;
 let axisMode = 'rings';          // 'rings' (donut+bars) | 'radar'
 let protoOpen = null;            // protocol id with open log form
+let protoDetailOpen = null;      // protocol id with open quick details
 let protoAddOpen = false;
 let protoUrgent = false;
+let protocolTemplatesOpen = false;
 
 let ob = null;
 function freshOb() {
@@ -102,6 +151,85 @@ const RHYTHMS = {
   tuethu: { label: 'Tue / Thu', short: 'T/Th', days: [2, 4] },
 };
 
+const FOCUS_APP_SUGGESTIONS = ['Instagram', 'TikTok', 'YouTube', 'X', 'Reddit', 'Discord', 'Safari', 'Messages'];
+const FOCUS_SITE_SUGGESTIONS = ['instagram.com', 'youtube.com', 'x.com', 'reddit.com', 'news.ycombinator.com', 'netflix.com'];
+const FOCUS_PLAN_TEMPLATES = [
+  { id: 'morning-build', name: 'Morning build', days: [1, 2, 3, 4, 5], start: '08:30', end: '11:00', strict: true },
+  { id: 'study-sprint', name: 'Study sprint', days: [1, 2, 3, 4, 5], start: '13:00', end: '15:00', strict: true },
+  { id: 'evening-reset', name: 'Evening reset', days: [0, 1, 2, 3, 4, 5, 6], start: '20:30', end: '22:00', strict: false },
+];
+
+function focusEntry(kind, value) {
+  let out = String(value || '').trim();
+  if (!out) return '';
+  if (kind === 'sites') {
+    out = out.replace(/^https?:\/\//i, '').replace(/^www\./i, '').replace(/\/.*$/, '').toLowerCase();
+  } else {
+    out = out.replace(/\s+/g, ' ');
+  }
+  return out;
+}
+
+function focusEntryKey(kind, value) {
+  return focusEntry(kind, value).toLowerCase();
+}
+
+function normalizeFocusState(data) {
+  const base = Object.assign(defaultFocusState(), data || {});
+  const normalizeList = (kind, arr) => {
+    const seen = new Set();
+    const out = [];
+    for (const raw of Array.isArray(arr) ? arr : []) {
+      const value = focusEntry(kind, raw);
+      const key = focusEntryKey(kind, value);
+      if (!value || seen.has(key)) continue;
+      seen.add(key);
+      out.push(value);
+    }
+    return out;
+  };
+  return {
+    mode: base.mode === 'native-ready' ? 'native-ready' : 'soft',
+    apps: normalizeList('apps', base.apps),
+    sites: normalizeList('sites', base.sites),
+    plans: Array.isArray(base.plans) ? base.plans.map((p, i) => ({
+      id: p.id || `fp${i + 1}`,
+      name: p.name || 'Focus block',
+      days: Array.isArray(p.days) ? p.days.map((d) => Number(d)).filter((d) => d >= 0 && d <= 6) : [1, 2, 3, 4, 5],
+      start: p.start || '09:00',
+      end: p.end || '11:00',
+      strict: !!p.strict,
+    })) : [],
+    sessions: Array.isArray(base.sessions) ? base.sessions.map((s, i) => ({
+      id: s.id || `fs${i + 1}`,
+      date: s.date || todayKey(),
+      startedAt: s.startedAt || new Date().toISOString(),
+      label: s.label || 'Focus session',
+      minutes: Math.max(1, Number(s.minutes) || 30),
+      actualMinutes: Math.max(0, Number(s.actualMinutes) || Number(s.minutes) || 30),
+      strict: !!s.strict,
+      status: s.status || 'completed',
+      unlocks: Math.max(0, Number(s.unlocks) || 0),
+      targets: Array.isArray(s.targets) ? s.targets : [],
+    })) : [],
+    active: base.active && base.active.start ? {
+      start: base.active.start,
+      minutes: Math.max(1, Number(base.active.minutes) || 30),
+      label: base.active.label || 'Focus session',
+      strict: !!base.active.strict,
+      targets: Array.isArray(base.active.targets) ? base.active.targets : [],
+      unlocks: Math.max(0, Number(base.active.unlocks) || 0),
+    } : null,
+    unlocks: Array.isArray(base.unlocks) ? base.unlocks.map((u, i) => ({
+      id: u.id || `fu${i + 1}`,
+      date: u.date || todayKey(),
+      reason: u.reason || 'Manual unlock',
+      label: u.label || '',
+    })) : [],
+    seq: Math.max(0, Number(base.seq) || 0),
+  };
+}
+
 function rhythmOf(h) { return RHYTHMS[h.rhythm] ? h.rhythm : 'daily'; }
 function rhythmLabel(h, compact = false) {
   const r = RHYTHMS[rhythmOf(h)];
@@ -116,7 +244,7 @@ function scheduledFor(h, k) {
 
 function dlog(k) {
   const v = S.log[k];
-  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '' };
+  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', intention: '' };
   if (!v) return base;
   if (Array.isArray(v)) return { ...base, done: v };
   return {
@@ -129,6 +257,7 @@ function dlog(k) {
     mood: v.mood || '',
     win: v.win || '',
     note: v.note || '',
+    intention: v.intention || '',
   };
 }
 function statusOf(id, k) {
@@ -400,8 +529,468 @@ function weeklyReviewData() {
   return { keys, rows, scheduled, completed, full, min, skipped, missed, pct, best, focus, reviews, recentWin, delta };
 }
 
+function straightMissHabit(days = 3) {
+  const today = atMidnight(new Date());
+  for (const h of S.habits) {
+    let misses = 0;
+    for (let i = 1; i <= Math.min(14, elapsedDays() - 1); i++) {
+      const k = dkey(addDays(today, -i));
+      const st = statusOf(h.id, k);
+      if (!scheduledFor(h, k) && st !== 'done' && st !== 'min') continue;
+      if (st === 'skip') continue;
+      if (st === 'done' || st === 'min') break;
+      misses++;
+      if (misses >= days) return { habit: h, misses };
+    }
+  }
+  return null;
+}
+
+function comebackSignal() {
+  if (elapsedDays() < 2) return null;
+  const yesterday = dkey(addDays(atMidnight(new Date()), -1));
+  for (const h of S.habits) {
+    const st = statusOf(h.id, yesterday);
+    const due = scheduledFor(h, yesterday) || st === 'done' || st === 'min' || st === 'skip';
+    if (due && st !== 'skip' && st !== 'done' && st !== 'min' && isCompleted(h.id, todayKey())) return h;
+  }
+  return null;
+}
+
+function milestoneMoment() {
+  const d = dayNumber();
+  if (![7, 30, 60, 90].includes(d)) return null;
+  const copy = {
+    7: ['First 7 locked in', 'The first week is proof that the system can live in real life.'],
+    30: ['Month marker', 'Thirty days is no longer a burst of motivation. It is evidence.'],
+    60: ['Two-thirds through', 'This is the section where identity beats mood. Keep the line moving.'],
+    90: ['Arc complete', 'The 90-day arc is full. Export the proof and choose the next mountain.'],
+  }[d];
+  return { day: d, title: copy[0], body: copy[1] };
+}
+
+function weekReviewKey() {
+  const today = atMidnight(new Date());
+  const mondayOffset = (today.getDay() + 6) % 7;
+  return dkey(addDays(today, -mondayOffset));
+}
+
+function weeklyCoachReview() {
+  const w = weeklyReviewData();
+  const focus = w.focus ? w.focus.h : nextBestRep();
+  const grade = w.pct >= 85 ? 'excellent' : w.pct >= 65 ? 'solid' : w.pct >= 40 ? 'uneven' : 'a reset week';
+  const delta = w.delta === null ? 'no prior-week baseline yet' : w.delta > 0 ? `${w.delta}% better than last week` : w.delta < 0 ? `${Math.abs(w.delta)}% below last week` : 'even with last week';
+  const focusText = focus ? `${focus.emoji} ${focus.name}` : 'one tiny rep';
+  return {
+    generated: new Date().toISOString(),
+    summary: `This was ${grade}: ${w.completed}/${w.scheduled || 0} scheduled reps kept, ${delta}.`,
+    focus: focusText,
+    action: focus ? `Next week, protect one thing: ${focus.name}. Minimum version first: ${focus.min || '2-minute version'}.` : 'Next week, keep the system tiny enough to repeat.',
+  };
+}
+
+function healthDay(k = todayKey()) {
+  return {
+    water: Number(S.health.water[k]) || 0,
+    weight: S.health.weight[k] || '',
+    steps: Number(S.health.steps[k]) || 0,
+  };
+}
+
+function sleepDay(k = todayKey()) {
+  const raw = (S.health.sleep && S.health.sleep[k]) || {};
+  return {
+    hours: raw.hours === '' || raw.hours === undefined ? '' : Number(raw.hours),
+    quality: raw.quality || 'steady',
+    note: raw.note || '',
+  };
+}
+
+function setSleepDay(k, patch) {
+  S.health.sleep[k] = Object.assign({}, sleepDay(k), patch);
+  if (S.health.sleep[k].hours === '' && !S.health.sleep[k].note) delete S.health.sleep[k];
+  save();
+}
+
+function setHealthDay(k, patch) {
+  if (patch.water !== undefined) S.health.water[k] = Math.max(0, Number(patch.water) || 0);
+  if (patch.weight !== undefined) {
+    const n = String(patch.weight || '').trim();
+    if (n) S.health.weight[k] = n;
+    else delete S.health.weight[k];
+  }
+  if (patch.steps !== undefined) S.health.steps[k] = Math.max(0, Number(patch.steps) || 0);
+  save();
+  maybeAutoCompleteSteps(k);
+}
+
+function maybeAutoCompleteSteps(k = todayKey()) {
+  const steps = Number(S.health.steps[k]) || 0;
+  if (steps < S.health.settings.stepGoal) return false;
+  const stepHabit = S.habits.find((h) => /step|walk/i.test(h.name));
+  if (!stepHabit || isCompleted(stepHabit.id, k)) return false;
+  setStatus(stepHabit.id, k, 'done');
+  return true;
+}
+
+function applyNativeHealthSync(payload = {}) {
+  const k = payload.date || todayKey();
+  setHealthDay(k, {
+    steps: payload.steps,
+    weight: payload.weight,
+    water: payload.water,
+  });
+  if (payload.sleepHours !== undefined || payload.sleepQuality !== undefined) {
+    setSleepDay(k, { hours: payload.sleepHours ?? '', quality: payload.sleepQuality || 'steady' });
+  }
+  render();
+  showNudge('Health signals synced. Steps can now auto-complete matching habits.');
+}
+
+function sleepStats(nDays = 7) {
+  const today = atMidnight(new Date());
+  const rows = [];
+  for (let i = Math.min(nDays, elapsedDays()) - 1; i >= 0; i--) {
+    const k = dkey(addDays(today, -i));
+    const s = sleepDay(k);
+    if (s.hours !== '' && Number.isFinite(Number(s.hours))) rows.push({ key: k, hours: Number(s.hours), quality: s.quality });
+  }
+  const avg = rows.length ? rows.reduce((sum, r) => sum + r.hours, 0) / rows.length : 0;
+  const goal = Number(S.health.settings.sleepGoal) || 7;
+  const kept = rows.filter((r) => r.hours >= goal).length;
+  const spread = rows.length ? Math.max(...rows.map((r) => r.hours)) - Math.min(...rows.map((r) => r.hours)) : 0;
+  const consistency = !rows.length ? 'No sleep baseline yet'
+    : spread <= 1 ? 'consistent window'
+    : spread <= 2 ? 'slightly irregular'
+    : 'irregular sleep window';
+  const copy = !rows.length
+    ? 'Log sleep for a few days and Arc90 will compare duration, consistency, and next-day routine quality.'
+    : avg >= goal
+      ? `${avg.toFixed(1)}h average this week. Protect the same sleep window so recovery stays predictable.`
+      : `${avg.toFixed(1)}h average this week. Your first lever is a realistic bedtime, not more willpower tomorrow.`;
+  return { rows, avg, goal, kept, consistency, copy };
+}
+
+function protocolStats() {
+  const total = S.protocols.length;
+  const today = todayKey();
+  let loggedToday = 0, flags = 0, logs = 0;
+  const typeCounts = {};
+  for (const p of S.protocols) {
+    typeCounts[p.type] = (typeCounts[p.type] || 0) + 1;
+    if (p.logs.some((l) => l.date === today)) loggedToday++;
+    for (const l of p.logs) {
+      logs++;
+      if (l.urgent) flags++;
+    }
+  }
+  const dominant = Object.entries(typeCounts).sort((a, b) => b[1] - a[1])[0];
+  return { total, loggedToday, flags, logs, dominant: dominant ? dominant[0] : '' };
+}
+
+function protocolInsight() {
+  const stats = protocolStats();
+  if (!stats.total) return 'Add your vitamins, supplements, peptides, medication, nutrition, or training routines. Arc90 tracks adherence and body signals, not dosing advice.';
+  const consistency = Math.round((stats.loggedToday / stats.total) * 100);
+  const type = PROTOCOL_TYPES.find((t) => t.id === stats.dominant);
+  return `${stats.loggedToday}/${stats.total} protocols logged today (${consistency}%). ${type ? `Most of your stack is ${type.label.toLowerCase()}-focused. ` : ''}${stats.flags ? 'Urgent symptoms were flagged in your history — export this for a clinician.' : 'No urgent symptom flags logged.'}`;
+}
+
+function protocolLoggedOn(p, k = todayKey()) {
+  return Array.isArray(p.logs) && p.logs.some((l) => l.date === k);
+}
+
+function inferDoseSlot(time = '') {
+  const hour = Number(String(time).split(':')[0]);
+  if (!Number.isFinite(hour)) return 'flex';
+  if (hour >= 17 || hour < 5) return 'night';
+  return 'day';
+}
+
+function doseSlotLabel(slot) {
+  return ({ day: 'Day dose', night: 'Night dose', both: 'Day + night', flex: 'Flexible' })[slot] || 'Flexible';
+}
+
+function upsertProtocolLog(p, log) {
+  p.logs = Array.isArray(p.logs) ? p.logs.filter((l) => l.date !== log.date) : [];
+  p.logs.push(log);
+}
+
+function protocolPulseRows(days = 7) {
+  const today = atMidnight(new Date());
+  const total = Math.max(1, S.protocols.length);
+  return Array.from({ length: days }, (_, i) => {
+    const d = addDays(today, i - (days - 1));
+    const key = dkey(d);
+    const kept = S.protocols.filter((p) => protocolLoggedOn(p, key)).length;
+    return {
+      key,
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1),
+      kept,
+      pct: Math.round((kept / total) * 100),
+      today: key === todayKey(),
+    };
+  });
+}
+
+function focusSessionEndsAt(session) {
+  return new Date(session.start).getTime() + session.minutes * 60000;
+}
+
+function focusRemainingMs(session) {
+  return Math.max(0, focusSessionEndsAt(session) - Date.now());
+}
+
+function focusNativeBridgeAvailable() {
+  return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc90Focus);
+}
+
+function requestNativeFocusShield(action, payload = {}) {
+  if (!focusNativeBridgeAvailable()) return false;
+  try {
+    window.webkit.messageHandlers.arc90Focus.postMessage({ action, ...payload });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function finishFocusSession(status = 'completed') {
+  const active = S.focus.active;
+  if (!active) return false;
+  requestNativeFocusShield('stop', { status });
+  const elapsed = Math.max(1, Math.round((Date.now() - new Date(active.start).getTime()) / 60000));
+  S.focus.seq++;
+  S.focus.sessions.unshift({
+    id: `fs${S.focus.seq}`,
+    date: dkey(new Date(active.start)),
+    startedAt: active.start,
+    label: active.label,
+    minutes: active.minutes,
+    actualMinutes: status === 'completed' ? active.minutes : Math.min(active.minutes, elapsed),
+    strict: !!active.strict,
+    status,
+    unlocks: active.unlocks || 0,
+    targets: Array.isArray(active.targets) ? active.targets : [],
+  });
+  S.focus.active = null;
+  save();
+  return true;
+}
+
+function syncFocusState() {
+  if (!S.focus.active) return false;
+  if (focusRemainingMs(S.focus.active) > 0) return false;
+  return finishFocusSession('completed');
+}
+
+function focusMinutesForDay(k) {
+  return S.focus.sessions.filter((s) => s.date === k).reduce((sum, s) => sum + (Number(s.actualMinutes) || 0), 0);
+}
+
+function focusConsistencyDays(nDays = 7) {
+  return recentKeys(nDays).filter((k) => focusMinutesForDay(k) > 0).length;
+}
+
+function focusStreak() {
+  let streakDays = 0;
+  const today = atMidnight(new Date());
+  for (let i = 0; i < Math.min(90, elapsedDays()); i++) {
+    const k = dkey(addDays(today, -i));
+    if (focusMinutesForDay(k) > 0) streakDays++;
+    else break;
+  }
+  return streakDays;
+}
+
+function focusStats() {
+  const today = todayKey();
+  const weekKeys = recentKeys(7);
+  const todayMinutes = focusMinutesForDay(today);
+  const weekMinutes = weekKeys.reduce((sum, k) => sum + focusMinutesForDay(k), 0);
+  const totalMinutes = S.focus.sessions.reduce((sum, s) => sum + (Number(s.actualMinutes) || 0), 0);
+  const weekUnlocks = S.focus.unlocks.filter((u) => weekKeys.includes(u.date)).length;
+  const topPull = S.focus.apps[0] || S.focus.sites[0] || '';
+  return {
+    todayMinutes,
+    weekMinutes,
+    totalMinutes,
+    weekUnlocks,
+    blockedCount: S.focus.apps.length + S.focus.sites.length,
+    sessions: S.focus.sessions.length,
+    streak: focusStreak(),
+    planCount: S.focus.plans.length,
+    consistency: focusConsistencyDays(7),
+    topPull,
+  };
+}
+
+function formatFocusMinutes(minutes) {
+  const n = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(n / 60);
+  const mins = n % 60;
+  if (!hours) return `${mins}m`;
+  if (!mins) return `${hours}h`;
+  return `${hours}h ${mins}m`;
+}
+
+function formatClockMinutes(ms) {
+  const total = Math.max(0, Math.ceil(ms / 60000));
+  const hours = Math.floor(total / 60);
+  const mins = total % 60;
+  return hours ? `${hours}h ${String(mins).padStart(2, '0')}m` : `${mins}m`;
+}
+
+function formatClockTime(hhmm) {
+  const [h, m] = String(hhmm || '09:00').split(':').map(Number);
+  const d = new Date();
+  d.setHours(h || 0, m || 0, 0, 0);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }).replace(' ', '');
+}
+
+function focusDaysLabel(days) {
+  const set = [...new Set(days)].sort((a, b) => a - b);
+  const all = 'Every day';
+  const weekdays = 'Mon-Fri';
+  const weekend = 'Weekend';
+  const lookup = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  if (set.length === 7) return all;
+  if (set.join(',') === '1,2,3,4,5') return weekdays;
+  if (set.join(',') === '0,6') return weekend;
+  return set.map((d) => lookup[d]).join(' / ');
+}
+
+function focusCurrentPlan() {
+  const now = new Date();
+  const hhmm = now.toTimeString().slice(0, 5);
+  return S.focus.plans.find((p) => p.days.includes(now.getDay()) && hhmm >= p.start && hhmm <= p.end) || null;
+}
+
+function focusInsight() {
+  const stats = focusStats();
+  const next = nextBestRep();
+  if (!stats.blockedCount) return {
+    title: 'Build your shield list',
+    body: 'Start with the 2 or 3 apps that steal your first 20 minutes. The goal is not perfection. It is fewer easy escapes.',
+  };
+  if (!stats.sessions) return {
+    title: 'Turn intent into sessions',
+    body: `Start with one 30-minute block and point it at ${next ? next.name : 'your next important rep'}. The streak starts with protected time, not willpower.`,
+  };
+  if (stats.weekUnlocks >= 3) return {
+    title: 'Your unlocks are talking',
+    body: `You have ${stats.weekUnlocks} unlock${stats.weekUnlocks === 1 ? '' : 's'} this week. Tighten the list or shorten the block until the friction holds.`,
+  };
+  if (focusCurrentPlan()) return {
+    title: 'A shield window is live',
+    body: `${focusCurrentPlan().name} is active right now. This is the perfect moment to stack one clear rep before the day gets noisy.`,
+  };
+  return {
+    title: 'Protected time is compounding',
+    body: `${stats.consistency}/7 days had at least one focus block. Keep pairing it with ${next ? next.name : 'your main goal'} and it turns into identity, not effort.`,
+  };
+}
+
+function toggleFocusItem(kind, raw) {
+  const value = focusEntry(kind, raw);
+  if (!value) return false;
+  const key = focusEntryKey(kind, value);
+  const list = S.focus[kind];
+  const index = list.findIndex((item) => focusEntryKey(kind, item) === key);
+  if (index >= 0) list.splice(index, 1);
+  else list.push(value);
+  save();
+  return index < 0;
+}
+
+function ensureFocusItem(kind, raw) {
+  const value = focusEntry(kind, raw);
+  if (!value) return false;
+  const key = focusEntryKey(kind, value);
+  if (S.focus[kind].some((item) => focusEntryKey(kind, item) === key)) return false;
+  S.focus[kind].push(value);
+  save();
+  return true;
+}
+
+function addFocusPlanFromTemplate(id) {
+  const tpl = FOCUS_PLAN_TEMPLATES.find((p) => p.id === id);
+  if (!tpl) return false;
+  if (S.focus.plans.some((p) => p.name === tpl.name)) return false;
+  S.focus.seq++;
+  S.focus.plans.push({ ...tpl, id: `fp${S.focus.seq}` });
+  save();
+  return true;
+}
+
+function startFocusSession(minutes, label, strict = true) {
+  const target = nextBestRep();
+  const session = {
+    start: new Date().toISOString(),
+    minutes: Math.max(1, Number(minutes) || 30),
+    label: label || 'Focus session',
+    strict: !!strict,
+    targets: [target ? target.name : (S.profile.goal || 'Your next 90 days')],
+    unlocks: 0,
+  };
+  S.focus.active = {
+    ...session,
+  };
+  const nativeSent = requestNativeFocusShield('start', {
+    ...session,
+    apps: S.focus.apps,
+    sites: S.focus.sites,
+  });
+  S.focus.mode = nativeSent ? 'native-ready' : 'soft';
+  save();
+  return nativeSent;
+}
+
+function focusDisplayList(kind, suggestions) {
+  const seen = new Set();
+  const out = [];
+  for (const value of [...suggestions, ...S.focus[kind]]) {
+    const key = focusEntryKey(kind, value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(focusEntry(kind, value));
+  }
+  return out;
+}
+
+const MOOD_OPTIONS = [
+  ['strong', 'Strong', 5],
+  ['steady', 'Steady', 4],
+  ['tired', 'Tired', 3],
+  ['stressed', 'Stress', 2],
+  ['low', 'Low', 1],
+];
+
 function moodLabel(mood) {
-  return ({ strong: 'Strong', steady: 'Steady', tired: 'Tired', stressed: 'Stressed', low: 'Low' })[mood] || '';
+  const opt = MOOD_OPTIONS.find(([id]) => id === mood);
+  return opt ? opt[1] : '';
+}
+
+function moodOptionChips(current, extraClass = '') {
+  return `
+    <div class="mood-choice-row ${extraClass}">
+      ${MOOD_OPTIONS.map(([id, label]) => `
+        <button class="${current === id ? 'on' : ''}" data-act="mood-quick" data-id="${id}" aria-label="Set mood to ${esc(label)}">
+          ${esc(label)}
+        </button>`).join('')}
+    </div>`;
+}
+
+function setQuickMood(id, k = todayKey()) {
+  const opt = MOOD_OPTIONS.find(([m]) => m === id);
+  if (!opt) return;
+  const l = dlog(k);
+  l.mood = opt[0];
+  if (!l.energy) l.energy = opt[2];
+  S.log[k] = l;
+  save();
+  render();
+  showNudge(`Mood logged: ${opt[1]}.`);
 }
 
 function energyLabel(value) {
@@ -579,6 +1168,8 @@ const ICONS = {
   check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>',
   today: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path stroke-linecap="round" stroke-linejoin="round" d="M8.5 12.2l2.4 2.4 4.6-5"/></svg>',
   habits: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6.5h10M4 12h10M4 17.5h10"/><circle cx="19" cy="6.5" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="17.5" r="1.4" fill="currentColor" stroke="none"/></svg>',
+  focus: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2"/></svg>',
+  protocol: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 7.5l6 6"/><path d="M7.5 10.5l6 6"/><rect x="3.5" y="11" width="17" height="6.5" rx="3.25" transform="rotate(-45 12 14.25)"/><circle cx="6.8" cy="17.2" r="1.2"/><circle cx="17.2" cy="6.8" r="1.2"/></svg>',
   progress: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 6-8"/><path d="M16 6h3v3"/></svg>',
   coach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.9 8.9 0 01-3.2-.6L3 21l1.7-5.1a8.3 8.3 0 01-1.2-4.4 8.4 8.4 0 018.5-8.4 8.4 8.4 0 019 8.4z"/></svg>',
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.6-3.4 4.5-5 8-5s6.4 1.6 8 5"/></svg>',
@@ -592,9 +1183,95 @@ function applyTheme() {
   const resolved = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   document.documentElement.dataset.theme = resolved;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = resolved === 'light' ? '#f6f4ef' : '#07080c';
+  if (meta) meta.content = resolved === 'light' ? '#e4e4df' : '#000000';
 }
 mqLight.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });
+
+function watchBridgeAvailable() {
+  return !!(window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc90Watch);
+}
+
+function watchSummaryPayload() {
+  const k = todayKey();
+  const stats = dayStats(k);
+  const health = healthDay(k);
+  const sleep = sleepDay(k);
+  return {
+    day: dayNumber(),
+    date: new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }),
+    momentum: momentum(),
+    completed: stats.done,
+    total: stats.total || 0,
+    goal: S.profile.goal || 'Arc90',
+    identity: S.profile.identity || '',
+    habits: actionable(k).map((h) => ({
+      id: String(h.id),
+      emoji: h.emoji,
+      name: h.name,
+      status: statusOf(h.id, k) || 'open',
+      min: h.min || 'minimum version',
+    })),
+    health: {
+      water: Number(health.water) || 0,
+      waterGoal: S.health.settings.waterGoal,
+      steps: Number(health.steps) || 0,
+      stepGoal: S.health.settings.stepGoal,
+      sleepHours: sleep.hours === '' ? null : Number(sleep.hours),
+      sleepQuality: sleep.quality || '',
+    },
+    protocols: {
+      total: S.protocols.length,
+      loggedToday: protocolStats().loggedToday,
+      next: S.protocols.find((p) => !p.logs.some((l) => l.date === k))?.name || S.protocols[0]?.name || '',
+    },
+  };
+}
+
+function sendWatchSnapshot(reason = 'update') {
+  if (!watchBridgeAvailable()) return false;
+  try {
+    window.webkit.messageHandlers.arc90Watch.postMessage({
+      action: 'snapshot',
+      reason,
+      summary: watchSummaryPayload(),
+    });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
+function requestWatchSync() {
+  const sent = sendWatchSnapshot('manual-sync');
+  showNudge(sent ? 'Apple Watch snapshot sent.' : 'Apple Watch bridge is waiting for the native watchOS target.');
+}
+
+window.__arc90WatchMessage = function arc90WatchMessage(message) {
+  const msg = message || {};
+  const action = msg.action || msg.type;
+  if (action === 'requestSnapshot') {
+    sendWatchSnapshot('watch-request');
+    return;
+  }
+  if (action === 'toggleHabit') {
+    const id = isNaN(+msg.id) ? msg.id : +msg.id;
+    const status = msg.status === 'min' ? 'min' : 'done';
+    setStatus(id, todayKey(), status);
+    save();
+    render();
+    sendWatchSnapshot('watch-toggle');
+  }
+  if (action === 'water') {
+    const h = healthDay();
+    setHealthDay(todayKey(), { water: h.water + (Number(msg.delta) || 1) });
+    render();
+    sendWatchSnapshot('watch-water');
+  }
+};
+
+window.__arc90WatchStatus = function arc90WatchStatus(status) {
+  window.__arc90WatchLastStatus = status;
+};
 
 /* ---------------- premium gate ---------------- */
 
@@ -605,35 +1282,135 @@ function gate(context) {
   return false;
 }
 
+function isDevHost() {
+  return ['localhost', '127.0.0.1', '0.0.0.0', ''].includes(window.location.hostname);
+}
+
+function paywallCopy(context = '') {
+  const copy = {
+    'habit-limit': {
+      eyebrow: 'Habit cap reached',
+      title: 'Your arc is ready for more reps.',
+      sub: `Arc90 Free keeps you focused at ${FREE_HABITS} active habits. Premium unlocks unlimited habits, recovery plans, and deeper progress insight when you want the full system.`,
+    },
+    'custom-limit': {
+      eyebrow: 'Custom habit cap reached',
+      title: 'Make Arc90 fit your real routine.',
+      sub: `Free includes ${FREE_CUSTOM} custom habits. Premium unlocks unlimited custom routines, weekly reviews, and advanced exports.`,
+    },
+    protocol: {
+      eyebrow: 'Protocol is Premium',
+      title: 'Track wellness routines with more signal.',
+      sub: 'Premium unlocks protocol tracking for supplements, medication notes, training routines, symptoms, and exports. Arc90 tracks only; it never gives dosing or medical advice.',
+    },
+  };
+  return copy[context] || {
+    eyebrow: 'Upgrade your 90-day system',
+    title: 'Turn your habits into a system you can actually read.',
+    sub: 'Premium adds the views, recovery tools, and exports that help you spot what is working before motivation fades.',
+  };
+}
+
+function premiumBenefits() {
+  return [
+    ['Axis Dashboard', 'See where habits, energy, focus, sleep, and recovery are helping or dragging.'],
+    ['Forge Mode', 'A 7-day recovery plan when the arc starts slipping.'],
+    ['Unlimited reps', 'More habits, custom routines, and challenge templates.'],
+    ['Weekly reviews', 'Progress summaries and polished exports for accountability.'],
+  ];
+}
+
 /* ============================================================
    RENDER ROOT
    ============================================================ */
 
 const app = document.getElementById('app');
 
+const TAB_ORDER = ['today', 'progress', 'habits', 'focus', 'protocol', 'coach', 'profile'];
+function mainTabOf(id) {
+  return TAB_ORDER.includes(id) ? id : 'today';
+}
 let lastRenderedTab = null;
+let tabDirection = 'next';
+let navOpen = false;
 function render() {
   applyTheme();
+  syncFocusState();
   if (!S.onboarded) { renderOnboarding(); return; }
   const animate = lastRenderedTab !== tab;
+  const directionClass = animate ? ` enter-${tabDirection === 'prev' ? 'prev' : 'next'}` : '';
   lastRenderedTab = tab;
-  const views = { today: viewToday, habits: viewHabits, progress: viewProgress, coach: viewCoach, profile: viewProfile };
+  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, coach: viewCoach, profile: viewProfile };
   app.innerHTML = `
-    <div class="screen${animate ? ' anim' : ''}">${views[tab]()}</div>
-    <nav class="tabbar">
-      ${tabBtn('today', 'Today', ICONS.today)}
-      ${tabBtn('habits', 'Habits', ICONS.habits)}
-      ${tabBtn('progress', 'Progress', ICONS.progress)}
-      ${tabBtn('coach', 'Coach', ICONS.coach)}
-      ${tabBtn('profile', 'Profile', ICONS.profile)}
-    </nav>
+    <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
+    <button class="side-toggle ${navOpen ? 'open' : ''}" data-act="${navOpen ? 'side-close' : 'side-open'}" aria-label="${navOpen ? 'Close menu' : 'Open menu'}">
+      <span></span><span></span>
+    </button>
+    ${navOpen ? sideDrawer() : ''}
     ${sheet ? viewSheet() : ''}
   `;
   wireAfterRender();
+  sendWatchSnapshot('render');
 }
 
 function tabBtn(id, label, icon) {
-  return `<button class="tab-btn ${tab === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}</span></button>`;
+  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}</span></button>`;
+}
+
+function sideNavBtn(id, label, icon, meta = '') {
+  return `<button class="side-nav-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">
+    ${icon}
+    <span>${label}</span>
+    ${meta ? `<em>${meta}</em>` : ''}
+  </button>`;
+}
+
+function sideDrawer() {
+  return `
+    <div class="side-shell">
+      <button class="side-scrim" data-act="side-close" aria-label="Close menu"></button>
+      <aside class="side-drawer" aria-label="Arc90 menu">
+        <div class="side-drawer-brand">
+          <span class="side-brand-mark"></span>
+          <b>ARC<span>90</span></b>
+        </div>
+        <div class="side-group">
+          <div class="side-label">General</div>
+          ${sideNavBtn('today', 'Dashboard', ICONS.today)}
+          ${sideNavBtn('progress', 'Monitoring', ICONS.progress)}
+          ${sideNavBtn('habits', 'Habits', ICONS.habits, `${S.habits.length}`)}
+        </div>
+        <div class="side-group">
+          <div class="side-label">More</div>
+          ${sideNavBtn('focus', 'Focus', ICONS.focus, `${focusStats().blockedCount}`)}
+          ${sideNavBtn('coach', 'AI Guidance', ICONS.coach)}
+          ${sideNavBtn('profile', 'Profile', ICONS.profile)}
+        </div>
+        <div class="side-group">
+          <div class="side-label">Operations</div>
+          ${sideNavBtn('protocol', 'Protocol', ICONS.protocol, `${S.protocols.length}`)}
+        </div>
+        <button class="side-upgrade" data-act="paywall">${S.premium ? 'Premium Active' : 'Upgrade to Pro'}</button>
+      </aside>
+    </div>`;
+}
+
+function switchTab(next) {
+  if (!next || next === tab) return;
+  const from = TAB_ORDER.indexOf(mainTabOf(tab));
+  const to = TAB_ORDER.indexOf(mainTabOf(next));
+  tabDirection = to >= from ? 'next' : 'prev';
+  document.documentElement.dataset.tabDirection = tabDirection;
+  const update = () => {
+    tab = next;
+    navOpen = false;
+    openQA = null;
+    window.scrollTo(0, 0);
+    render();
+  };
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (!reduced && document.startViewTransition) document.startViewTransition(update);
+  else update();
 }
 
 /* global header: centered wordmark with the live 90-day arc */
@@ -658,13 +1435,15 @@ function viewToday() {
   const total = act.length;
   const done = act.filter((h) => isCompleted(h.id, todayKey())).length;
   const frac = total ? done / total : 0;
-  const C = 339.292;
+  const C = 364.425;
   const mom = momentum();
   const pill = mom >= 75 ? ['good', 'On track'] : mom >= 50 ? ['mid', 'Building'] : ['low', 'Needs attention'];
   const day = dayNumber();
-  const weak = weakestHabit();
-  const tip = currentTip();
-  const target = tipTarget();
+  const todayPct = Math.round(frac * 100);
+  const challengePct = Math.round((day / 90) * 100);
+  const reps = totalReps();
+  const dayLeftCount = daysLeft();
+  const weekTone = mom >= 75 ? 'Strong week' : mom >= 50 ? 'Gaining traction' : 'Needs a reset';
 
   const milestone = day === 30 ? ['Checkpoint · Day 30', 'One third of the arc. The routine is becoming who you are.']
     : day === 60 ? ['Checkpoint · Day 60', 'Two thirds in. This is where most people quit — you didn’t.']
@@ -684,85 +1463,187 @@ function viewToday() {
     ${forgeActive() ? `<div class="forge-banner">🔥 <div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
     <section class="card hero-card">
+      <div class="hero-topline">
+        <div>
+          <span class="eyebrow">Today’s arc</span>
+          <strong>${total ? `${done} of ${total} complete` : 'No habits due'}</strong>
+        </div>
+        <span class="status-pill ${pill[0]}">${pill[1]}</span>
+      </div>
+
       <div class="hero">
-        <div class="ring-wrap">
-          <svg viewBox="0 0 124 124" width="124" height="124">
-            <circle class="ring-track" cx="62" cy="62" r="54" fill="none" stroke-width="11"/>
-            <circle class="ring-fill" cx="62" cy="62" r="54" fill="none" stroke-width="11"
+        <div class="ring-wrap hero-ring">
+          <svg viewBox="0 0 132 132" width="132" height="132">
+            <circle class="ring-track" cx="66" cy="66" r="58" fill="none" stroke-width="12"/>
+            <circle class="ring-fill" cx="66" cy="66" r="58" fill="none" stroke-width="12"
               stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/>
           </svg>
           <div class="ring-center">
-            <div class="big-num">${done}<span style="color:var(--tx-3);font-size:18px">/${total}</span></div>
-            <div class="of">today</div>
+            <div class="big-num"><span data-countup="${todayPct}" data-suffix="%">0</span></div>
+            <div class="of">${done}/${total || 0} today</div>
           </div>
         </div>
         <div class="hero-stats">
           <div class="hstat">
-            <div class="eyebrow">Momentum Score</div>
+            <div class="eyebrow">Momentum score</div>
             <div class="hstat-val grad"><span data-countup="${mom}">0</span><span class="unit">%</span></div>
-            <span class="status-pill ${pill[0]}">${pill[1]}</span>
+            <div class="hstat-note">${weekTone}</div>
           </div>
           <div class="hstat">
-            <div class="eyebrow">Goal</div>
-            <div style="font-size:13.5px;font-weight:650;color:var(--tx-2);line-height:1.4">${esc(S.profile.goal || '—')}</div>
+            <div class="eyebrow">90-day goal</div>
+            <div class="goal-copy">${esc(S.profile.goal || 'Set a target in Profile')}</div>
+            <div class="goal-meter" aria-hidden="true"><i style="width:${challengePct}%"></i></div>
           </div>
         </div>
       </div>
 
-      ${S.habits.length ? `<div class="quick-pills in-hero">${S.habits.map(quickPill).join('')}</div>` : ''}
-
-      <div class="hero-week">
-        <span class="eyebrow">This week</span>
-        <span class="eyebrow" style="color:var(--tx-2)">Momentum ${mom}%</span>
+      <div class="hero-metrics">
+        <div><span>Day</span><b>${day}<em>/90</em></b></div>
+        <div><span>Left</span><b>${dayLeftCount}</b></div>
+        <div><span>Votes</span><b data-countup="${reps}">0</b></div>
       </div>
-      <div class="hero-chart">${chart(7)}</div>
 
-      <div class="votes">🗳️ <b data-countup="${totalReps()}">0</b>&nbsp;votes cast for becoming ${esc(S.profile.identity || 'a better you')}</div>
-    </section>
-
-    ${dailyPlanCard(done, total)}
-
-    ${allDoneToday() ? `
-    <div class="daydone">
-      <div class="t">Day ${day} complete ✓</div>
-      <div class="s">Every rep is a vote for ${esc(S.profile.identity || 'the person you’re becoming')}.</div>
-    </div>` : ''}
-
-    <div class="tile-row">
-      <div class="tile lead"><div class="te">🔥</div><div class="tv"><span data-countup="${bestStreak()}">0</span></div><div class="tl">Best streak</div></div>
-      <div class="tile"><div class="te">✅</div><div class="tv"><span data-countup="${perfectDays()}">0</span></div><div class="tl">Perfect days</div></div>
-      <div class="tile"><div class="te">⚡</div><div class="tv"><span data-countup="${totalReps()}">0</span></div><div class="tl">Total reps</div></div>
-    </div>
-
-    ${journeyCard()}
-
-    ${weak ? `
-    <section class="card weak-card">
-      <div class="card-head" style="margin-bottom:10px"><span class="eyebrow" style="color:var(--red)">Needs attention</span></div>
-      <div class="weak-row">
-        <span class="weak-emoji">${weak.habit.emoji}</span>
-        <div style="flex:1;min-width:0">
-          <div class="weak-name">${esc(weak.habit.name)}</div>
-          <div class="weak-rate">${Math.round(weak.rate * 100)}% over the last 7 days — make it smaller, not later ↓</div>
+      <div class="arc-grid-panel">
+        <div class="arc-grid-head">
+          <div>
+            <span class="eyebrow">90-day field</span>
+            <b>${challengePct}% of the arc</b>
+          </div>
+          <span>${weekTone}</span>
+        </div>
+        ${grid90()}
+        <div class="arc-grid-legend">
+          <span><i class="l1"></i>started</span>
+          <span><i class="l2"></i>partial</span>
+          <span><i class="l3"></i>fulfilled</span>
         </div>
       </div>
-    </section>` : ''}
 
-    ${target ? `
-    <section class="card tip-card">
-      <div class="tip-tag">◎ Coach · easier to repeat</div>
-      <div class="tip-title">${tip.icon} ${esc(tip.title)}</div>
-      <div class="tip-body">${renderTipBody(tip, target)}</div>
-      <button class="tip-shuffle" data-act="shuffle-tip">↻ Another technique</button>
-    </section>` : ''}
+    </section>
 
-    <div class="card-head" style="margin:20px 0 11px">
+    ${premiumLaunchCard()}
+
+    <div class="card-head today-reps-head">
       <span class="section-title" style="margin:0">Today</span>
-      <span class="eyebrow">${done}/${total}</span>
+      <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
     </div>
-    ${S.habits.length ? `<div class="tasks">${S.habits.map(taskRow).join('')}</div>`
-      : `<div class="card empty-note">No habits yet — head to the <b>Habits</b> tab and pick the reps that carry you to your goal.</div>`}
+    ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
+      : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
+
+    ${todayStopCard()}
+    ${todayFocusStrip()}
   `;
+}
+
+function premiumLaunchCard() {
+  if (S.premium) return '';
+  const next = nextBestRep();
+  const hook = next
+    ? `Premium helps you rescue slips like ${next.emoji} ${next.name} before they become a lost week.`
+    : 'Premium gives you the deeper dashboard, recovery mode, and exports once your daily rhythm is running.';
+  return `
+    <section class="premium-card premium-launch-card">
+      <div class="launch-offer-copy">
+        <div class="plan-kicker">Launch offer</div>
+        <div class="pt">${PREMIUM_OFFER.name}</div>
+        <div class="ps">${esc(hook)}</div>
+      </div>
+      <div class="launch-offer-action">
+        <div class="launch-price"><b>${PREMIUM_OFFER.price}</b><span>${PREMIUM_OFFER.interval}</span></div>
+        <button class="btn" data-act="paywall">${PREMIUM_OFFER.cta}</button>
+      </div>
+    </section>`;
+}
+
+function habitCheckTile(h) {
+  const st = statusOf(h.id, todayKey());
+  const done = st === 'done' || st === 'min';
+  const off = !scheduledFor(h, todayKey()) && !done;
+  const cls = st === 'done' ? 'done' : st === 'min' ? 'done min' : st === 'skip' ? 'skip' : off ? 'off' : '';
+  return `
+    <button class="habit-check-tile ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}">
+      <span class="habit-check-emoji">${h.emoji}</span>
+      <span class="habit-check-name">${esc(shortHabitName(h.name))}</span>
+      <span class="habit-check-state">${done ? '✓' : st === 'skip' ? '–' : '+'}</span>
+    </button>`;
+}
+
+function shortHabitName(name) {
+  return String(name || '').replace(/\s+—\s+.*/, '').replace(/\s+/g, ' ').trim();
+}
+
+function todayStopCard() {
+  const h = healthDay();
+  const l = dlog(todayKey());
+  const goal = Math.max(1, Number(S.health.settings.waterGoal) || 8);
+  const waterPct = Math.min(100, Math.round((h.water / goal) * 100));
+  const mood = l.mood ? moodLabel(l.mood) : 'Add mood';
+  const energy = l.energy ? `${l.energy}/5 energy` : 'No energy yet';
+  return `
+    <section class="card today-stop-card">
+      <div class="today-stop-head">
+        <div>
+          <span class="tip-tag" style="margin:0">Today’s stop</span>
+          <h3>Water and mood</h3>
+        </div>
+        <button class="mini-act" data-act="review">edit</button>
+      </div>
+      <div class="today-stop-grid">
+        <div class="stop-tile water-count">
+          <span>Glasses count</span>
+          <b>${h.water}<em>/${goal}</em></b>
+          <small>${h.water === 1 ? 'glass today' : 'glasses today'}</small>
+          <div class="mini-progress"><i style="width:${waterPct}%"></i></div>
+          <div class="health-actions compact">
+            <button data-act="water-sub" aria-label="Remove one glass of water">−</button>
+            <button data-act="water-add" aria-label="Add one glass of water">+</button>
+          </div>
+        </div>
+        <div class="stop-tile mood-count">
+          <span>Mood</span>
+          <b>${esc(mood)}</b>
+          <small>${esc(energy)}</small>
+          ${moodOptionChips(l.mood, 'compact')}
+        </div>
+        <div class="water-graph" aria-label="7 day water graph">
+          ${waterGraphRows().map((r) => `<div class="water-day ${r.today ? 'today' : ''}"><i style="height:${Math.max(8, r.pct)}%"></i><span>${esc(r.label)}</span></div>`).join('')}
+        </div>
+      </div>
+    </section>`;
+}
+
+function waterGraphRows(days = 7) {
+  const today = atMidnight(new Date());
+  const goal = Math.max(1, Number(S.health.settings.waterGoal) || 8);
+  return Array.from({ length: days }, (_, i) => {
+    const d = addDays(today, i - (days - 1));
+    const key = dkey(d);
+    const value = Number(S.health.water[key]) || 0;
+    return {
+      key,
+      value,
+      pct: Math.min(100, Math.round((value / goal) * 100)),
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1),
+      today: key === todayKey(),
+    };
+  });
+}
+
+function todayFocusStrip() {
+  const stats = focusStats();
+  const active = S.focus.active;
+  const next = nextBestRep();
+  return `
+    <section class="today-focus-strip">
+      <button class="focus-strip-main" data-act="${active ? 'tab' : 'focus-start'}" data-id="${active ? 'focus' : ''}" data-minutes="30" data-label="${esc(next ? next.name : 'Focus block')}">
+        <span>${active ? 'Focus running' : 'Start focus'}</span>
+        <b>${active ? esc(active.label) : (next ? esc(next.name) : '30-minute block')}</b>
+      </button>
+      <button class="focus-strip-edit" data-act="tab" data-id="focus">
+        <span>${stats.blockedCount}</span>
+        <small>targets</small>
+      </button>
+    </section>`;
 }
 
 function journeyCard() {
@@ -782,18 +1663,198 @@ function journeyCard() {
       ${next ? `
         <div class="next-badge">
           <span class="badge-medal">${esc(next.icon)}</span>
-          <div>
-            <b>${esc(next.title)}</b>
+          <div class="next-copy">
+            <div class="next-meta">
+              <b>${esc(next.title)}</b>
+              <em>${next.pct}%</em>
+            </div>
             <small>${esc(next.desc)}</small>
             <div class="mini-progress"><i style="width:${next.pct}%"></i></div>
           </div>
-          <em>${next.pct}%</em>
         </div>` : `
         <div class="next-badge complete">
           <span class="badge-medal">✓</span>
           <div><b>All badges unlocked</b><small>The arc is yours. Start the next 90 when ready.</small></div>
         </div>`}
     </section>`;
+}
+
+function winMomentCard() {
+  const m = milestoneMoment();
+  if (!m) return '';
+  return `
+    <section class="card moment-card">
+      <div class="moment-orb">${m.day}</div>
+      <div style="flex:1;min-width:0">
+        <div class="moment-kicker">Win card ready</div>
+        <div class="moment-title">${esc(m.title)}</div>
+        <div class="moment-copy">${esc(m.body)}</div>
+      </div>
+      <button class="mini-act" data-act="share-card">export</button>
+    </section>`;
+}
+
+function comebackCard() {
+  const h = comebackSignal();
+  if (!h) return '';
+  return `
+    <section class="card comeback-card">
+      <div class="moment-orb">↗</div>
+      <div>
+        <div class="moment-kicker">Comeback</div>
+        <div class="moment-title">${esc(h.name)} recovered today</div>
+        <div class="moment-copy">This matters as much as a streak. You missed, returned, and kept the identity alive.</div>
+      </div>
+    </section>`;
+}
+
+function interventionCard() {
+  const sig = straightMissHabit(3);
+  if (!sig) return '';
+  return `
+    <section class="card intervention-card">
+      <div class="tip-tag">Intervention · 3 straight misses</div>
+      <div class="tip-title">${sig.habit.emoji} ${esc(sig.habit.name)}</div>
+      <div class="tip-body">The system is asking for a smaller version. Make today a recovery vote: <b>${esc(sig.habit.min || '2-minute version')}</b>.</div>
+      <div class="plan-actions">
+        <button class="btn plan-btn" data-act="quick-min" data-id="${sig.habit.id}">Count minimum today</button>
+        <button class="btn btn-ghost plan-btn" data-act="forge-start">Build reset</button>
+      </div>
+    </section>`;
+}
+
+function dailyPromptsCard() {
+  const l = dlog(todayKey());
+  return `
+    <section class="card prompt-card">
+      <div class="card-head">
+        <span class="eyebrow">Daily prompts</span>
+        <button class="mini-act" data-act="review">evening</button>
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <label>Morning intention</label>
+        <input id="intentionText" type="text" maxlength="120" placeholder="One sentence for today…" value="${esc(l.intention)}"/>
+      </div>
+      <button class="btn btn-ghost" data-act="intention-save" style="padding:12px">${l.intention ? 'Update intention' : 'Save intention'}</button>
+      <button class="review-strip" data-act="review" style="margin-top:11px">
+        <span>Evening reflection</span>
+        <b>${l.win ? 'Win logged' : 'Log win'}</b>
+        <b>${l.mood ? moodLabel(l.mood) : 'Mood'}</b>
+      </button>
+    </section>`;
+}
+
+function healthTodayCard() {
+  const h = healthDay();
+  const waterPct = Math.min(100, Math.round((h.water / S.health.settings.waterGoal) * 100));
+  const stepPct = Math.min(100, Math.round((h.steps / S.health.settings.stepGoal) * 100));
+  const stats = dayStats(todayKey());
+  const todayPct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
+  const l = dlog(todayKey());
+  const energyPct = l.energy ? l.energy * 20 : 0;
+  const weightMeta = latestWeightMeta();
+  return `
+    <section class="health-stack">
+      <div class="signal-card score-card">
+        <div class="signal-head">
+          <div>
+            <span class="signal-icon">◎</span>
+            <b><span data-countup="${momentum()}">0</span><em>%</em></b>
+            <small>Momentum score</small>
+          </div>
+          <div class="signal-goal">
+            <span>Goal</span>
+            <b>${stats.done}/${stats.total || 0}</b>
+          </div>
+        </div>
+        <div class="mini-ring-row">
+          ${miniMetricRing('Today', todayPct, `${stats.done}/${stats.total || 0}`)}
+          ${miniMetricRing('Glasses', waterPct, `${h.water}/${S.health.settings.waterGoal}`)}
+          ${miniMetricRing('Steps', stepPct, h.steps ? compactNumber(h.steps) : '--')}
+          ${miniMetricRing('Energy', energyPct, l.energy ? `${l.energy}/5` : '--')}
+        </div>
+      </div>
+
+      <div class="signal-card flow-card">
+        <div class="flow-head">
+          <div><span class="signal-icon">↟</span><b>${stats.done}/${stats.total || 0}</b><small>habit flow today</small></div>
+          <span>${stats.rate === null ? 'Rest day' : `${todayPct}% kept`}</span>
+        </div>
+        <div class="flow-bars">${dayFlowBars()}</div>
+        <div class="flow-times"><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
+      </div>
+
+      <div class="signal-grid">
+        <div class="signal-card compact-signal">
+          <div class="compact-top"><span class="signal-icon">💧</span><small>Glasses</small></div>
+          <b>${h.water}<em>/${S.health.settings.waterGoal}</em></b>
+          <div class="mini-progress"><i style="width:${waterPct}%"></i></div>
+          <div class="health-actions">
+            <button data-act="water-sub" aria-label="Remove one glass of water">−</button>
+            <button data-act="water-add" aria-label="Add one glass of water">+</button>
+          </div>
+        </div>
+        <div class="signal-card compact-signal">
+          <div class="compact-top"><span class="signal-icon">⌁</span><small>Steps</small></div>
+          <b>${h.steps ? h.steps.toLocaleString() : '--'}<em>/${compactNumber(S.health.settings.stepGoal)}</em></b>
+          <div class="mini-progress"><i style="width:${stepPct}%"></i></div>
+          <small>${h.steps >= S.health.settings.stepGoal ? 'Auto-complete ready' : 'Native Health sync ready'}</small>
+        </div>
+      </div>
+
+      <div class="signal-card weight-signal">
+        <div>
+          <div class="compact-top"><span class="signal-icon">⚖️</span><small>Weight signal</small></div>
+          <b>${weightMeta.value ? `${esc(weightMeta.value)}<em>${weightMeta.unit}</em>` : '--'}</b>
+          <small>${esc(weightMeta.copy)}</small>
+        </div>
+        <div class="weight-row">
+          <input id="weightInput" type="number" inputmode="decimal" placeholder="Weight" value="${esc(h.weight)}"/>
+          <button class="btn" data-act="weight-save">Save</button>
+        </div>
+      </div>
+
+      <button class="signal-sync" data-act="health-sync">Sync Health signals</button>
+      <div class="seg-hint">Designed for HealthKit steps and weight sync. Until the native bridge is attached, manual entries stay private on this device.</div>
+    </section>`;
+}
+
+function miniMetricRing(label, pct, value) {
+  const p = Math.max(0, Math.min(100, Number(pct) || 0));
+  return `
+    <div class="mini-ring" style="--p:${p}">
+      <span>${esc(value)}</span>
+      <small>${esc(label)}</small>
+    </div>`;
+}
+
+function compactNumber(n) {
+  const x = Number(n) || 0;
+  return x >= 1000 ? `${Math.round(x / 100) / 10}k` : String(x);
+}
+
+function dayFlowBars() {
+  const slots = Array.from({ length: 24 }, (_, i) => ({ h: i, cls: '' }));
+  const habits = actionable(todayKey());
+  habits.forEach((h, i) => {
+    const slot = Math.min(23, 6 + (i * 3));
+    const st = statusOf(h.id, todayKey());
+    slots[slot].cls = st === 'done' ? 'done' : st === 'min' ? 'min' : 'miss';
+  });
+  return slots.map((s) => `<i class="${s.cls}" style="--h:${22 + ((s.h * 7) % 34)}px"></i>`).join('');
+}
+
+function latestWeightMeta() {
+  const entries = Object.entries(S.health.weight || {}).sort((a, b) => a[0].localeCompare(b[0]));
+  if (!entries.length) return { value: '', unit: '', copy: 'Log manually or sync from HealthKit.' };
+  const [k, value] = entries[entries.length - 1];
+  const prev = entries[entries.length - 2];
+  let copy = `Last logged ${niceDate(k)}.`;
+  if (prev) {
+    const delta = Number(value) - Number(prev[1]);
+    if (Number.isFinite(delta) && delta !== 0) copy = `${delta > 0 ? '+' : ''}${delta.toFixed(1)} since previous log.`;
+  }
+  return { value, unit: 'kg', copy };
 }
 
 function dailyPlanCard(done, total) {
@@ -807,7 +1868,7 @@ function dailyPlanCard(done, total) {
       <section class="card plan-card">
         <div class="plan-kicker">Daily plan</div>
         <div class="plan-title">Build the system first</div>
-        <div class="plan-copy">Pick 3 to 5 habits so Arc90 can start tracking your daily signal.</div>
+        <div class="plan-copy">Pick up to 8 habits so Arc90 can start tracking your daily signal.</div>
         <button class="btn plan-btn" data-act="tab" data-id="habits">Choose habits</button>
       </section>`;
   }
@@ -852,8 +1913,7 @@ function quickPill(h) {
   const on = st === 'done' || st === 'min';
   const off = !scheduledFor(h, todayKey()) && !on;
   const cls = st === 'done' ? 'done' : st === 'min' ? 'done min' : st === 'skip' ? 'skip' : off ? 'off' : '';
-  const short = h.name.length > 16 ? h.name.replace(/\s+\d.*$/, '').slice(0, 16) : h.name;
-  return `<button class="qpill ${cls}" data-act="toggle" data-id="${h.id}"><span class="qe">${h.emoji}</span><span class="qn">${esc(short)}</span><span class="qc">${on ? ICONS.check : ''}</span></button>`;
+  return `<button class="qpill ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}"><span class="qe">${h.emoji}</span><span class="qn">${esc(h.name)}</span><span class="qc">${on ? ICONS.check : ''}</span></button>`;
 }
 
 function taskRow(h) {
@@ -929,11 +1989,14 @@ function viewHabits() {
         <h1>Habits</h1>
         <div class="sub">The reps that build ${esc(S.profile.identity || 'the new you')}</div>
       </div>
+      <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
     </header>
 
     <div class="section-title">Your habits <span class="count-bub">${S.habits.length}${S.premium ? '' : ` / ${FREE_HABITS}`}</span></div>
-    ${S.premium ? '' : `<div class="limit-note">Free plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited →</b></div>`}
-    ${S.habits.length ? S.habits.map(mineRow).join('') : '<div class="card empty-note">Nothing here yet — add from the library below.</div>'}
+    ${S.premium ? '' : `<div class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></div>`}
+    ${S.habits.length ? `<div class="mine-grid">${S.habits.map(mineRow).join('')}</div>` : '<div class="card empty-note">Nothing here yet — add from the library below.</div>'}
+
+    ${libraryPanel()}
 
     <div class="section-gap section-title">Create your own</div>
     <div class="custom-form">
@@ -941,14 +2004,50 @@ function viewHabits() {
       <button class="btn" data-act="add-custom" style="padding:0 20px">Add</button>
     </div>
 
-    <div class="section-title">Library <span class="count-bub">${HABIT_LIBRARY.length} habits</span></div>
-    <div class="search-bar">${ICONS.search}<input id="libSearch" type="search" placeholder="Search 100 habits…" value="${esc(libQuery)}"/></div>
-    <div class="cat-chips">
-      <button class="chip ${libCat === 'all' ? 'on' : ''}" data-act="cat" data-id="all">✨ All</button>
-      ${CATEGORIES.filter((c) => c.id !== 'custom').map((c) => `<button class="chip ${libCat === c.id ? 'on' : ''}" data-act="cat" data-id="${c.id}">${c.emoji} ${c.name}</button>`).join('')}
-    </div>
-    <div id="libList">${libList()}</div>
+    <div class="section-gap">${challengeTemplatesPanel()}</div>
   `;
+}
+
+function libraryPanel() {
+  const cat = libCat === 'all' ? 'All missions' : (CATEGORIES.find((c) => c.id === libCat)?.name || 'Filtered');
+  const query = libQuery.trim() ? ` · “${libQuery.trim()}”` : '';
+  return `
+    <section class="card library-card ${libraryOpen ? 'open' : ''}">
+      <button class="library-toggle" data-act="library-toggle" aria-expanded="${libraryOpen ? 'true' : 'false'}">
+        <span>
+          <b>Library</b>
+          <small>${HABIT_LIBRARY.length} habits · ${esc(cat)}${esc(query)}</small>
+        </span>
+        <i>${libraryOpen ? '−' : '+'}</i>
+      </button>
+      ${libraryOpen ? `
+        <div class="library-body">
+          <div class="search-bar">${ICONS.search}<input id="libSearch" type="search" placeholder="Search 100 habits..." value="${esc(libQuery)}"/></div>
+          <div class="cat-chips">
+            <button class="chip ${libCat === 'all' ? 'on' : ''}" data-act="cat" data-id="all">All</button>
+            ${CATEGORIES.filter((c) => c.id !== 'custom').map((c) => `<button class="chip ${libCat === c.id ? 'on' : ''}" data-act="cat" data-id="${c.id}">${c.emoji} ${c.name}</button>`).join('')}
+          </div>
+          <div id="libList">${libList()}</div>
+        </div>` : ''}
+    </section>`;
+}
+
+function challengeTemplatesPanel() {
+  return `
+    <section class="card templates-card">
+      <div class="card-head">
+        <span class="eyebrow">Challenge templates</span>
+        <span class="pro-badge">GROWTH</span>
+      </div>
+      <div class="template-grid">
+        ${CHALLENGE_TEMPLATES.map((t) => `
+          <button class="template-tile" data-act="template-apply" data-id="${t.id}">
+            <span>${t.emoji}</span>
+            <b>${esc(t.name)}</b>
+            <small>${esc(t.desc)}</small>
+          </button>`).join('')}
+      </div>
+    </section>`;
 }
 
 function mineRow(h) {
@@ -961,13 +2060,15 @@ function mineRow(h) {
   return `
     <div class="mine-row">
       <span class="lib-emoji">${h.emoji}</span>
-      <div style="flex:1;min-width:0">
+      <div class="mine-copy">
         <div class="lib-name">${esc(h.name)}</div>
         <div class="lib-cat">${rhythmLabel(h)} · min: ${esc(h.min || '2-minute version')}</div>
         <div class="dot7" style="margin-top:6px">${dots}</div>
       </div>
-      <button class="remove-btn rhythm-btn" data-act="rhythm-sheet" data-id="${h.id}">${rhythmLabel(h, true)}</button>
-      <button class="remove-btn" data-act="remove" data-id="${h.id}">Remove</button>
+      <div class="mine-actions">
+        <button class="remove-btn rhythm-btn" data-act="rhythm-sheet" data-id="${h.id}">${rhythmLabel(h, true)}</button>
+        <button class="remove-btn" data-act="remove" data-id="${h.id}">Remove</button>
+      </div>
     </div>`;
 }
 
@@ -977,7 +2078,7 @@ function libList() {
     (libCat === 'all' || h.cat === libCat) &&
     (!q || h.name.toLowerCase().includes(q) || catOf(h.cat).name.toLowerCase().includes(q))
   );
-  if (!items.length) return '<div class="empty-note">No matches — create it yourself above. ✨</div>';
+  if (!items.length) return '<div class="empty-note">No matches — create it yourself below.</div>';
   return `<div class="lib-grid">${items.map((h) => {
     const added = S.habits.some((x) => x.id === h.id);
     return `
@@ -1012,13 +2113,222 @@ function addCustom(name) {
   return true;
 }
 
+function applyTemplate(id) {
+  const tpl = CHALLENGE_TEMPLATES.find((t) => t.id === id);
+  if (!tpl) return;
+  let added = 0;
+  for (const habitId of tpl.habits) {
+    if (S.habits.some((h) => h.id === habitId)) continue;
+    if (!S.premium && S.habits.length >= FREE_HABITS) break;
+    if (addHabit(habitId)) added++;
+  }
+  if (!S.profile.goal) S.profile.goal = tpl.goal;
+  save();
+  showNudge(added ? `${tpl.name} added ${added} habit${added === 1 ? '' : 's'}.` : `${tpl.name} is already covered, or you hit the free habit limit.`);
+}
+
+function requestHealthSync() {
+  S.product.nativeBridge = true;
+  save();
+  const message = { type: 'health-sync-request', date: todayKey(), stepGoal: S.health.settings.stepGoal };
+  try {
+    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc90Health) {
+      window.webkit.messageHandlers.arc90Health.postMessage(message);
+      showNudge('Asked the native Health bridge for steps and weight.');
+      return;
+    }
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Arc90Health) {
+      window.Capacitor.Plugins.Arc90Health.sync(message).then(applyNativeHealthSync).catch(() => showNudge('Health sync bridge is not available yet.'));
+      return;
+    }
+  } catch (e) { /* native bridge unavailable */ }
+  showNudge('HealthKit sync needs the SwiftUI or Capacitor wrapper. This web layer is ready.');
+}
+
+function safeStripeCheckout() {
+  showNudge('Opening secure Stripe Checkout...');
+  fetch('/api/create-checkout-session', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ source: 'arc90-pwa' })
+  })
+    .then(async (res) => {
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Checkout is not ready yet.');
+      if (!data.url) throw new Error('Stripe did not return a Checkout URL.');
+      window.location.href = data.url;
+    })
+    .catch((err) => {
+      showNudge(err.message || 'Checkout backend is ready, but Stripe is not configured yet.');
+    });
+}
+
+function consumeCheckoutReturn() {
+  const params = new URLSearchParams(window.location.search);
+  const status = params.get('checkout');
+  if (!status) return '';
+
+  params.delete('checkout');
+  const nextSearch = params.toString();
+  const cleanUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
+  window.history.replaceState({}, '', cleanUrl);
+
+  if (status === 'success') {
+    S.premium = true;
+    save();
+    return 'Premium is active on this device. Welcome to the full Arc90.';
+  }
+  if (status === 'canceled') return 'Checkout canceled. You can keep using Arc90 Free.';
+  return '';
+}
+
+/* ============================================================
+   FOCUS
+   ============================================================ */
+
+function focusPreset(minutes, label, copy, strict = true) {
+  return `
+    <button class="focus-preset" data-act="focus-start" data-minutes="${minutes}" data-label="${esc(label)}" data-strict="${strict ? '1' : '0'}">
+      <span>${minutes}m</span>
+      <b>${esc(label)}</b>
+      <small>${esc(copy)}</small>
+    </button>`;
+}
+
+function focusPlanRow(plan) {
+  return `
+    <div class="focus-plan-row">
+      <div>
+        <b>${esc(plan.name)}</b>
+        <small>${focusDaysLabel(plan.days)} · ${formatClockTime(plan.start)}-${formatClockTime(plan.end)} · ${plan.strict ? 'hard shield' : 'soft shield'}</small>
+      </div>
+      <button class="mini-act" data-act="focus-plan-del" data-id="${plan.id}">remove</button>
+    </div>`;
+}
+
+function focusRecentRow(session) {
+  return `
+    <div class="focus-recent-row">
+      <div>
+        <b>${esc(session.label)}</b>
+        <small>${niceDate(session.date)} · ${formatFocusMinutes(session.actualMinutes)} kept${session.unlocks ? ` · ${session.unlocks} unlock${session.unlocks === 1 ? '' : 's'}` : ''}</small>
+      </div>
+      <span>${session.status === 'completed' ? 'kept' : 'ended'}</span>
+    </div>`;
+}
+
+function viewFocus() {
+  const stats = focusStats();
+  const active = S.focus.active;
+  const next = nextBestRep();
+  const nativeReady = focusNativeBridgeAvailable();
+  const modeLabel = nativeReady ? 'Native blocker' : 'Timer only';
+  return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Focus</h1>
+        <div class="sub">One clean block. Fewer exits. More attention for the rep that matters.</div>
+      </div>
+      <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
+    </header>
+
+    <section class="card focus-control-card">
+      <div class="focus-control-top">
+        <div>
+          <span class="tip-tag" style="margin:0">${nativeReady ? 'Native focus' : 'Focus timer'}</span>
+          <div class="focus-hero-title">${active ? 'Block running' : 'Start focused time'}</div>
+        </div>
+        <span class="focus-mode-pill ${nativeReady ? 'ready' : ''}">${modeLabel}</span>
+      </div>
+
+      ${active ? `
+        <div class="focus-live-inline">
+          <div>
+            <div class="focus-live-time">${formatClockMinutes(focusRemainingMs(active))}</div>
+            <div class="focus-live-label">${esc(active.label)}</div>
+          </div>
+          <div class="focus-live-copy">${nativeReady ? 'Native shielding was requested for this block.' : 'Tracking is live. App blocking is waiting on the native Screen Time bridge.'}</div>
+        </div>
+        <div class="focus-actions">
+          <button class="btn" data-act="focus-end">Finish</button>
+          <button class="btn btn-ghost" data-act="focus-unlock">${nativeReady ? 'Emergency unlock' : 'Log break'}</button>
+        </div>
+      ` : `
+        <div class="focus-preset-grid compact">
+          ${focusPreset(30, 'Deep work', 'One rep, protected.')}
+          ${focusPreset(60, 'Build', 'For real work.')}
+          ${focusPreset(90, 'Lock in', 'Long block.')}
+        </div>
+      `}
+
+      <div class="focus-mini-stats">
+        <div><b>${formatFocusMinutes(stats.todayMinutes)}</b><span>today</span></div>
+        <div><b>${stats.blockedCount}</b><span>targets</span></div>
+        <div><b>${stats.consistency}/7</b><span>active</span></div>
+      </div>
+      <div class="focus-next-line"><b>Protect next:</b> ${esc(next ? next.name : (S.profile.goal || 'your next important block'))}</div>
+    </section>
+
+    <section class="card focus-shield-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Focus targets</span>
+        <span class="mini-act">${stats.blockedCount} saved</span>
+      </div>
+      ${focusTargetSummary()}
+
+      ${stats.blockedCount < 3 ? `
+        <div class="section-mini-title">Quick add</div>
+        <div class="focus-chip-row">
+          ${FOCUS_APP_SUGGESTIONS.slice(0, 4).map((name) => `<button class="chip ${S.focus.apps.some((a) => focusEntryKey('apps', a) === focusEntryKey('apps', name)) ? 'on' : ''}" data-act="focus-app-toggle" data-id="${esc(name)}">${esc(name)}</button>`).join('')}
+        </div>` : ''}
+
+      <div class="focus-add-compact">
+        <input id="focusAppInput" type="text" maxlength="28" placeholder="Add app"/>
+        <button class="btn btn-ghost" data-act="focus-app-add">Add</button>
+        <input id="focusSiteInput" type="text" maxlength="48" placeholder="Add website"/>
+        <button class="btn btn-ghost" data-act="focus-site-add">Add</button>
+      </div>
+    </section>
+
+    <section class="card focus-native-note">
+      <div>
+        <span class="tip-tag" style="margin:0">Blocking status</span>
+        <div class="focus-note-title">${nativeReady ? 'Native blocker connected' : 'Soft mode only right now'}</div>
+        <p>${nativeReady
+          ? 'Arc90 can ask iOS to shield selected apps during a focus block.'
+          : 'This build can track focus blocks. True Opal-style app blocking needs Apple Screen Time APIs in native Swift, plus Apple’s Family Controls entitlement.'}</p>
+      </div>
+    </section>
+  `;
+}
+
+function focusTargetSummary() {
+  const targets = [
+    ...S.focus.apps.map((value) => ({ kind: 'app', value })),
+    ...S.focus.sites.map((value) => ({ kind: 'site', value })),
+  ];
+  if (!targets.length) {
+    return '<div class="empty-note focus-empty">Choose the apps or sites that steal the first 20 minutes. Start with 2 or 3.</div>';
+  }
+  const hidden = Math.max(0, targets.length - 8);
+  return `
+    <div class="focus-target-grid">
+      ${targets.slice(0, 8).map((t) => `
+        <button class="focus-target-chip" data-act="focus-${t.kind === 'app' ? 'app' : 'site'}-toggle" data-id="${esc(t.value)}">
+          <span>${t.kind === 'app' ? 'app' : 'web'}</span>
+          <b>${esc(t.value)}</b>
+        </button>`).join('')}
+      ${hidden ? `<div class="focus-target-chip more"><span>more</span><b>+${hidden}</b></div>` : ''}
+    </div>`;
+}
+
 /* ============================================================
    PROGRESS
    ============================================================ */
 
 function viewProgress() {
   const end = addDays(startDate(), 89);
-  const rec = recoveryRate();
   return `
     ${brandbar()}
     <header class="topbar">
@@ -1028,35 +2338,196 @@ function viewProgress() {
       </div>
     </header>
 
-    <div class="stat-duo">
-      <div class="stat-card"><span class="eyebrow">Momentum</span><div class="big-num"><span data-countup="${momentum()}" data-suffix="%">0</span></div><div class="cap">60% this week · 40% overall</div></div>
-      <div class="stat-card"><span class="eyebrow">Perfect days</span><div class="big-num"><span data-countup="${perfectDays()}">0</span></div><div class="cap">everything completed</div></div>
-    </div>
-    <div class="stat-duo">
-      <div class="stat-card"><span class="eyebrow">Best streak</span><div class="big-num"><span data-countup="${bestStreak()}">0</span></div><div class="cap">days in a row</div></div>
-      <div class="stat-card"><span class="eyebrow">Total reps</span><div class="big-num"><span data-countup="${totalReps()}">0</span></div><div class="cap">habits completed</div></div>
-    </div>
-
-    ${progressBriefing(rec)}
-    ${weeklyReviewCard()}
-    ${shareSnapshotCard()}
-    ${historyReview()}
-    ${achievementsPanel()}
-
+    ${progressArcMapCard()}
+    ${progressAnalyticsCard()}
+    ${moodGraphPanel()}
     <section class="card">
       <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
       ${chart(7)}
     </section>
-
-    ${premiumCard('axis', 'Axis Dashboard', 'See exactly which area of your routine is strong and where you’re falling behind.', axisInner())}
-    ${premiumCard('grid', 'Your 90 days', 'The full challenge heatmap — every day, every level of effort.', `${grid90()}<div class="grid-legend">less <i style="background:var(--line-2)"></i><i style="background:color-mix(in srgb,var(--accent) 32%,transparent)"></i><i style="background:color-mix(in srgb,var(--accent) 62%,transparent)"></i><i style="background:var(--accent)"></i> more</div>`)}
-    ${premiumCard('habits', 'Per-habit breakdown', 'Consistency for each habit across the whole challenge, plus your recovery rate.', habitBreakdownInner(rec))}
-
-    <div class="contract">
-      <div class="q">“I, <b>${esc(S.profile.name || 'me')}</b> — ${esc(S.profile.occupation || 'human')} by day, <b>${esc(S.profile.identity || 'a better me')}</b> by choice.<br/>90 days. One goal: <b>${esc(S.profile.goal || 'level up')}</b>.”</div>
-      <div class="sig">— signed ${startDate().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</div>
-    </div>
+    ${progressPulseCard()}
+    ${progressMantraCard()}
   `;
+}
+
+function progressAnalyticsCard() {
+  const w = weeklyReviewData();
+  const f = focusStats();
+  const rows = progressHeatRows(35);
+  const heat = rows.map((r) => `<i class="${r.cls}" title="${niceDate(r.key)} · ${r.pct}%"></i>`).join('');
+  const best = w.best ? `${w.best.h.emoji} ${w.best.h.name}` : 'Anchor forming';
+  const focus = w.focus ? `${w.focus.h.emoji} ${w.focus.h.name}` : 'Keep logging';
+  return `
+    <section class="card analytics-board">
+      <div class="card-head">
+        <span class="eyebrow">Analytics dashboard</span>
+        <span class="pro-badge">VIOLET</span>
+      </div>
+      <div class="analytics-grid">
+        <div class="analytics-heat">
+          <div class="analytics-label-row">
+            <b>Weekly engagement</b>
+            <span>${w.pct}% kept</span>
+          </div>
+          <div class="heatmap35">${heat}</div>
+        </div>
+        <div class="analytics-stat">
+          <span>Lecture</span>
+          <b>${totalReps()}</b>
+          <small>total votes</small>
+        </div>
+        <div class="analytics-stat">
+          <span>GPA</span>
+          <b>${(momentum() / 25).toFixed(2)}</b>
+          <small>momentum index</small>
+        </div>
+        <div class="analytics-stat">
+          <span>Session</span>
+          <b>${formatFocusMinutes(f.weekMinutes)}</b>
+          <small>focus this week</small>
+        </div>
+        <div class="analytics-stat">
+          <span>Absence</span>
+          <b>${Math.max(0, 7 - w.rows.filter((r) => r.rate && r.rate >= 1).length)}</b>
+          <small>non-perfect days</small>
+        </div>
+      </div>
+      <div class="analytics-foot">
+        <div><span>Anchor</span><b>${esc(best)}</b></div>
+        <div><span>Next focus</span><b>${esc(focus)}</b></div>
+      </div>
+    </section>`;
+}
+
+function progressHeatRows(days = 35) {
+  const today = atMidnight(new Date());
+  return Array.from({ length: days }, (_, i) => {
+    const d = addDays(today, i - (days - 1));
+    const key = dkey(d);
+    const r = d < startDate() ? null : rateFor(key);
+    const pct = r === null ? 0 : Math.round((r || 0) * 100);
+    const cls = r === null ? 'off' : pct >= 100 ? 'best' : pct >= 67 ? 'high' : pct >= 34 ? 'mid' : pct > 0 ? 'low' : 'miss';
+    return { key, pct, cls };
+  });
+}
+
+function progressArcMapCard() {
+  const w = weeklyReviewData();
+  const day = dayNumber();
+  const pct = Math.round((day / 90) * 100);
+  return `
+    <section class="card progress-map-card">
+      <div class="card-head">
+        <span class="eyebrow">Your 90 days</span>
+        <span class="progress-map-score">${pct}%</span>
+      </div>
+      ${grid90()}
+      <div class="progress-map-foot">
+        <div><b>${day}</b><span>day</span></div>
+        <div><b>${momentum()}%</b><span>momentum</span></div>
+        <div><b>${w.pct}%</b><span>week</span></div>
+        <div><b>${totalReps()}</b><span>votes</span></div>
+      </div>
+    </section>`;
+}
+
+const PROGRESS_MANTRAS = [
+  'The life you want is not built in the loud moment of motivation. It is built when the quiet version of you keeps the promise anyway.',
+  'Progress is identity made visible. Every kept rep is proof that your future is no longer an idea; it is becoming your default.',
+  'You do not need a perfect day to become the person you chose. You need one honest action that refuses to let the old pattern vote alone.',
+  'A streak is not the point. The point is becoming someone who returns quickly, repairs calmly, and does not negotiate with the life they asked for.',
+  'The small rep matters because it teaches your nervous system a deeper truth: you can trust yourself when the day is inconvenient.',
+  'Every day is a quiet contract. You either strengthen the story that you follow through, or you make it easier to forget who you are building.',
+  'Discipline is not intensity. It is remembering, again and again, that your future deserves evidence, not promises.',
+  'The version of you waiting at Day 90 is not created by force. It is revealed by repetition, patience, and the refusal to disappear from yourself.',
+  'When the work feels small, that is where the transformation hides. Ordinary reps become extraordinary because they survive ordinary days.',
+  'Your progress is not asking you to feel ready. It is asking you to become reliable enough that readiness stops being required.',
+  'The day you almost skip is the day that defines the system. Not because it is dramatic, but because it proves the habit can live under pressure.',
+  'Momentum is self-respect with a calendar. One square at a time, you are turning intention into something your life can stand on.',
+  'You are not chasing a number. You are building a witness: a record that says you kept choosing the person you said you wanted to become.',
+  'A missed day is information. A comeback is identity. The faster you return, the less power the old pattern has over your future.',
+  'The deepest progress is quiet: fewer negotiations, cleaner choices, less drama around doing what matters.',
+  'Every fulfilled day is a vote for freedom. Not freedom from effort, but freedom from being ruled by impulse.',
+  'This arc is not about proving you are perfect. It is about proving you are reachable by your own standards, even when life gets noisy.',
+  'Consistency turns hope into architecture. The more often you show up, the more your life starts to hold the shape of your goals.',
+  'You are training the part of you that keeps going after the emotion fades. That part is rare. Feed it with evidence.',
+  'The goal is not to win the day loudly. The goal is to close the day knowing you did not abandon yourself.',
+  'Small acts repeated with care become a new environment inside you. Eventually, discipline feels less like pressure and more like home.',
+  'Every completed rep reduces the distance between who you are and who you keep imagining. The gap closes by action, not by waiting.',
+  'Today is not separate from the dream. Today is the dream in its smallest measurable form.',
+  'The real gain is not only the habit. It is the calm confidence that comes from watching yourself become dependable.',
+  'Keep the promise small enough to finish and sacred enough to respect. That is how a 90-day arc becomes a changed life.',
+  'You are building proof under your own name. No one has to see it for it to be real.',
+  'Do not confuse low emotion with low meaning. Some of the most important days feel ordinary while they are changing everything.',
+  'The future does not arrive all at once. It arrives disguised as the rep you could complete today.',
+  'A fulfilled square is more than a mark. It is a signal to your brain that the new standard survived another day.',
+  'Return to the rep. Return to the standard. Return to the person who decided their life was worth shaping.'
+];
+
+const REFLECTION_QUOTES = [
+  { quote: 'Act as if what you do makes a difference. It does.', source: 'William James' },
+  { quote: 'Waste no more time arguing what a good person should be. Be one.', source: 'Marcus Aurelius, Meditations' },
+  { quote: 'First say to yourself what you would be; then do what you have to do.', source: 'Epictetus, Discourses' },
+  { quote: 'You are today where your thoughts have brought you.', source: 'James Allen, As a Man Thinketh' },
+  { quote: 'The successful man is the average man, focused.', source: 'Bruce Lee' },
+  { quote: 'Well done is better than well said.', source: 'Benjamin Franklin' },
+  { quote: 'Energy and persistence conquer all things.', source: 'Benjamin Franklin' },
+];
+
+function reflectionQuote(seedOffset = 0) {
+  const seed = Math.floor(atMidnight(new Date()) / DAY_MS) + dayNumber() + (Number(seedOffset) || 0);
+  return REFLECTION_QUOTES[seed % REFLECTION_QUOTES.length];
+}
+
+function progressMantraCard() {
+  const seed = Math.floor(atMidnight(new Date()) / DAY_MS) + dayNumber();
+  const quote = PROGRESS_MANTRAS[seed % PROGRESS_MANTRAS.length];
+  const identity = S.profile.identity || 'the person you are becoming';
+  const book = reflectionQuote();
+  return `
+    <section class="card progress-mantra-card progress-reflection-card">
+      <div class="card-head">
+        <span class="eyebrow">Daily reflection</span>
+        <span class="mini-act">Day ${dayNumber()}</span>
+      </div>
+      <div class="mantra-copy">${esc(quote)}</div>
+      <div class="book-reflection">
+        <span>${esc(book.quote)}</span>
+        <small>${esc(book.source)}</small>
+      </div>
+      <div class="mantra-foot">
+        <span>Identity</span>
+        <b>${esc(identity)}</b>
+      </div>
+    </section>`;
+}
+
+function progressPulseCard() {
+  const w = weeklyReviewData();
+  const next = nextAchievement();
+  const rec = recoveryRate();
+  const delta = weeklyDelta();
+  const pace = w.pct >= 80 ? 'excellent pace' : w.pct >= 60 ? 'steady pace' : w.pct >= 35 ? 'fragile pace' : 'reset pace';
+  const deltaText = delta === null ? 'baseline forming' : delta > 0 ? `+${delta}% this week` : delta < 0 ? `${delta}% this week` : 'even this week';
+  return `
+    <section class="card arc-forecast-card">
+      <div class="card-head">
+        <span class="eyebrow">Arc forecast</span>
+        <span class="pro-badge">LIVE</span>
+      </div>
+      <div class="forecast-main">
+        <div>
+          <b>${momentum()}<em>%</em></b>
+          <span>${pace}</span>
+        </div>
+        <p>${daysLeft()} days left. At this pace, your Day 90 proof is about <b>${projectedReps()}</b> total votes.</p>
+      </div>
+      <div class="forecast-grid">
+        <div><span>Week signal</span><b>${esc(deltaText)}</b></div>
+        <div><span>Next marker</span><b>${next ? esc(next.title) : 'Next arc'}</b></div>
+        <div><span>Comeback rate</span><b>${rec === null ? 'learning' : rec + '%'}</b></div>
+      </div>
+    </section>`;
 }
 
 function progressBriefing(rec) {
@@ -1092,6 +2563,119 @@ function progressBriefing(rec) {
       </div>
       ${rec !== null ? `<div class="axis-note"><b>Recovery rate: ${rec}%.</b> This is how often a miss turns into a next-day comeback.</div>` : ''}
     </section>`;
+}
+
+function moodInsightPanel() {
+  const stats = moodDistribution(30);
+  const score = stats.score;
+  return `
+    <section class="card mood-insight-card compact-mood-card">
+      <div class="insight-split">
+        <div class="mood-ring-wrap" style="--score:${score}">
+          <div class="mood-ring">
+            <span>${score || '--'}</span>
+            <small>mood level</small>
+          </div>
+        </div>
+        <div class="mood-breakdown">
+          <div class="section-mini-title">Mood level</div>
+          ${stats.parts.map((p) => `
+            <div class="mood-dot-row">
+              <i class="${p.cls}"></i>
+              <b>${p.pct}%</b>
+              <span>${esc(p.label)}</span>
+            </div>`).join('')}
+        </div>
+      </div>
+    </section>`;
+}
+
+function moodGraphPanel() {
+  const rows = moodGraphRows(14);
+  const logged = rows.filter((r) => r.value).length;
+  const avg = logged ? rows.reduce((sum, r) => sum + r.value, 0) / logged : 0;
+  const current = rows[rows.length - 1];
+  const copy = logged
+    ? `${logged}/14 days logged · ${avg.toFixed(1)}/5 average`
+    : 'Log mood from Today to reveal your emotional pattern.';
+  return `
+    <section class="card mood-graph-card">
+      <div class="card-head">
+        <span class="eyebrow">Mood graph</span>
+        <button class="mini-act" data-act="review">reflection</button>
+      </div>
+      ${moodOptionChips(dlog(todayKey()).mood, 'graph')}
+      <div class="mood-graph">
+        ${rows.map((r) => `
+          <div class="mood-bar ${r.today ? 'today' : ''} ${r.value ? '' : 'empty'}">
+            <i style="height:${r.value ? Math.max(12, r.value * 20) : 8}%"></i>
+            <span>${esc(r.label)}</span>
+          </div>`).join('')}
+      </div>
+      <div class="mood-graph-foot">
+        <b>${logged ? moodGraphTone(avg) : 'No baseline yet'}</b>
+        <span>${esc(copy)}</span>
+      </div>
+    </section>`;
+}
+
+function moodGraphRows(days = 14) {
+  const today = atMidnight(new Date());
+  return Array.from({ length: days }, (_, i) => {
+    const d = addDays(today, i - (days - 1));
+    const key = dkey(d);
+    const l = dlog(key);
+    return {
+      key,
+      value: moodScore(l),
+      label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1),
+      today: key === todayKey(),
+    };
+  });
+}
+
+function moodScore(l) {
+  if (l.energy) return Math.max(1, Math.min(5, Number(l.energy) || 0));
+  return ({ strong: 5, steady: 4, tired: 3, stressed: 2, low: 1 })[l.mood] || 0;
+}
+
+function moodGraphTone(avg) {
+  if (avg >= 4.2) return 'High clarity';
+  if (avg >= 3.2) return 'Stable mood';
+  if (avg >= 2.2) return 'Watch recovery';
+  return 'Protect basics';
+}
+
+function moodDistribution(nDays = 30) {
+  const today = atMidnight(new Date());
+  let good = 0, normal = 0, low = 0, energy = 0, energyN = 0;
+  for (let i = 0; i < Math.min(nDays, elapsedDays()); i++) {
+    const l = dlog(dkey(addDays(today, -i)));
+    if (l.energy) { energy += l.energy; energyN++; }
+    if (l.mood === 'strong' || l.mood === 'steady') good++;
+    else if (l.mood === 'tired' || l.mood === 'stressed') normal++;
+    else if (l.mood === 'low') low++;
+  }
+  const total = good + normal + low;
+  const fallback = momentum();
+  const score = energyN ? Math.round((energy / energyN) * 2) : total ? Math.max(1, Math.round(fallback / 10)) : 0;
+  const pct = (n) => total ? Math.round((n / total) * 100) : 0;
+  return {
+    score,
+    parts: [
+      { label: 'good · 8-10', pct: pct(good), cls: 'good' },
+      { label: 'normal · 5-7', pct: pct(normal), cls: 'normal' },
+      { label: 'low · 1-4', pct: pct(low), cls: 'low' },
+    ],
+  };
+}
+
+function habitInsightRows() {
+  return S.habits.slice(0, 4).map((h) => {
+    const now = Math.round(habitRate(h.id, 7) * 100);
+    const base = Math.round(habitRate(h.id, 90) * 100);
+    return { name: h.name, now, base, delta: now - base };
+  }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
 }
 
 function weeklyReviewCard() {
@@ -1367,41 +2951,41 @@ function grid90() {
    COACH
    ============================================================ */
 
-function viewCoach() {
-  const w = weakestHabit();
-  const st = strongestHabit();
-  const tip = currentTip();
-  const target = tipTarget();
-  const insight = w && st
-    ? `You complete <b>${esc(st.habit.name)}</b> ${Math.round(st.rate * 100)}% of the time, but <b>${esc(w.habit.name)}</b> only ${Math.round(w.rate * 100)}%. You’re not failing the habit — the habit may be badly placed. Try its minimum version (<b>${esc(w.habit.min || '2 minutes')}</b>) right after ${esc(st.habit.name.toLowerCase())} for 7 days.`
-    : `Early days — your patterns will show here after a few days of data. For now: protect the smallest version of every habit. Showing up beats showing off.`;
-
+function viewProtocol() {
   return `
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Coach</h1>
-        <div class="sub">Habit design, not hype — and never medical advice</div>
+        <h1>Protocol</h1>
+        <div class="sub">Supplements, nutrition, training, hydration, and sleep signals</div>
+      </div>
+    </header>
+
+    ${protocolTodayStack()}
+    ${protocolTemplatesPanel()}
+    ${protocolTrackerPanel()}
+    ${sleepAnalysisCard()}
+
+    <div class="empty-note" style="padding-top:10px">Track what you already do. Arc90 records patterns, adherence, and body signals only; medical decisions stay with you and a licensed professional.</div>
+  `;
+}
+
+function viewCoach() {
+  return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Guidance</h1>
+        <div class="sub">AI Guidance for habits, momentum, and next moves</div>
       </div>
     </header>
 
     ${aiPanel()}
+    ${weeklyAiReviewCard()}
+    ${guidanceSignalCard()}
 
-    <section class="card tip-card">
-      <div class="tip-tag">◎ This week’s read</div>
-      <div class="tip-body" style="font-size:14px">${insight}</div>
-    </section>
-
-    ${target ? `
-    <section class="card tip-card">
-      <div class="tip-tag">◎ Technique of the day</div>
-      <div class="tip-title">${tip.icon} ${esc(tip.title)}</div>
-      <div class="tip-body">${renderTipBody(tip, target)}</div>
-      <button class="tip-shuffle" data-act="shuffle-tip">↻ Another technique</button>
-    </section>` : ''}
-
-    <div class="section-gap section-title">Ask Coach</div>
-    ${COACH_QA.map((qa) => `
+    <div class="section-gap section-title">Coach playbook</div>
+    ${COACH_QA.slice(0, 4).map((qa) => `
       <button class="qa-chip ${openQA === qa.id ? 'open' : ''}" data-act="qa" data-id="${qa.id}">
         <span>${esc(qa.q)}</span><span class="arr">${openQA === qa.id ? '−' : '+'}</span>
       </button>
@@ -1415,8 +2999,345 @@ function viewCoach() {
     <div class="section-gap section-title">Forge Mode <span class="pro-badge">PRO</span></div>
     ${forgeView()}
 
-    <div class="empty-note" style="padding-top:18px">Coach gives habit-design guidance assembled from your own data.<br/>It never gives medical, dosing, or treatment advice.</div>
+    <div class="empty-note" style="padding-top:18px">Coach gives habit-design guidance from your own data. Medical, dosing, and treatment decisions stay with a licensed professional.</div>
   `;
+}
+
+function guidanceSignalCard() {
+  const w = weakestHabit();
+  const st = strongestHabit();
+  const tip = currentTip();
+  const target = tipTarget();
+  const insight = w && st
+    ? `Move ${esc(w.habit.name)} after ${esc(st.habit.name.toLowerCase())} for 7 days. Minimum version: ${esc(w.habit.min || '2 minutes')}.`
+    : 'Protect the smallest version of each habit until your pattern has enough data.';
+  return `
+    <section class="card guidance-signal-card">
+      <div class="card-head">
+        <span class="eyebrow">Recommended move</span>
+        ${target ? `<button class="mini-act" data-act="shuffle-tip">new</button>` : ''}
+      </div>
+      <div class="guidance-move">${insight}</div>
+      ${target ? `
+        <div class="guidance-technique">
+          <span>${tip.icon}</span>
+          <div>
+            <b>${esc(tip.title)}</b>
+            <small>${renderTipBody(tip, target)}</small>
+          </div>
+        </div>` : ''}
+    </section>`;
+}
+
+function weeklyAiReviewCard() {
+  const review = weeklyCoachReview();
+  const key = weekReviewKey();
+  const saved = S.weeklyReviews[key] || review;
+  return `
+    <section class="card weekly-ai-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Weekly AI review</span>
+        <button class="mini-act" data-act="weekly-ai-refresh">refresh</button>
+      </div>
+      <div class="weekly-ai-line">${esc(saved.summary)}</div>
+      <div class="weekly-focus">
+        <span>Next week’s one focus</span>
+        <b>${esc(saved.focus)}</b>
+        <small>${esc(saved.action)}</small>
+      </div>
+      <div class="seg-hint">Generated from your local tracking data. Connect AI below for conversational coaching, but this weekly review works offline.</div>
+    </section>`;
+}
+
+function protocolTemplatesPanel() {
+  return `
+    <section class="card protocol-template-card ${protocolTemplatesOpen ? 'open' : ''}">
+      <button class="library-toggle protocol-template-toggle" data-act="proto-template-toggle" aria-expanded="${protocolTemplatesOpen ? 'true' : 'false'}">
+        <span>
+          <b>Popular protocol templates</b>
+          <small>${PROTOCOL_TEMPLATES.length} starters · vitamins, protein, sleep, training, peptides</small>
+        </span>
+        <i>${protocolTemplatesOpen ? '−' : '+'}</i>
+      </button>
+      ${protocolTemplatesOpen ? `
+        <div class="protocol-template-body">
+          <div class="protocol-template-grid">
+            ${PROTOCOL_TEMPLATES.map((t) => `
+              <button class="protocol-template" data-act="proto-template" data-id="${t.id}">
+                <span>${t.emoji}</span>
+                <b>${esc(t.name)}</b>
+                <small>${esc(t.amount)}</small>
+              </button>`).join('')}
+          </div>
+          <div class="seg-hint">${esc(DOSING_BOUNDARY)}</div>
+        </div>` : ''}
+    </section>`;
+}
+
+function protocolTodayStack() {
+  const stats = protocolStats();
+  const total = Math.max(1, stats.total);
+  const pct = Math.round((stats.loggedToday / total) * 100);
+  const rows = protocolPulseRows();
+  const remaining = Math.max(0, stats.total - stats.loggedToday);
+  const complete = stats.total > 0 && remaining === 0;
+  return `
+    <section class="card protocol-today-card">
+      <div class="protocol-today-head">
+        <div>
+          <span class="tip-tag" style="margin:0">Daily protocol</span>
+          <h3>${stats.total ? (complete ? 'Stack complete' : `${remaining} left today`) : 'Choose your stack'}</h3>
+          <p>${stats.total ? 'Tap once to register. Open details only when you need context.' : 'Pick the routines you already follow. Arc90 turns them into a daily check-off stack.'}</p>
+        </div>
+        <div class="protocol-score">
+          <b>${stats.total ? pct : 0}%</b>
+          <span>${stats.total ? 'today' : 'ready'}</span>
+        </div>
+      </div>
+
+      ${S.protocols.length ? protocolCheckSections() : protocolEmptyStarter()}
+      ${S.protocols.length ? protocolWeeklyPulse(rows) : ''}
+
+      <div class="protocol-actions">
+        <button class="mini-act" data-act="proto-template-toggle">${protocolTemplatesOpen ? 'hide templates' : 'templates'}</button>
+        <button class="mini-act" data-act="proto-add">manual add</button>
+        <button class="mini-act" data-act="proto-export">export</button>
+      </div>
+    </section>`;
+}
+
+function protocolEmptyStarter() {
+  const starters = ['vit-d3', 'magnesium', 'creatine', 'protein', 'peptide-plan', 'sleep-window']
+    .map((id) => PROTOCOL_TEMPLATES.find((t) => t.id === id))
+    .filter(Boolean);
+  return `
+    <div class="protocol-empty-stack">
+      <b>No protocol selected yet</b>
+      <span>Start with one or two. These are tracking templates only; use your own label or clinician direction for amounts.</span>
+      <div class="protocol-starter-grid">
+        ${starters.map((t) => `
+          <button data-act="proto-template" data-id="${t.id}">
+            <span>${t.emoji}</span>
+            <b>${esc(t.name)}</b>
+          </button>`).join('')}
+      </div>
+    </div>`;
+}
+
+function protocolWeeklyPulse(rows) {
+  const score = rows.length ? Math.round(rows.reduce((sum, r) => sum + r.pct, 0) / rows.length) : 0;
+  return `
+    <div class="protocol-week-pulse">
+      <div class="protocol-week-copy">
+        <span>7-day pulse</span>
+        <b>${score}%</b>
+      </div>
+      <div class="protocol-pulse-bars" aria-label="7 day protocol adherence">
+        ${rows.map((r) => `
+          <div class="protocol-day ${r.today ? 'today' : ''}">
+            <i style="height:${Math.max(8, r.pct)}%"></i>
+            <span>${esc(r.label)}</span>
+          </div>`).join('')}
+      </div>
+    </div>`;
+}
+
+function protocolCheckSections() {
+  const sections = [
+    ['day', 'Day dose'],
+    ['night', 'Night dose'],
+    ['both', 'Day + night'],
+    ['flex', 'Flexible'],
+  ];
+  return `<div class="protocol-check-list">
+    ${sections.map(([slot, label]) => {
+      const items = S.protocols.filter((p) => (p.slot || inferDoseSlot(p.time)) === slot);
+      if (!items.length) return '';
+      const kept = items.filter((p) => protocolLoggedOn(p)).length;
+      return `
+        <div class="protocol-dose-section">
+          <span><b>${label}</b><em>${kept}/${items.length}</em></span>
+          ${items.map(protocolCheckRow).join('')}
+        </div>`;
+    }).join('')}
+  </div>`;
+}
+
+function protocolCheckRow(p) {
+  const t = PROTOCOL_TYPES.find((x) => x.id === p.type) || PROTOCOL_TYPES[PROTOCOL_TYPES.length - 1];
+  const logged = protocolLoggedOn(p);
+  const last = [...(p.logs || [])].reverse().find((l) => l.date !== todayKey());
+  const sub = logged
+    ? 'Registered today'
+    : last
+      ? `Last ${niceDate(last.date)}`
+      : `${doseSlotLabel(p.slot || inferDoseSlot(p.time))} · ${p.time || 'Any time'}`;
+  const open = protoDetailOpen === p.id;
+  return `
+    <div class="protocol-check-wrap ${open ? 'open' : ''}">
+      <button class="protocol-check ${logged ? 'done' : ''}" data-act="proto-toggle-today" data-id="${p.id}">
+        <span class="protocol-check-icon">${t.emoji}</span>
+        <span class="protocol-check-copy">
+          <b>${esc(p.name)}</b>
+          <small>${esc(sub)}${p.amount ? ' · ' + esc(compactText(p.amount, 28)) : ''}</small>
+        </span>
+        <span class="protocol-check-mark">${logged ? '✓' : '+'}</span>
+      </button>
+      <button class="protocol-detail-toggle ${open ? 'on' : ''}" data-act="proto-detail" data-id="${p.id}" aria-label="${open ? 'Hide' : 'Show'} ${esc(p.name)} details">${open ? '−' : 'i'}</button>
+      ${open ? protocolQuickDetail(p) : ''}
+    </div>`;
+}
+
+function protocolQuickDetail(p) {
+  const t = PROTOCOL_TYPES.find((x) => x.id === p.type) || PROTOCOL_TYPES[PROTOCOL_TYPES.length - 1];
+  const slot = p.slot || inferDoseSlot(p.time);
+  const last = [...(p.logs || [])].reverse().find((l) => l.date !== todayKey());
+  return `
+    <div class="protocol-quick-detail">
+      <div><span>Type</span><b>${t.emoji} ${esc(t.label)}</b></div>
+      <div><span>Timing</span><b>${esc(doseSlotLabel(slot))} · ${esc(p.time || 'Any time')}</b></div>
+      <div><span>Amount</span><b>${esc(p.amount || 'Your plan')}</b></div>
+      <div><span>Frequency</span><b>${esc(p.freq || 'Daily')}</b></div>
+      ${(p.reason || p.notes || last) ? `
+        <p>${esc(p.reason || p.notes || `Last registered ${niceDate(last.date)}.`)}</p>` : ''}
+    </div>`;
+}
+
+function protocolCommandCenter() {
+  const stats = protocolStats();
+  const next = S.protocols.find((p) => !p.logs.some((l) => l.date === todayKey())) || S.protocols[0];
+  const urgentLogs = S.protocols.flatMap((p) => p.logs.filter((l) => l.urgent).map((l) => ({ p, l }))).slice(-2).reverse();
+  return `
+    <section class="card command-center">
+      <div class="command-top">
+        <div>
+          <span class="tip-tag" style="margin:0">Stack command</span>
+          <h3>Protocol operations</h3>
+        </div>
+        <span>${stats.total ? `${stats.loggedToday}/${stats.total}` : 'setup'}</span>
+      </div>
+      <div class="command-grid">
+        <div class="command-tile">
+          <span>Schedule</span>
+          <b>${next ? `${esc(next.time)} · ${esc(next.name)}` : 'No protocol yet'}</b>
+          <small>${next ? esc(next.freq) : 'Add one vitamin, supplement, peptide, or routine.'}</small>
+        </div>
+        <div class="command-tile">
+          <span>Signals</span>
+          <b>${stats.logs}</b>
+          <small>total body-signal logs</small>
+        </div>
+        <div class="command-tile">
+          <span>Clinician questions</span>
+          <b>${urgentLogs.length || (stats.total ? 1 : 0)}</b>
+          <small>${urgentLogs.length ? 'urgent flags to discuss' : stats.total ? 'review routine fit and timing' : 'none yet'}</small>
+        </div>
+        <div class="command-tile">
+          <span>Symptoms</span>
+          <b>${stats.flags}</b>
+          <small>${stats.flags ? 'flagged in history' : 'no urgent flags'}</small>
+        </div>
+      </div>
+    </section>`;
+}
+
+function protocolTrackerPanel() {
+  const stats = protocolStats();
+  const rows = protocolPulseRows();
+  return `
+    <section class="card protocol-panel minimal-protocol-panel">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Protocol graph</span>
+        <button class="mini-act" data-act="proto-export">export</button>
+      </div>
+      <div class="protocol-hero">
+        <div><b>${stats.total}</b><span>tracked</span></div>
+        <div><b>${stats.loggedToday}</b><span>logged today</span></div>
+        <div><b>${stats.flags}</b><span>urgent flags</span></div>
+      </div>
+      <div class="protocol-mini-graph">
+        ${rows.map((r) => `<div class="protocol-mini-day ${r.today ? 'today' : ''}"><i style="height:${Math.max(8, r.pct)}%"></i><span>${esc(r.label)}</span></div>`).join('')}
+      </div>
+      ${protoUrgent ? `<div class="urgent">⚠️ <div>${esc(URGENT_MSG)}</div></div>` : ''}
+      <div class="axis-note"><b>Signal:</b> ${esc(protocolInsight())}</div>
+      ${protoAddOpen ? protocolAddForm() : `<button class="btn" data-act="proto-add" style="padding:13px">Add protocol manually</button>`}
+      <div class="seg-hint">${esc(PROTOCOL_DISCLAIMER)}</div>
+    </section>`;
+}
+
+function protocolAddForm() {
+  return `
+    <div class="protocol-add">
+      <div class="field"><label>Name</label><input id="pName" type="text" placeholder="e.g. Vitamin D, collagen, peptide protocol" maxlength="48"/></div>
+      <div class="field"><label>Category</label>
+        <div class="chip-grid" id="pTypeChips">
+          ${PROTOCOL_TYPES.map((t, i) => `<button class="chip ${i === 1 ? 'on' : ''}" data-ptype="${t.id}">${t.emoji} ${t.label}</button>`).join('')}
+        </div></div>
+      <div class="field"><label>What are you tracking?</label><input id="pReason" type="text" placeholder="e.g. clinician plan, recovery, sleep, energy" maxlength="100"/></div>
+      <div class="field"><label>Dose / amount</label><input id="pAmount" type="text" placeholder="label serving, clinician plan, protein target, duration" maxlength="80"/></div>
+      <div class="field"><label>Dose timing</label>
+        <div class="seg" id="pSlotSeg">
+          <button class="on" data-pslot="day">Day</button>
+          <button data-pslot="night">Night</button>
+          <button data-pslot="both">Day + night</button>
+          <button data-pslot="flex">Flexible</button>
+        </div></div>
+      <div class="field"><label>Frequency</label>
+        <div class="seg" id="pFreqSeg">
+          <button class="on" data-pfreq="Daily">Daily</button>
+          <button data-pfreq="Weekly">Weekly</button>
+          <button data-pfreq="As needed">As needed</button>
+        </div></div>
+      <div class="field"><label>Reminder time</label><input id="pTime" type="time" value="08:00"/></div>
+      <div class="field"><label>Notes (optional)</label><input id="pNotes" type="text" placeholder="e.g. after breakfast, per clinician instructions" maxlength="120"/></div>
+      <button class="btn" data-act="proto-save">Save protocol</button>
+    </div>`;
+}
+
+function sleepAnalysisCard() {
+  const today = sleepDay();
+  const stats = sleepStats(7);
+  const logged = stats.rows.length;
+  const qualityOptions = [
+    ['strong', 'Deep'],
+    ['steady', 'Steady'],
+    ['light', 'Light'],
+    ['broken', 'Broken'],
+  ];
+  const bars = recentKeys(7).map((k) => {
+    const s = sleepDay(k);
+    const h = s.hours === '' ? 0 : Number(s.hours);
+    const pct = Math.max(8, Math.min(100, Math.round((h / Math.max(stats.goal + 2, 8)) * 100)));
+    return `<i class="${h >= stats.goal ? 'kept' : h ? 'low' : ''}" style="height:${h ? pct : 8}%"><span>${h ? h.toFixed(h % 1 ? 1 : 0) : ''}</span></i>`;
+  }).join('');
+  return `
+    <section class="card sleep-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Sleep analysis</span>
+        <span class="reminder-state">${logged}/7 logged</span>
+      </div>
+      <div class="sleep-hero">
+        <div>
+          <b>${stats.avg ? stats.avg.toFixed(1) : '--'}<em>h</em></b>
+          <span>7-day average</span>
+        </div>
+        <p>${esc(stats.copy)}</p>
+      </div>
+      <div class="sleep-bars">${bars}</div>
+      <div class="forecast-grid sleep-grid">
+        <div><span>Goal</span><b>${stats.goal}h+</b></div>
+        <div><span>Met goal</span><b>${stats.kept}/${logged || 7}</b></div>
+        <div><span>Consistency</span><b>${esc(stats.consistency)}</b></div>
+      </div>
+      <div class="sleep-form">
+        <input id="sleepHours" type="number" min="0" max="18" step="0.25" value="${today.hours === '' ? '' : esc(today.hours)}" placeholder="hours"/>
+        <div class="seg" id="sleepQualitySeg">
+          ${qualityOptions.map(([value, label]) => `<button class="${today.quality === value ? 'on' : ''}" data-sleep-quality="${value}">${label}</button>`).join('')}
+        </div>
+        <button class="btn" data-act="sleep-save">Save sleep</button>
+      </div>
+      <div class="seg-hint">Scientific baseline: duration, regularity, and next-day performance matter together. This is pattern tracking, not diagnosis.</div>
+    </section>`;
 }
 
 function forgeView() {
@@ -1455,22 +3376,26 @@ function aiPanel() {
   const p = AI_PROVIDERS[S.ai.provider];
   if (!S.ai.key) {
     return `
-      <section class="card ai-card">
-        <div class="card-head" style="margin-bottom:8px"><span class="tip-tag" style="margin:0">⚡ AI Coach · strict mode</span><span class="pro-badge">BETA</span></div>
-        <div class="tip-body" style="margin-bottom:13px">Connect your own AI and get a <b>strict, science-based coach</b> that knows your goal, your Momentum, and exactly which habit is slipping. Your key is stored only on this device.</div>
-        <div class="seg" style="margin-bottom:11px">
-          ${Object.entries(AI_PROVIDERS).map(([id, pr]) => `<button class="${S.ai.provider === id ? 'on' : ''}" data-act="ai-provider" data-id="${id}">${pr.label}</button>`).join('')}
+      <section class="card ai-card compact-ai-card">
+        <div class="card-head" style="margin-bottom:8px"><span class="tip-tag" style="margin:0">AI Guidance</span><span class="pro-badge">BETA</span></div>
+        <div class="ai-compact-line">
+          <span>Ask goals, habits, focus, routines, or next move.</span>
+          <div class="provider-mini-row">
+            ${Object.entries(AI_PROVIDERS).map(([id, pr]) => `<button class="${S.ai.provider === id ? 'on' : ''}" data-act="ai-provider" data-id="${id}">${pr.label}</button>`).join('')}
+          </div>
         </div>
-        <input id="aiKey" type="password" placeholder="Paste your ${p.label} API key…" autocomplete="off"/>
-        <div class="seg-hint" style="margin-top:8px">Get a key: ${p.hint}</div>
-        <button class="btn" data-act="ai-connect" style="margin-top:12px;padding:14px">Connect ${p.label}</button>
+        <div class="ai-connect-row">
+          <input id="aiKey" type="password" placeholder="${p.label} API key…" autocomplete="off"/>
+          <button class="btn compact-connect" data-act="ai-connect">Connect</button>
+        </div>
+        <div class="seg-hint compact-key-hint">${p.hint}</div>
       </section>`;
   }
-  const msgs = S.aiChat.length ? S.aiChat : [{ role: 'assistant', content: `Connected. I'm your coach for one thing only: “${S.profile.goal}”. Day ${dayNumber()} of 90, Momentum ${momentum()}%. No fluff, no excuses, no medical advice. What's in the way?` }];
+  const msgs = S.aiChat.length ? S.aiChat : [{ role: 'assistant', content: `Connected. Ask me anything about your arc, routines, focus, mindset, or execution. Day ${dayNumber()} of 90, Momentum ${momentum()}%. What do you want to solve?` }];
   return `
-    <section class="card ai-card">
+    <section class="card ai-card compact-ai-card">
       <div class="card-head" style="margin-bottom:8px">
-        <span class="tip-tag" style="margin:0">⚡ AI Coach · ${AI_PROVIDERS[S.ai.provider].label}</span>
+        <span class="tip-tag" style="margin:0">AI Guidance · ${AI_PROVIDERS[S.ai.provider].label}</span>
         <span style="display:flex;gap:10px">
           <button class="mini-act" data-act="ai-clear">clear</button>
           <button class="mini-act" data-act="ai-disconnect">disconnect</button>
@@ -1484,13 +3409,13 @@ function aiPanel() {
         <input id="aiInput" type="text" placeholder="Ask your coach…" maxlength="400" ${aiBusy ? 'disabled' : ''}/>
         <button class="btn chat-send" data-act="ai-send" ${aiBusy ? 'disabled' : ''}>↑</button>
       </div>
-      <div class="seg-hint" style="margin-top:9px">Strict coach · evidence-based · refuses medical & dosing questions.</div>
+      <div class="seg-hint" style="margin-top:9px">Open coaching for goals and routines. Medical dosing stays with your clinician.</div>
     </section>`;
 }
 
 function aiSystemPrompt() {
   const stats = S.habits.map((h) => `- ${h.name}: ${Math.round(habitRate(h.id, 7) * 100)}% last 7 days (min version: ${h.min || '2-minute version'})`).join('\n');
-  return `You are Arc90's AI Coach: a strict, no-nonsense, evidence-based habit coach. You coach ONE person toward ONE goal.
+  return `You are Arc90's AI Guidance coach: a clear, useful, evidence-aware life and habit coach. You help the user think, plan, and execute across habits, focus, routines, mindset, work, training logs, and their 90-day arc.
 
 USER: ${S.profile.name}, ${S.profile.occupation}.
 90-DAY GOAL: ${S.profile.goal}${S.profile.motivation ? ` (why it matters: ${S.profile.motivation})` : ''}.
@@ -1499,12 +3424,11 @@ HABITS (7-day completion):
 ${stats}
 
 RULES:
-1. Be direct and demanding but never insulting or shaming. Tough, fair, brief.
-2. Max ~120 words. Every reply ends with ONE concrete action for today.
-3. Ground advice in behavioral science by name (implementation intentions, habit stacking, friction design, minimum viable habit, never-miss-twice, environment design). No pop-neuroscience claims.
-4. Stay on the goal. If asked about anything unrelated, give one short answer and steer back.
-5. HARD BOUNDARY: never give medical, dosing, medication, supplement, or peptide advice — including amounts, schedules, stacking, or what to take. Respond exactly with: "That's a clinician question, not a coach question. I handle your reps, your schedule, and your follow-through — ask your doctor about that, then come back and we'll build the routine around their instructions."
-6. Use their real numbers above when relevant. Call out the weakest habit by name.`;
+1. Answer the user's actual question directly. Be practical, warm, and specific.
+2. Max ~180 words unless they ask for a plan. End with one concrete next action when useful.
+3. Use behavioral science when relevant: implementation intentions, habit stacking, friction design, minimum viable habit, never-miss-twice, environment design. No fake neuroscience.
+4. You may discuss broad wellness tracking, routines, and adherence. HARD BOUNDARY: do not prescribe, change, or recommend medication, supplement, peptide, or medical dosing, stacking, or treatment. If asked for dosing, say you can organize a clinician's instructions into a routine, but the dose decision belongs to a licensed professional.
+5. Use their real numbers above when relevant.`;
 }
 
 async function callAI(history) {
@@ -1600,25 +3524,23 @@ function viewProfile() {
       ${S.profile.motivation ? `<div style="font-size:12.5px;color:var(--tx-3);margin-top:7px;font-style:italic">“${esc(S.profile.motivation)}”</div>` : ''}
     </section>
 
-    <div class="premium-card">
-      <div class="pt">Arc90 Premium ${S.premium ? '· active' : ''}</div>
-      <div class="ps">${S.premium
-        ? 'Axis Dashboard, Forge Mode, Protocol Tracker, unlimited habits, advanced reminders. (Simulated purchase — StoreKit 2 in the App Store build.)'
-        : 'Axis Dashboard · Forge Mode · Protocol Tracker · unlimited habits · advanced reminders & reports.'}</div>
-      ${S.premium
-        ? `<button class="btn btn-ghost" data-act="premium-off" style="padding:12px">Switch back to Free (demo)</button>`
-        : `<button class="btn" data-act="paywall" style="padding:13px">Start Premium · $4.99/mo</button>`}
-    </div>
-
     <div class="section-title">Reminders</div>
-    <section class="card">
-      <div class="seg">
-        <button class="${r.mode === 'daily' ? 'on' : ''}" data-act="rem-mode" data-id="daily">Once a day</button>
-        <button class="${r.mode === '5h' ? 'on' : ''}" data-act="rem-mode" data-id="5h">Every 5 hours${S.premium ? '' : '<span class="mini-lock">PRO</span>'}</button>
-        <button class="${r.mode === 'off' ? 'on' : ''}" data-act="rem-mode" data-id="off">Off</button>
+    <section class="card reminder-card">
+      <div class="reminder-head">
+        <span class="eyebrow">Nudge rhythm</span>
+        <span class="reminder-state">${r.mode === 'off' ? 'Paused' : r.mode === '4h' ? 'Every 4h' : formatClockTime(r.time || '08:00')}</span>
       </div>
-      ${r.mode === 'daily' ? `<div style="margin-top:12px"><input id="setTime" type="time" value="${esc(r.time)}" data-act-input="rem-time"/></div>` : ''}
-      <div class="seg-hint">${r.mode === '5h' ? 'Nudges at 9:00, 14:00 and 19:00 while the app is reachable.' : r.mode === 'daily' ? 'One focused nudge — pick the moment you usually drift.' : 'You’re flying solo. The grid still fills either way.'}</div>
+      <div class="reminder-modes">
+        <button class="rem-mode ${r.mode === 'daily' ? 'on' : ''}" data-act="rem-mode" data-id="daily"><b>Once daily</b><small>one cue</small></button>
+        <button class="rem-mode ${r.mode === '4h' ? 'on' : ''}" data-act="rem-mode" data-id="4h"><b>Pulse</b><small>every 4h · free</small></button>
+        <button class="rem-mode ${r.mode === 'off' ? 'on' : ''}" data-act="rem-mode" data-id="off"><b>Off</b><small>quiet</small></button>
+      </div>
+      ${r.mode === 'daily' || r.mode === '4h' ? `
+        <label class="rem-time-row" for="setTime">
+          <span><b>Reminder time</b><small>Pick the moment you usually drift.</small></span>
+          <input id="setTime" type="time" value="${esc(r.time)}" data-act-input="rem-time"/>
+        </label>` : ''}
+      <div class="reminder-note">${r.mode === '4h' ? `Free pulse reminders every 4 hours starting near ${formatClockTime(r.time || '08:00')}, while the app is reachable.` : r.mode === 'daily' ? 'A single clean nudge keeps this calm, not noisy.' : 'No reminders. Your reps and progress still track normally.'}</div>
     </section>
 
     <div class="section-title">Appearance</div>
@@ -1630,9 +3552,26 @@ function viewProfile() {
       </div>
     </section>
 
-    <div class="section-title">More</div>
+    ${isDevHost() ? productReadinessCard() : ''}
+
+    <div class="section-title">App organization</div>
     <button class="prow" data-act="edit"><span class="pe">✏️</span><span class="pl">Edit name, occupation & goal</span><span class="arr">›</span></button>
-    <button class="prow" data-act="protocol"><span class="pe">🧬</span><span class="pl">Protocol Tracker <span class="pro-badge">PRO</span></span><span class="pv">${S.protocols.length ? S.protocols.length + ' tracked' : ''}</span><span class="arr">›</span></button>
+    <button class="prow" data-act="tab" data-id="habits"><span class="pe">☑</span><span class="pl">Habit library</span><span class="pv">${S.habits.length}${S.premium ? '' : `/${FREE_HABITS}`} active</span><span class="arr">›</span></button>
+    <button class="prow" data-act="tab" data-id="focus"><span class="pe">🎯</span><span class="pl">Focus system</span><span class="pv">${focusStats().blockedCount ? focusStats().blockedCount + ' targets' : 'set up shield'}</span><span class="arr">›</span></button>
+    <button class="prow" data-act="tab" data-id="protocol"><span class="pe">🧬</span><span class="pl">Protocol tracker</span><span class="pv">${S.protocols.length ? S.protocols.length + ' tracked' : 'set up'}</span><span class="arr">›</span></button>
+    <button class="prow" data-act="tab" data-id="coach"><span class="pe">💬</span><span class="pl">AI Guidance</span><span class="pv">coach</span><span class="arr">›</span></button>
+
+    <div class="premium-card profile-premium-card">
+      <div class="pt">${S.premium ? 'Arc90 Premium · active' : PREMIUM_OFFER.name}</div>
+      <div class="ps">${S.premium
+        ? 'Axis Dashboard, Forge Mode, unlimited habits, advanced exports, and deeper coaching are active on this device.'
+        : `Axis Dashboard · Forge Mode · unlimited habits · weekly reviews · advanced exports. ${PREMIUM_OFFER.note}`}</div>
+      ${S.premium
+        ? `<button class="btn btn-ghost" data-act="premium-off" style="padding:12px">Switch back to Free (demo)</button>`
+        : `<button class="btn" data-act="paywall" style="padding:13px">${PREMIUM_OFFER.cta} · ${PREMIUM_OFFER.price}${PREMIUM_OFFER.interval}</button>`}
+    </div>
+
+    <div class="section-title">Data</div>
     <button class="prow" data-act="export"><span class="pe">📤</span><span class="pl">Export my data (JSON)</span><span class="arr">›</span></button>
     <button class="prow" data-act="import"><span class="pe">📥</span><span class="pl">Restore from backup</span><span class="arr">›</span></button>
     <input id="importFile" class="import-input" type="file" accept="application/json,.json"/>
@@ -1642,7 +3581,42 @@ function viewProfile() {
       🔒 All your data lives on this device. Export a backup before switching phones or clearing browser data.<br/><br/>
       📲 <b>iPhone:</b> open in Safari → Share → <b>Add to Home Screen</b> for the full-screen app.
     </div>
+    ${legalLinks()}
   `;
+}
+
+function productReadinessCard() {
+  return `
+    <div class="section-title">Native & payments</div>
+    <section class="card readiness-card">
+      <div class="readiness-row">
+        <span></span>
+        <div><b>HealthKit bridge</b><small>SwiftUI/Capacitor can pass steps and weight into Arc90. Web fallback is manual.</small></div>
+      </div>
+      <div class="readiness-row">
+        <span>$</span>
+        <div><b>Stripe checkout</b><small>Backend endpoint is wired. Add Stripe env vars in production to open live Checkout.</small></div>
+      </div>
+      <div class="readiness-row">
+        <span>📱</span>
+        <div><b>App Store path</b><small>SwiftUI gives best notifications/widgets; Capacitor is fastest from this PWA.</small></div>
+      </div>
+      <div class="readiness-row">
+        <span>⌚</span>
+        <div><b>Apple Watch bridge</b><small>Ready to mirror Today, habits, hydration, sleep, and protocol signals through WatchConnectivity.</small></div>
+      </div>
+      <button class="btn btn-ghost" data-act="watch-sync" style="padding:12px;margin-top:12px">Sync Apple Watch snapshot</button>
+      <button class="btn btn-ghost" data-act="stripe-checkout" style="padding:12px;margin-top:12px">Test checkout setup</button>
+    </section>`;
+}
+
+function legalLinks() {
+  return `
+    <div class="legal-links">
+      <a href="privacy.html">Privacy</a>
+      <span>·</span>
+      <a href="terms.html">Terms</a>
+    </div>`;
 }
 
 /* ============================================================
@@ -1665,19 +3639,28 @@ function viewSheet() {
 }
 
 function sheetPaywall() {
+  const copy = paywallCopy(sheet.context);
   return `
-    <h2>Arc90 Premium</h2>
-    <div class="sheet-sub">Understand your habits. Strengthen your routine. Build real momentum.</div>
-    <div class="pay-feat"><span class="pc">✓</span><span>Unlock your full <b>Axis Dashboard</b></span></div>
-    <div class="pay-feat"><span class="pc">✓</span><span>Personalized coaching insights</span></div>
-    <div class="pay-feat"><span class="pc">✓</span><span><b>Forge Mode</b> when you fall behind</span></div>
-    <div class="pay-feat"><span class="pc">✓</span><span>Unlimited habits and challenges</span></div>
-    <div class="pay-feat"><span class="pc">✓</span><span>Advanced reminders (every 5 hours) & reports</span></div>
-    <div class="pay-feat"><span class="pc">✓</span><span>Track your wellness routines privately with <b>Protocol Tracker</b></span></div>
-    <div class="pay-price"><div class="pp">$4.99<span style="font-size:14px;color:var(--tx-2)">/month</span></div><div class="pm">Cancel anytime.</div></div>
-    <button class="btn" data-act="premium-on" style="margin-top:10px">Start Arc90 Premium</button>
+    <div class="paywall-hero">
+      <span class="plan-kicker">${esc(copy.eyebrow)}</span>
+      <h2>${esc(copy.title)}</h2>
+      <div class="sheet-sub">${esc(copy.sub)}</div>
+    </div>
+    <div class="pay-benefit-grid">
+      ${premiumBenefits().map(([title, body]) => `
+        <div class="pay-benefit">
+          <span class="pc">✓</span>
+          <b>${esc(title)}</b>
+          <small>${esc(body)}</small>
+        </div>`).join('')}
+    </div>
+    <div class="pay-price">
+      <div class="pp">${PREMIUM_OFFER.price}<span style="font-size:14px;color:var(--tx-2)">${PREMIUM_OFFER.interval}</span></div>
+      <div class="pm">${esc(PREMIUM_OFFER.cadence)} · ${esc(PREMIUM_OFFER.note)}</div>
+    </div>
+    <button class="btn" data-act="stripe-checkout" style="margin-top:10px">${PREMIUM_OFFER.cta}</button>
     <button class="btn btn-ghost" data-act="close-sheet" style="margin-top:9px">Continue with Free</button>
-    <div class="pay-note">Demo build: the purchase is simulated on this device.<br/>The App Store version uses StoreKit 2 subscriptions.</div>
+    <div class="pay-note">Secure checkout opens through Stripe. The native App Store version will use StoreKit 2 subscriptions.</div>
   `;
 }
 
@@ -1730,13 +3713,6 @@ function rhythmPicker(h) {
 function reviewFields(k) {
   const l = dlog(k);
   const energy = l.energy || 3;
-  const moods = [
-    ['strong', 'Strong'],
-    ['steady', 'Steady'],
-    ['tired', 'Tired'],
-    ['stressed', 'Stressed'],
-    ['low', 'Low'],
-  ];
   return `
     <div class="field">
       <label>Energy</label>
@@ -1746,7 +3722,7 @@ function reviewFields(k) {
     <div class="field">
       <label>Mood</label>
       <div class="chip-grid review-moods">
-        ${moods.map(([id, label]) => `<button class="chip ${l.mood === id ? 'on' : ''}" data-review-mood="${id}">${label}</button>`).join('')}
+        ${MOOD_OPTIONS.map(([id, label]) => `<button class="chip ${l.mood === id ? 'on' : ''}" data-review-mood="${id}">${label}</button>`).join('')}
       </div>
     </div>
     <div class="field">
@@ -1761,9 +3737,14 @@ function reviewFields(k) {
 
 function sheetReview() {
   const k = sheet.date || todayKey();
+  const q = reflectionQuote(k === todayKey() ? 0 : k.split('-').join(''));
   return `
     <h2>Daily reflection</h2>
     <div class="sheet-sub">${niceDate(k)} · Track the context behind the checklist. Tiny notes turn into better coaching later.</div>
+    <div class="reflection-quote">
+      <span>${esc(q.quote)}</span>
+      <small>${esc(q.source)}</small>
+    </div>
     ${reviewFields(k)}
     <button class="btn" data-act="review-save">Save reflection</button>
     <div class="pay-note">Private and stored only on this device.</div>
@@ -1833,31 +3814,14 @@ function sheetProtocol() {
 
     ${S.protocols.map(protoRow).join('') || '<div class="empty-note">Nothing tracked yet. Add what you already use or do — Arc90 only records it.</div>'}
 
-    ${protoAddOpen ? `
-      <div class="card" style="margin-top:6px">
-        <div class="field"><label>Name</label><input id="pName" type="text" placeholder="e.g. Morning wellness routine" maxlength="48"/></div>
-        <div class="field"><label>Type</label>
-          <div class="chip-grid" id="pTypeChips">
-            ${PROTOCOL_TYPES.map((t, i) => `<button class="chip ${i === 0 ? 'on' : ''}" data-ptype="${t.id}">${t.emoji} ${t.label}</button>`).join('')}
-          </div></div>
-        <div class="field"><label>Frequency</label>
-          <div class="seg" id="pFreqSeg">
-            <button class="on" data-pfreq="Daily">Daily</button>
-            <button data-pfreq="Weekly">Weekly</button>
-            <button data-pfreq="As needed">As needed</button>
-          </div></div>
-        <div class="field"><label>Reminder time</label><input id="pTime" type="time" value="08:00"/></div>
-        <div class="field"><label>Notes (optional)</label><input id="pNotes" type="text" placeholder="e.g. After breakfast — as prescribed by my clinician" maxlength="120"/></div>
-        <button class="btn" data-act="proto-save">Save protocol</button>
-      </div>`
-      : `<button class="btn btn-ghost" data-act="proto-add" style="margin-top:6px">+ Add a protocol</button>`}
+    ${protoAddOpen ? protocolAddForm() : `<button class="btn btn-ghost" data-act="proto-add" style="margin-top:6px">+ Add a protocol</button>`}
 
     <button class="btn btn-ghost" data-act="proto-export" style="margin-top:9px">📄 Export report for your doctor</button>
   `;
 }
 
 function protoRow(p) {
-  const t = PROTOCOL_TYPES.find((x) => x.id === p.type) || PROTOCOL_TYPES[5];
+  const t = PROTOCOL_TYPES.find((x) => x.id === p.type) || PROTOCOL_TYPES[PROTOCOL_TYPES.length - 1];
   const logs = [...p.logs].slice(-3).reverse();
   const open = protoOpen === p.id;
   return `
@@ -1866,7 +3830,7 @@ function protoRow(p) {
         <span class="lib-emoji">${t.emoji}</span>
         <div style="flex:1;min-width:0">
           <div class="lib-name">${esc(p.name)}</div>
-          <div class="proto-type">${t.label} · ${esc(p.freq)} · ⏰ ${esc(p.time)}${p.notes ? ' · ' + esc(p.notes) : ''}</div>
+          <div class="proto-type">${t.label} · ${esc(doseSlotLabel(p.slot || inferDoseSlot(p.time)))} · ${esc(p.freq)} · ${esc(p.time)}${p.amount ? ' · ' + esc(p.amount) : ''}${p.reason ? ' · ' + esc(p.reason) : ''}${p.notes ? ' · ' + esc(p.notes) : ''}</div>
         </div>
         <button class="remove-btn" data-act="proto-del" data-id="${p.id}">✕</button>
       </div>
@@ -1902,7 +3866,7 @@ function renderOnboarding() {
   const dots = ob.step === 0 ? '' :
     `<div class="ob-dots">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
   app.innerHTML = `
-    <div class="ob ${ob.step === 0 ? 'welcome' : ''}">
+    <div class="ob ${ob.step === 0 ? 'welcome' : ''} ${ob.step === 3 ? 'reps-step' : ''}">
       ${ob.step > 0 ? `<div class="ob-top"><button class="ob-back" data-act="ob-back">← Back</button>${dots}</div>` : ''}
       <div class="ob-body">${steps[ob.step]()}</div>
     </div>`;
@@ -1982,7 +3946,7 @@ function obHabits() {
   return `
     <div>
       <div class="ob-title">Your daily <em>reps</em></div>
-      <div class="ob-sub">Based on your missions, we suggest these — then browse all 100. Keep 3–5: small enough to never miss.</div>
+      <div class="ob-sub">Based on your missions, we suggest these — then browse all 100. Pick up to 8 daily reps.</div>
 
       <div class="lib-group-head sticky-count"><span>⭐ Suggested for “${esc(ob.goal)}”</span><span class="count-bub" id="obCount">${n} picked</span></div>
       ${suggested.map((h) => pickRow(h)).join('')}
@@ -2000,7 +3964,9 @@ function obHabits() {
 
       <div class="section-title" style="margin-top:20px">The full library <span class="count-bub">100 habits · scroll & tap</span></div>
       ${groups}
-      <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${n > 0 ? '' : 'disabled'}>Continue with ${n} habit${n === 1 ? '' : 's'}</button>
+      <div class="ob-bottom-cta">
+        <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${n > 0 ? '' : 'disabled'}>Continue with ${n} habit${n === 1 ? '' : 's'}</button>
+      </div>
     </div>`;
 }
 
@@ -2024,11 +3990,11 @@ function obReminders() {
       <div class="ob-sub">A cue at the right moment is half the habit. Pick your rhythm.</div>
       <div class="seg" style="margin-bottom:14px">
         <button class="${ob.remMode === 'daily' ? 'on' : ''}" data-act="ob-rem" data-id="daily">Once a day</button>
-        <button data-act="ob-rem" data-id="5h">Every 5 hours<span class="mini-lock">PRO</span></button>
+        <button class="${ob.remMode === '4h' ? 'on' : ''}" data-act="ob-rem" data-id="4h">Every 4 hours</button>
         <button class="${ob.remMode === 'off' ? 'on' : ''}" data-act="ob-rem" data-id="off">Off</button>
       </div>
-      ${ob.remMode === 'daily' ? `<div class="field"><label>At what time?</label><input id="obTime" type="time" value="${esc(ob.remTime)}"/></div>` : ''}
-      <div class="seg-hint">${ob.remMode === 'daily' ? 'Pick the hour you usually drift. That’s where habits go to die.' : 'Brave. The 90-day grid will still fill — or not — either way. 👀'}</div>
+      ${ob.remMode === 'daily' || ob.remMode === '4h' ? `<div class="field"><label>${ob.remMode === '4h' ? 'Start at what time?' : 'At what time?'}</label><input id="obTime" type="time" value="${esc(ob.remTime)}"/></div>` : ''}
+      <div class="seg-hint">${ob.remMode === 'daily' ? 'Pick the hour you usually drift. That’s where habits go to die.' : ob.remMode === '4h' ? 'A gentle free pulse through the day, starting from your chosen time.' : 'Quiet mode. The 90-day grid will still tell the truth.'}</div>
       <button class="btn ob-cta" data-act="ob-next">Continue</button>
     </div>`;
 }
@@ -2101,6 +4067,10 @@ document.addEventListener('click', (e) => {
   if (ptype) { ptype.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.remove('on')); ptype.classList.add('on'); return; }
   const pfreq = e.target.closest('[data-pfreq]');
   if (pfreq) { pfreq.parentElement.querySelectorAll('button').forEach((c) => c.classList.remove('on')); pfreq.classList.add('on'); return; }
+  const pslot = e.target.closest('[data-pslot]');
+  if (pslot) { pslot.parentElement.querySelectorAll('button').forEach((c) => c.classList.remove('on')); pslot.classList.add('on'); return; }
+  const sleepQuality = e.target.closest('[data-sleep-quality]');
+  if (sleepQuality) { sleepQuality.parentElement.querySelectorAll('button').forEach((c) => c.classList.remove('on')); sleepQuality.classList.add('on'); return; }
   const sym = e.target.closest('[data-sym]');
   if (sym) { sym.classList.toggle('on'); return; }
   const reviewMood = e.target.closest('[data-review-mood]');
@@ -2116,11 +4086,15 @@ document.addEventListener('click', (e) => {
   const id = el.dataset.id;
 
   switch (act) {
-    case 'tab': tab = id; openQA = null; render(); break;
+    case 'side-open': navOpen = true; render(); break;
+    case 'side-close': navOpen = false; render(); break;
+    case 'tab': switchTab(id); break;
     case 'toggle': toggle(isNaN(+id) ? id : +id); break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
-    case 'close-sheet': sheet = null; protoOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
-    case 'cat': libCat = id; render(); break;
+    case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
+    case 'library-toggle': libraryOpen = !libraryOpen; render(); break;
+    case 'proto-template-toggle': protocolTemplatesOpen = !protocolTemplatesOpen; render(); break;
+    case 'cat': libCat = id; libraryOpen = true; render(); break;
 
     case 'lib-toggle': {
       const n = +id;
@@ -2159,6 +4133,7 @@ document.addEventListener('click', (e) => {
       if (inp && inp.value.trim()) { if (addCustom(inp.value)) render(); }
       break;
     }
+    case 'template-apply': applyTemplate(id); render(); break;
 
     case 'task-sheet': sheet = { type: 'task', id }; render(); break;
     case 'quick-min': {
@@ -2191,7 +4166,19 @@ document.addEventListener('click', (e) => {
       if (k === todayKey() && !wasAll && allDoneToday()) confetti();
       break;
     }
+    case 'mood-quick': setQuickMood(id); break;
     case 'review': sheet = { type: 'review', date: todayKey() }; render(); break;
+    case 'intention-save': {
+      const k = todayKey();
+      const l = dlog(k);
+      const inp = document.getElementById('intentionText');
+      l.intention = inp ? inp.value.trim() : '';
+      S.log[k] = l;
+      save();
+      render();
+      showNudge(l.intention ? 'Intention saved. Make it easy to honor.' : 'Intention cleared.');
+      break;
+    }
     case 'review-save': {
       const k = sheet.date || todayKey();
       const l = dlog(k);
@@ -2219,6 +4206,63 @@ document.addEventListener('click', (e) => {
     case 'axis-mode': axisMode = id; render(); break;
     case 'forge-start': startForge(); break;
     case 'forge-end': S.forge = null; save(); render(); break;
+    case 'focus-start': {
+      const nativeSent = startFocusSession(Number(el.dataset.minutes) || 30, el.dataset.label || 'Focus session', el.dataset.strict !== '0');
+      render();
+      showNudge(nativeSent
+        ? `${el.dataset.label || 'Focus session'} started. Native shield requested.`
+        : `${el.dataset.label || 'Focus session'} started. This build tracks focus; native Screen Time blocking is not connected yet.`);
+      break;
+    }
+    case 'focus-end': {
+      if (finishFocusSession('ended')) {
+        render();
+        showNudge('Focus session logged.');
+      }
+      break;
+    }
+    case 'focus-unlock': {
+      if (!S.focus.active) break;
+      if (!confirm('Emergency unlock?\n\nArc90 will log this break so you can spot the pattern later.')) break;
+      S.focus.active.unlocks = (S.focus.active.unlocks || 0) + 1;
+      S.focus.seq++;
+      S.focus.unlocks.unshift({ id: `fu${S.focus.seq}`, date: todayKey(), reason: 'Emergency unlock', label: S.focus.active.label });
+      save();
+      render();
+      showNudge('Unlock logged. That is data, not failure.');
+      break;
+    }
+    case 'focus-app-toggle': toggleFocusItem('apps', id); render(); break;
+    case 'focus-site-toggle': toggleFocusItem('sites', id); render(); break;
+    case 'focus-app-add': {
+      const input = document.getElementById('focusAppInput');
+      if (!input || !input.value.trim()) break;
+      const added = ensureFocusItem('apps', input.value);
+      input.value = '';
+      render();
+      showNudge(added ? 'App added to the shield list.' : 'That app is already on the shield list.');
+      break;
+    }
+    case 'focus-site-add': {
+      const input = document.getElementById('focusSiteInput');
+      if (!input || !input.value.trim()) break;
+      const added = ensureFocusItem('sites', input.value);
+      input.value = '';
+      render();
+      showNudge(added ? 'Site added to the shield list.' : 'That site is already on the shield list.');
+      break;
+    }
+    case 'focus-plan-template': {
+      const added = addFocusPlanFromTemplate(id);
+      render();
+      showNudge(added ? 'Focus window added.' : 'That focus window is already saved.');
+      break;
+    }
+    case 'focus-plan-del':
+      S.focus.plans = S.focus.plans.filter((p) => p.id !== id);
+      save();
+      render();
+      break;
 
     case 'ai-provider': S.ai.provider = id; save(); render(); break;
     case 'ai-connect': {
@@ -2229,10 +4273,16 @@ document.addEventListener('click', (e) => {
     case 'ai-disconnect': S.ai.key = ''; S.aiChat = []; save(); render(); break;
     case 'ai-clear': S.aiChat = []; save(); render(); break;
     case 'ai-send': sendAI(); break;
+    case 'weekly-ai-refresh': {
+      S.weeklyReviews[weekReviewKey()] = weeklyCoachReview();
+      save(); render();
+      showNudge('Weekly review refreshed.');
+      break;
+    }
 
     case 'rem-mode': {
-      if (id === '5h' && !S.premium) { gate('reminders'); break; }
-      S.reminders.mode = id; save();
+      S.reminders.mode = id === '5h' ? '4h' : id;
+      save();
       if (id !== 'off' && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
       render(); break;
     }
@@ -2249,12 +4299,42 @@ document.addEventListener('click', (e) => {
 
     case 'protocol': if (gate('protocol')) { sheet = { type: 'protocol' }; render(); } break;
     case 'proto-add': protoAddOpen = true; render(); break;
+    case 'proto-detail': protoDetailOpen = protoDetailOpen === id ? null : id; render(); break;
+    case 'proto-template': {
+      const tpl = PROTOCOL_TEMPLATES.find((x) => x.id === id);
+      if (!tpl) break;
+      const exists = S.protocols.some((p) => p.name.toLowerCase() === tpl.name.toLowerCase());
+      if (!exists) {
+        S.protoSeq++;
+        S.protocols.push({
+          id: 'p' + S.protoSeq,
+          name: tpl.name,
+          type: tpl.type,
+          amount: tpl.amount,
+          freq: tpl.freq,
+          time: tpl.time,
+          slot: tpl.slot || inferDoseSlot(tpl.time),
+          reason: tpl.reason,
+          notes: tpl.notes,
+          logs: [],
+        });
+        save();
+      }
+      showNudge(exists ? `${tpl.name} is already in your protocol.` : `${tpl.name} added to Protocol.`);
+      protocolTemplatesOpen = false;
+      protoDetailOpen = null;
+      render();
+      break;
+    }
     case 'proto-save': {
       const name = document.getElementById('pName');
       if (!name || !name.value.trim()) break;
       const type = document.querySelector('#pTypeChips .chip.on');
       const freq = document.querySelector('#pFreqSeg button.on');
+      const slot = document.querySelector('#pSlotSeg button.on');
       const time = document.getElementById('pTime');
+      const reason = document.getElementById('pReason');
+      const amount = document.getElementById('pAmount');
       const notes = document.getElementById('pNotes');
       S.protoSeq++;
       S.protocols.push({
@@ -2263,12 +4343,29 @@ document.addEventListener('click', (e) => {
         type: type ? type.dataset.ptype : 'other',
         freq: freq ? freq.dataset.pfreq : 'Daily',
         time: time && time.value ? time.value : '08:00',
+        slot: slot ? slot.dataset.pslot : inferDoseSlot(time && time.value ? time.value : '08:00'),
+        amount: amount ? amount.value.trim() : '',
+        reason: reason ? reason.value.trim() : '',
         notes: notes ? notes.value.trim() : '',
         logs: [],
       });
-      save(); protoAddOpen = false; render(); break;
+      save(); protoAddOpen = false; protoDetailOpen = null; render(); break;
     }
-    case 'proto-del': S.protocols = S.protocols.filter((p) => p.id !== id); save(); render(); break;
+    case 'proto-del': S.protocols = S.protocols.filter((p) => p.id !== id); protoDetailOpen = null; save(); render(); break;
+    case 'proto-toggle-today': {
+      const p = S.protocols.find((x) => x.id === id);
+      if (!p) break;
+      if (protocolLoggedOn(p)) {
+        p.logs = (p.logs || []).filter((l) => l.date !== todayKey());
+        showNudge(`${p.name} removed from today.`);
+      } else {
+        upsertProtocolLog(p, { date: todayKey(), symptoms: ['none'], note: 'quick check-in', urgent: false, source: 'quick' });
+        showNudge(`${p.name} registered for today.`);
+      }
+      save();
+      render();
+      break;
+    }
     case 'proto-log': protoOpen = protoOpen === id ? null : id; protoUrgent = false; render(); break;
     case 'proto-log-save': {
       const p = S.protocols.find((x) => x.id === id);
@@ -2276,7 +4373,7 @@ document.addEventListener('click', (e) => {
       const symptoms = [...document.querySelectorAll('#symChips .chip.on')].map((c) => c.dataset.sym);
       const note = document.getElementById('logNote');
       const urgent = symptoms.some((s) => { const d = SYMPTOMS.find((x) => x.id === s); return d && d.flag; });
-      p.logs.push({ date: todayKey(), symptoms, note: note ? note.value.trim() : '', urgent });
+      upsertProtocolLog(p, { date: todayKey(), symptoms, note: note ? note.value.trim() : '', urgent, source: 'detail' });
       save();
       protoOpen = null;
       protoUrgent = urgent;
@@ -2284,6 +4381,38 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'proto-export': exportProtocolReport(); break;
+    case 'sleep-save': {
+      const hours = document.getElementById('sleepHours');
+      const quality = document.querySelector('#sleepQualitySeg button.on');
+      const raw = hours ? hours.value : '';
+      setSleepDay(todayKey(), {
+        hours: raw === '' ? '' : Math.max(0, Math.min(18, Number(raw) || 0)),
+        quality: quality ? quality.dataset.sleepQuality : 'steady',
+      });
+      render();
+      showNudge('Sleep signal saved.');
+      break;
+    }
+    case 'water-add': {
+      const h = healthDay();
+      setHealthDay(todayKey(), { water: h.water + 1 });
+      render(); break;
+    }
+    case 'water-sub': {
+      const h = healthDay();
+      setHealthDay(todayKey(), { water: h.water - 1 });
+      render(); break;
+    }
+    case 'weight-save': {
+      const inp = document.getElementById('weightInput');
+      setHealthDay(todayKey(), { weight: inp ? inp.value : '' });
+      render();
+      showNudge('Weight saved privately on this device.');
+      break;
+    }
+    case 'health-sync': requestHealthSync(); break;
+    case 'watch-sync': requestWatchSync(); break;
+    case 'stripe-checkout': safeStripeCheckout(); break;
     case 'weekly-export': exportWeeklyReport(); break;
     case 'share-card': exportShareCard(); break;
     case 'export': exportData(); break;
@@ -2335,8 +4464,7 @@ document.addEventListener('click', (e) => {
     }
     case 'ob-uncustom': ob.customs.splice(+id, 1); renderOnboarding(); break;
     case 'ob-rem': {
-      if (id === '5h') { showNudge('Every-5-hours reminders unlock with Premium — you can switch in Profile later.'); break; }
-      ob.remMode = id; renderOnboarding(); break;
+      ob.remMode = id === '5h' ? '4h' : id; renderOnboarding(); break;
     }
     case 'ob-finish': finishOnboarding(); break;
   }
@@ -2442,58 +4570,59 @@ function shareCardSvg() {
 <svg xmlns="http://www.w3.org/2000/svg" width="1080" height="1350" viewBox="0 0 1080 1350">
   <defs>
     <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#07080c"/>
-      <stop offset="0.58" stop-color="#0d1718"/>
-      <stop offset="1" stop-color="#152014"/>
+      <stop offset="0" stop-color="#000000"/>
+      <stop offset="0.58" stop-color="#070810"/>
+      <stop offset="1" stop-color="#202131"/>
     </linearGradient>
     <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#64d8c0"/>
-      <stop offset="1" stop-color="#2f7df6"/>
+      <stop offset="0" stop-color="#5ee4ff"/>
+      <stop offset="0.52" stop-color="#8f6bff"/>
+      <stop offset="1" stop-color="#c14cff"/>
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2f7df6"/>
-      <stop offset="0.55" stop-color="#20c5a5"/>
-      <stop offset="1" stop-color="#f2b84b"/>
+      <stop offset="0" stop-color="#5ee4ff"/>
+      <stop offset="0.52" stop-color="#8f6bff"/>
+      <stop offset="1" stop-color="#c14cff"/>
     </linearGradient>
     <style>
-      .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#8f97ab;font-size:28px;font-weight:800;letter-spacing:5px}
-      .title{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#eef1f8;font-size:56px;font-weight:900}
-      .body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b7becf;font-size:30px;font-weight:650}
-      .metric{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#eef1f8;font-size:62px;font-weight:900}
-      .small{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#8f97ab;font-size:24px;font-weight:750}
-      .tiny{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#657086;font-size:18px;font-weight:850;letter-spacing:2px}
+      .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b8bbd4;font-size:28px;font-weight:800;letter-spacing:5px}
+      .title{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#f7f7ff;font-size:56px;font-weight:900}
+      .body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#d8daf0;font-size:30px;font-weight:650}
+      .metric{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#f7f7ff;font-size:62px;font-weight:900}
+      .small{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b8bbd4;font-size:24px;font-weight:750}
+      .tiny{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#70758f;font-size:18px;font-weight:850;letter-spacing:2px}
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#bgGrad)"/>
-  <circle cx="930" cy="90" r="260" fill="#20c5a5" opacity="0.12"/>
-  <circle cx="100" cy="1240" r="280" fill="#f2b84b" opacity="0.10"/>
-  <rect x="70" y="70" width="940" height="1210" rx="58" fill="#0f1118" opacity="0.88" stroke="#ffffff" stroke-opacity="0.08"/>
+  <circle cx="930" cy="90" r="260" fill="#8f6bff" opacity="0.18"/>
+  <circle cx="100" cy="1240" r="280" fill="#5ee4ff" opacity="0.08"/>
+  <rect x="70" y="70" width="940" height="1210" rx="58" fill="#11121c" opacity="0.94" stroke="#dce0ff" stroke-opacity="0.12"/>
 
   <text x="120" y="150" class="label">ARC90</text>
   <text x="120" y="238" class="title">${esc(compactText(S.profile.name || 'My progress', 24))} · Day ${dayNumber()}</text>
   <text x="120" y="292" class="body">${esc(compactText(S.profile.goal || 'Building the next 90 days', 48))}</text>
 
-  <circle cx="540" cy="500" r="142" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="28"/>
+  <circle cx="540" cy="500" r="142" fill="none" stroke="#dce0ff" stroke-opacity="0.10" stroke-width="28"/>
   <circle cx="540" cy="500" r="142" fill="none" stroke="url(#ring)" stroke-width="28" stroke-linecap="round"
     stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 540 500)"/>
   <text x="540" y="492" text-anchor="middle" class="metric">${momentum()}%</text>
   <text x="540" y="538" text-anchor="middle" class="small">Momentum Score</text>
 
-  <rect x="125" y="695" width="250" height="126" rx="30" fill="#151823" stroke="#ffffff" stroke-opacity="0.06"/>
+  <rect x="125" y="695" width="250" height="126" rx="30" fill="#151724" stroke="#ffffff" stroke-opacity="0.07"/>
   <text x="250" y="758" text-anchor="middle" class="metric">${w.pct}%</text>
   <text x="250" y="796" text-anchor="middle" class="small">this week</text>
-  <rect x="415" y="695" width="250" height="126" rx="30" fill="#151823" stroke="#ffffff" stroke-opacity="0.06"/>
+  <rect x="415" y="695" width="250" height="126" rx="30" fill="#151724" stroke="#ffffff" stroke-opacity="0.07"/>
   <text x="540" y="758" text-anchor="middle" class="metric">${totalReps()}</text>
   <text x="540" y="796" text-anchor="middle" class="small">votes cast</text>
-  <rect x="705" y="695" width="250" height="126" rx="30" fill="#151823" stroke="#ffffff" stroke-opacity="0.06"/>
+  <rect x="705" y="695" width="250" height="126" rx="30" fill="#151724" stroke="#ffffff" stroke-opacity="0.07"/>
   <text x="830" y="758" text-anchor="middle" class="metric">${bestStreak()}</text>
   <text x="830" y="796" text-anchor="middle" class="small">best streak</text>
 
   ${bars}
 
-  <rect x="120" y="1010" width="840" height="92" rx="28" fill="#151823" stroke="#ffffff" stroke-opacity="0.06"/>
+  <rect x="120" y="1010" width="840" height="92" rx="28" fill="#151724" stroke="#ffffff" stroke-opacity="0.07"/>
   <text x="160" y="1066" class="body">Anchor: ${esc(compactText(anchor, 34))}</text>
-  <rect x="120" y="1126" width="840" height="92" rx="28" fill="#151823" stroke="#ffffff" stroke-opacity="0.06"/>
+  <rect x="120" y="1126" width="840" height="92" rx="28" fill="#151724" stroke="#ffffff" stroke-opacity="0.07"/>
   <text x="160" y="1182" class="body">Focus: ${esc(compactText(focus, 36))}</text>
   <text x="120" y="1250" class="small">${unlocked}/${achievements.length} badges unlocked${next ? ` · Next: ${esc(compactText(next.title, 24))}` : ' · Arc complete'}</text>
 </svg>`;
@@ -2576,7 +4705,9 @@ function exportProtocolReport() {
   if (!S.protocols.length) lines.push('No protocols tracked.');
   for (const p of S.protocols) {
     const t = PROTOCOL_TYPES.find((x) => x.id === p.type);
-    lines.push('', `PROTOCOL: ${p.name}`, `Type: ${t ? t.label : p.type} · Frequency: ${p.freq} · Reminder: ${p.time}`);
+    lines.push('', `PROTOCOL: ${p.name}`, `Type: ${t ? t.label : p.type} · Timing: ${doseSlotLabel(p.slot || inferDoseSlot(p.time))} · Frequency: ${p.freq} · Reminder: ${p.time}`);
+    if (p.amount) lines.push(`Dose / amount tracked: ${p.amount}`);
+    if (p.reason) lines.push(`Tracking focus: ${p.reason}`);
     if (p.notes) lines.push(`Notes: ${p.notes}`);
     if (p.logs.length) {
       lines.push('Logs:');
@@ -2594,7 +4725,7 @@ function exportProtocolReport() {
    ============================================================ */
 
 function confetti() {
-  const colors = ['#2f7df6', '#20c5a5', '#f2b84b', '#f2f4f8', '#34d39b'];
+  const colors = ['#5ee4ff', '#8f6bff', '#c14cff', '#f7f7ff', '#5ee4c2'];
   for (let i = 0; i < 30; i++) {
     const b = document.createElement('div');
     b.className = 'confetti-bit';
@@ -2627,7 +4758,17 @@ function nudgeText() {
 
 function reminderSlots() {
   if (S.reminders.mode === 'daily') return [S.reminders.time || '08:00'];
-  if (S.reminders.mode === '5h' && S.premium) return ['09:00', '14:00', '19:00'];
+  if (S.reminders.mode === '4h' || S.reminders.mode === '5h') {
+    const [hh, mm] = String(S.reminders.time || '08:00').split(':').map((n) => Number(n) || 0);
+    const start = Math.max(0, Math.min(23 * 60 + 59, hh * 60 + mm));
+    const slots = [];
+    for (let mins = start; mins <= 22 * 60; mins += 240) {
+      const h = String(Math.floor(mins / 60)).padStart(2, '0');
+      const m = String(mins % 60).padStart(2, '0');
+      slots.push(`${h}:${m}`);
+    }
+    return slots.length ? slots : [S.reminders.time || '08:00'];
+  }
   return [];
 }
 
@@ -2651,8 +4792,14 @@ function checkReminders() {
   }
 }
 
-setInterval(checkReminders, 30000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); checkReminders(); } });
+setInterval(() => {
+  checkReminders();
+  if (S.onboarded && S.focus && S.focus.active) {
+    const changed = syncFocusState();
+    if (changed || tab === 'focus') render();
+  }
+}, 30000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncFocusState(); render(); checkReminders(); } });
 
 /* sticky glass header: gains blur + hairline once the page scrolls */
 window.addEventListener('scroll', () => {
@@ -2675,6 +4822,16 @@ window.__seed = function (days = 30, premium = false) {
   const today = atMidnight(new Date());
   S.profile.start = dkey(addDays(today, -(days - 1)));
   S.log = {};
+  S.focus = defaultFocusState();
+  S.focus.apps = ['Instagram', 'YouTube', 'X'];
+  S.focus.sites = ['instagram.com', 'youtube.com'];
+  S.focus.plans = [
+    { id: 'fp1', name: 'Morning build', days: [1, 2, 3, 4, 5], start: '08:30', end: '11:00', strict: true },
+    { id: 'fp2', name: 'Evening reset', days: [0, 1, 2, 3, 4, 5, 6], start: '20:30', end: '22:00', strict: false },
+  ];
+  S.focus.sessions = [];
+  S.focus.unlocks = [];
+  S.focus.seq = 2;
   const probs = S.habits.map((_, i) => i === 1 ? 0.93 : i === S.habits.length - 1 ? 0.34 : 0.72 + (i % 3) * 0.07);
   for (let i = days - 1; i >= 1; i--) {
     const k = dkey(addDays(today, -i));
@@ -2686,12 +4843,31 @@ window.__seed = function (days = 30, premium = false) {
       else if (r < probs[j] + 0.06) entry.skip.push(h.id);
     });
     S.log[k] = entry;
+    if (i <= Math.min(10, days - 1) && i % 2 === 0) {
+      S.focus.seq++;
+      S.focus.sessions.unshift({
+        id: `fs${S.focus.seq}`,
+        date: k,
+        startedAt: new Date(addDays(today, -i)).toISOString(),
+        label: i % 4 === 0 ? 'Builder block' : 'Deep work',
+        minutes: 45,
+        actualMinutes: 45,
+        strict: i % 4 === 0,
+        status: 'completed',
+        unlocks: i % 6 === 0 ? 1 : 0,
+        targets: ['Work out 30 min'],
+      });
+      if (i % 6 === 0) {
+        S.focus.unlocks.unshift({ id: `fu${S.focus.seq}`, date: k, reason: 'Emergency unlock', label: 'Builder block' });
+      }
+    }
   }
   S.log[todayKey()] = { done: S.habits.slice(0, 2).map((h) => h.id), min: [], skip: [] };
   save(); render();
   return `seeded ${days} days (premium: ${premium})`;
 };
 window.__reset = function () { localStorage.removeItem(KEY); location.reload(); };
+window.__arc90HealthSync = applyNativeHealthSync;
 
 /* ---------------- boot ---------------- */
 
@@ -2700,4 +4876,6 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 applyTheme();
+const bootNudge = consumeCheckoutReturn();
 render();
+if (bootNudge) setTimeout(() => showNudge(bootNudge), 500);

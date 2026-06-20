@@ -11,37 +11,37 @@
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Arc90" />
-  <meta name="theme-color" content="#07080c" />
+  <meta name="theme-color" content="#03040a" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="icon" href="icons/icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css" />
+  <link rel="stylesheet" href="css/styles.css?v=32" />
 </head>
 <body>
   <div id="app"></div>
 
-  <!-- shared SVG defs: signature Arc90 gradient (cobalt → violet → magenta) -->
+  <!-- shared SVG defs: signature Arc90 gradient (violet analytics glow) -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#2f7df6"/>
-        <stop offset="54%" stop-color="#20c5a5"/>
-        <stop offset="100%" stop-color="#f2b84b"/>
+        <stop offset="0%" stop-color="#5ee4ff"/>
+        <stop offset="48%" stop-color="#8f6bff"/>
+        <stop offset="100%" stop-color="#c14cff"/>
       </linearGradient>
       <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#20c5a5" stop-opacity="0.34"/>
-        <stop offset="100%" stop-color="#20c5a5" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#8f6bff" stop-opacity="0.36"/>
+        <stop offset="100%" stop-color="#c14cff" stop-opacity="0"/>
       </linearGradient>
       <linearGradient id="donutGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#2f7df6"/>
-        <stop offset="52%" stop-color="#20c5a5"/>
-        <stop offset="100%" stop-color="#f2b84b"/>
+        <stop offset="0%" stop-color="#5ee4ff"/>
+        <stop offset="48%" stop-color="#8f6bff"/>
+        <stop offset="100%" stop-color="#c14cff"/>
       </linearGradient>
     </defs>
   </svg>
 
-  <script src="js/data.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/data.js?v=32"></script>
+  <script src="js/app.js?v=32"></script>
 </body>
 </html>

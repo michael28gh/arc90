@@ -1,0 +1,12 @@
+{
+  "appId": "com.arc90.app",
+  "appName": "Arc90",
+  "webDir": "dist",
+  "bundledWebRuntime": false,
+  "backgroundColor": "#03040a",
+  "ios": {
+    "backgroundColor": "#03040a",
+    "contentInset": "never",
+    "scheme": "Arc90"
+  }
+}

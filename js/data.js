@@ -225,11 +225,12 @@ const NUDGES = [
    No recommendations, no dosing, no medical advice.
    ============================================================ */
 const PROTOCOL_TYPES = [
-  { id: 'medication', label: 'Medication', emoji: '💊' },
+  { id: 'vitamin',    label: 'Vitamin',    emoji: '☀️' },
   { id: 'supplement', label: 'Supplement', emoji: '🌿' },
   { id: 'peptide',    label: 'Peptide',    emoji: '🧬' },
+  { id: 'medication', label: 'Medication', emoji: '💊' },
   { id: 'nutrition',  label: 'Nutrition',  emoji: '🥗' },
-  { id: 'fitness',    label: 'Fitness',    emoji: '🏋️' },
+  { id: 'fitness',    label: 'Training',   emoji: '🏋️' },
   { id: 'other',      label: 'Other',      emoji: '📋' },
 ];
 
@@ -256,3 +257,26 @@ const PROTOCOL_DISCLAIMER = 'Track your routine, reminders, symptoms, and notes.
 const URGENT_MSG = 'This may need urgent medical attention. Please contact a medical professional or emergency services now.';
 
 const DOSING_BOUNDARY = 'Arc90 can help you track your routine, reminders, symptoms, and notes — but it cannot recommend doses or tell you what to take. For dosing or medical decisions, follow your clinician’s instructions.';
+
+const PROTOCOL_TEMPLATES = [
+  { id: 'vit-d3', emoji: '☀️', name: 'Vitamin D3', type: 'vitamin', amount: 'Label or clinician dose', reason: 'vitamin routine', freq: 'Daily', time: '08:00', slot: 'day', notes: 'Take as directed by label or clinician.' },
+  { id: 'magnesium', emoji: '🌙', name: 'Magnesium', type: 'supplement', amount: 'Label serving', reason: 'sleep / recovery signal', freq: 'Daily', time: '21:00', slot: 'night', notes: 'Track timing and next-day sleep quality.' },
+  { id: 'omega-3', emoji: '🐟', name: 'Omega-3', type: 'supplement', amount: 'Label serving', reason: 'nutrition support', freq: 'Daily', time: '12:00', slot: 'day', notes: 'Track with meals and body signals.' },
+  { id: 'creatine', emoji: '⚡', name: 'Creatine', type: 'supplement', amount: 'Label serving', reason: 'training support', freq: 'Daily', time: '10:00', slot: 'day', notes: 'Track consistency and training days.' },
+  { id: 'protein', emoji: '🥩', name: 'Protein target', type: 'nutrition', amount: 'Your daily target', reason: 'protein intake', freq: 'Daily', time: '19:00', slot: 'day', notes: 'Log meals or total protein from your own target.' },
+  { id: 'water', emoji: '💧', name: 'Water target', type: 'nutrition', amount: 'Your hydration target', reason: 'hydration', freq: 'Daily', time: '14:00', slot: 'day', notes: 'Track cups/ounces privately.' },
+  { id: 'electrolytes', emoji: '🧂', name: 'Electrolytes', type: 'supplement', amount: 'Label serving', reason: 'hydration support', freq: 'As needed', time: '12:00', slot: 'flex', notes: 'Track sweat, training, and how you feel.' },
+  { id: 'nicotine', emoji: '🚭', name: 'Nicotine use', type: 'other', amount: 'Track use only', reason: 'screen-time / craving awareness', freq: 'As needed', time: '18:00', slot: 'flex', notes: 'Use this as a reduction awareness log, not advice.' },
+  { id: 'peptide-plan', emoji: '🧬', name: 'Peptide protocol', type: 'peptide', amount: 'One clinician-directed dose', reason: 'clinician-guided protocol', freq: 'Daily', time: '08:00', slot: 'day', notes: 'Track one daily clinician-guided dose. Do not change dosing without your clinician.' },
+  { id: 'training', emoji: '🏋️', name: 'Training session', type: 'fitness', amount: 'Sets, reps, or duration', reason: 'training load', freq: 'Weekly', time: '17:00', slot: 'flex', notes: 'Log workout type, intensity, and recovery.' },
+  { id: 'sleep-window', emoji: '🛌', name: 'Sleep window', type: 'other', amount: 'Bedtime / wake target', reason: 'sleep consistency', freq: 'Daily', time: '21:30', slot: 'night', notes: 'Track duration, quality, and next-day energy.' },
+  { id: 'caffeine', emoji: '☕', name: 'Caffeine', type: 'nutrition', amount: 'mg from label', reason: 'energy / sleep signal', freq: 'As needed', time: '09:00', slot: 'day', notes: 'Track timing to compare against sleep quality.' },
+];
+
+const CHALLENGE_TEMPLATES = [
+  { id: 'body-reset', emoji: '🏆', name: 'Body Reset', desc: 'Training, protein, hydration, sleep, and steps.', habits: [11, 12, 21, 23, 61], goal: 'Build a stronger, healthier body in 90 days' },
+  { id: 'lean-energy', emoji: '🥗', name: 'Lean Energy', desc: 'Clean meals, vegetables, water, walks, and no late snacking.', habits: [21, 22, 23, 18, 26], goal: 'Feel lighter, cleaner, and more energetic' },
+  { id: 'deep-work', emoji: '💼', name: 'Deep Work Sprint', desc: 'Focused work, planning, skill growth, inbox reset, and shipping.', habits: [51, 52, 56, 53, 60], goal: 'Build a focused work system that ships' },
+  { id: 'calm-mind', emoji: '🧘', name: 'Calm Mind', desc: 'Meditation, journaling, walks, gratitude, and digital sunset.', habits: [41, 42, 47, 43, 46], goal: 'Become calm, clear, and emotionally steady' },
+  { id: 'money-discipline', emoji: '💰', name: 'Money Discipline', desc: 'No-spend days, expense logs, savings, grocery list, and subscription audits.', habits: [31, 32, 34, 37, 36], goal: 'Build financial discipline for the next 90 days' },
+];
