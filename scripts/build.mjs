@@ -5,7 +5,7 @@ import { join } from 'node:path';
 const root = new URL('..', import.meta.url).pathname;
 const dist = join(root, 'dist');
 const entries = [
-  'index.html',
+  'landing.html',
   'manifest.webmanifest',
   'sw.js',
   'privacy.html',
@@ -26,4 +26,8 @@ for (const entry of entries) {
   await cp(from, join(dist, entry), { recursive: true });
 }
 
-console.log(`Arc90 static build ready in ${dist}`);
+// Homepage = marketing landing; the PWA itself lives at /app (served from app.html via cleanUrls).
+await cp(join(root, 'landing.html'), join(dist, 'index.html'));
+await cp(join(root, 'index.html'), join(dist, 'app.html'));
+
+console.log(`Arc90 static build ready in ${dist} (landing at /, app at /app)`);

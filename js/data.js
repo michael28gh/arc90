@@ -212,12 +212,52 @@ const COACH_QA = [
 
 /* Daily nudge copy — rotated for reminders & in-app banners. */
 const NUDGES = [
-  'Day {day} of 90. {left} habit{s} left today — keep the arc filling. ⚡',
-  'Small reps, real momentum. {left} to go today.',
-  '90-day you is built today. Knock out {left} more.',
-  'Don’t break the chain — {left} habit{s} between you and a complete day.',
-  'Two minutes counts. Start the smallest one.',
-  'Show up sloppy if you must — just show up. {left} left.',
+  'Day {day} of 90. {left} habit{s} left today — keep going, you’ve got this. ⚡',
+  'Small reps, real momentum. {left} to go today. Keep going! 🙌',
+  '90-day you is built today. Knock out {left} more — proud of you. 💪',
+  'Don’t break the chain — {left} habit{s} between you and a complete day. 🔥',
+  'Two minutes counts. Start the smallest one — let’s keep this bread rising. 🍞',
+  'Show up sloppy if you must — just show up. {left} left. You’re doing great. ✨',
+  'Hey, the arc misses you. {left} habit{s} left — one rep and you’re back. 💛',
+];
+
+/* Warm, encouraging one-liners shown after a habit is completed. */
+const CHEERS = [
+  'Keep going — that’s another vote for who you’re becoming. 🙌',
+  'That’s the rep. Momentum loves you right now. ⚡',
+  'Let’s keep this bread rising — one more brick in the arc. 🍞',
+  'Proud of you. Small reps, real change. 💪',
+  'Look at you go — the streak is breathing. 🔥',
+  'Done is beautiful. On to the next. ✨',
+  'You showed up. That’s the whole game. 💛',
+  'Brick by brick, day by day. Nice one. 🧱',
+];
+
+/* A fresh insight each day — the variable reward that makes opening Arc90 worth it. */
+const DAILY_INSIGHTS = [
+  'Identity beats willpower. Every rep is a vote for the person you’re becoming.',
+  'Two minutes is the cheat code. Start so small it feels silly — momentum does the rest.',
+  'Don’t break the chain. A streak is just a promise you keep to yourself.',
+  'Motivation follows action, not the other way around. Move first.',
+  'You don’t rise to your goals — you fall to your systems. Trust the arc.',
+  'Never miss twice. One slip is an accident; two is the start of a new habit.',
+  'Consistency compounds. Boring days are where the real change is built.',
+  'The habit you skip today is the one your future self begs you to keep.',
+  'Make it obvious, make it easy, make it satisfying. Then just show up.',
+  'Discipline is choosing what you want most over what you want now.',
+  'Small wins rewire your brain. Celebrate the rep, not just the result.',
+  'Show up on the worst days. Those are the ones that define the arc.',
+  'Your environment is stronger than your intentions. Set the stage for the win.',
+  'Progress, not perfection. A 1% better day, 90 times, changes everything.',
+];
+
+/* Quick post-habit check-in: how do you feel after the rep? */
+const HABIT_FEELINGS = [
+  { id: 'energized', emoji: '⚡', label: 'More energy', energy: 5, mood: 'strong' },
+  { id: 'better',    emoji: '🙂', label: 'Better mood', energy: 4, mood: 'steady' },
+  { id: 'calm',      emoji: '😌', label: 'Calmer',      energy: 4, mood: 'steady' },
+  { id: 'same',      emoji: '😐', label: 'About the same' },
+  { id: 'drained',   emoji: '😮‍💨', label: 'Drained',  energy: 2, mood: 'tired' },
 ];
 
 /* ============================================================
@@ -271,6 +311,9 @@ const PROTOCOL_TEMPLATES = [
   { id: 'training', emoji: '🏋️', name: 'Training session', type: 'fitness', amount: 'Sets, reps, or duration', reason: 'training load', freq: 'Weekly', time: '17:00', slot: 'flex', notes: 'Log workout type, intensity, and recovery.' },
   { id: 'sleep-window', emoji: '🛌', name: 'Sleep window', type: 'other', amount: 'Bedtime / wake target', reason: 'sleep consistency', freq: 'Daily', time: '21:30', slot: 'night', notes: 'Track duration, quality, and next-day energy.' },
   { id: 'caffeine', emoji: '☕', name: 'Caffeine', type: 'nutrition', amount: 'mg from label', reason: 'energy / sleep signal', freq: 'As needed', time: '09:00', slot: 'day', notes: 'Track timing to compare against sleep quality.' },
+  { id: 'med-morning', emoji: '💊', name: 'Morning medication', type: 'medication', amount: 'As prescribed', reason: 'prescription adherence', freq: 'Daily', time: '08:00', slot: 'day', notes: 'Track that you took it as prescribed. Arc90 never advises on dosing.' },
+  { id: 'med-evening', emoji: '💊', name: 'Evening medication', type: 'medication', amount: 'As prescribed', reason: 'prescription adherence', freq: 'Daily', time: '20:00', slot: 'night', notes: 'Track evening doses as prescribed by your clinician.' },
+  { id: 'med-prn', emoji: '💊', name: 'As-needed medication', type: 'medication', amount: 'As prescribed', reason: 'symptom relief tracking', freq: 'As needed', time: '12:00', slot: 'flex', notes: 'Log when you take an as-needed medication. Tracking only, not advice.' },
 ];
 
 const CHALLENGE_TEMPLATES = [

@@ -36,8 +36,8 @@ module.exports = async function handler(req, res) {
   params.set('line_items[0][quantity]', '1');
   params.set('allow_promotion_codes', 'true');
   params.set('billing_address_collection', 'auto');
-  params.set('success_url', `${baseUrl}/index.html?checkout=success`);
-  params.set('cancel_url', `${baseUrl}/index.html?checkout=canceled`);
+  params.set('success_url', `${baseUrl}/app?checkout=success`);
+  params.set('cancel_url', `${baseUrl}/app?checkout=canceled`);
   params.set('metadata[app]', 'arc90');
 
   try {

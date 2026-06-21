@@ -17,6 +17,8 @@ const PREMIUM_OFFER = {
   price: '$49',
   interval: '/year',
   cadence: 'about $4/month',
+  perWeek: 'Just $0.94 / week',
+  anchor: 'Less than one coffee a month for your whole 90-day system.',
   cta: 'Get Founder Premium',
   note: 'Launch price for early users. Cancel anytime.',
 };
@@ -31,6 +33,7 @@ function defaultFocusState() {
     active: null,
     unlocks: [],
     seq: 0,
+    allDayLock: { on: false, date: '' },
   };
 }
 
@@ -45,7 +48,7 @@ function defaultState() {
     habits: [],                  // [{id, emoji, name, cat, min}]
     customSeq: 0,
     log: {},                     // { 'YYYY-MM-DD': {done:[], min:[], skip:[]} }
-    health: { water: {}, weight: {}, steps: {}, sleep: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7 } },
+    health: { water: {}, weight: {}, steps: {}, sleep: {}, rhr: {}, hrv: {}, vo2: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7 } },
     weeklyReviews: {},           // { 'YYYY-WW-ish': {summary, focus, action, generated} }
     product: { stripeMode: 'server-required', nativeBridge: false },
     reminders: { mode: 'daily', time: '08:00' },
@@ -71,12 +74,14 @@ function normalizeState(data) {
   s.health.weight = s.health.weight && typeof s.health.weight === 'object' ? s.health.weight : {};
   s.health.steps = s.health.steps && typeof s.health.steps === 'object' ? s.health.steps : {};
   s.health.sleep = s.health.sleep && typeof s.health.sleep === 'object' ? s.health.sleep : {};
+  for (const m of ['rhr', 'hrv', 'vo2']) s.health[m] = s.health[m] && typeof s.health[m] === 'object' ? s.health[m] : {};
   s.weeklyReviews = data.weeklyReviews && typeof data.weeklyReviews === 'object' ? data.weeklyReviews : {};
   s.product = Object.assign(defaultState().product, data.product || {});
   s.log = data.log && typeof data.log === 'object' ? data.log : {};
   for (const k of Object.keys(s.log)) {
     if (Array.isArray(s.log[k])) s.log[k] = { done: s.log[k], min: [], skip: [] };
-    else s.log[k] = Object.assign({ done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '' }, s.log[k] || {});
+    else s.log[k] = Object.assign({ done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', feels: {} }, s.log[k] || {});
+    if (!s.log[k].feels || typeof s.log[k].feels !== 'object') s.log[k].feels = {};
   }
   s.habits = Array.isArray(data.habits) ? data.habits.map((h) => ({ rhythm: 'daily', emoji: '•', name: 'Untitled habit', cat: 'custom', min: '2-minute version', ...h })) : [];
   s.aiChat = Array.isArray(data.aiChat) ? data.aiChat : [];
@@ -110,6 +115,7 @@ let protoDetailOpen = null;      // protocol id with open quick details
 let protoAddOpen = false;
 let protoUrgent = false;
 let protocolTemplatesOpen = false;
+let sleepEditKey = null;          // which day the sleep form is editing (null = today)
 
 let ob = null;
 function freshOb() {
@@ -227,6 +233,9 @@ function normalizeFocusState(data) {
       label: u.label || '',
     })) : [],
     seq: Math.max(0, Number(base.seq) || 0),
+    allDayLock: base.allDayLock && typeof base.allDayLock === 'object'
+      ? { on: !!base.allDayLock.on, date: base.allDayLock.date || '' }
+      : { on: false, date: '' },
   };
 }
 
@@ -244,7 +253,7 @@ function scheduledFor(h, k) {
 
 function dlog(k) {
   const v = S.log[k];
-  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', intention: '' };
+  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', intention: '', feels: {} };
   if (!v) return base;
   if (Array.isArray(v)) return { ...base, done: v };
   return {
@@ -284,6 +293,10 @@ function toggle(id) {
   if (completing && navigator.vibrate) navigator.vibrate(12);
   render();
   if (!wasAll && allDoneToday()) confetti();
+  if (completing) {
+    const h = S.habits.find((x) => String(x.id) === String(id));
+    if (h) showFeelNudge(h);
+  }
 }
 
 function actionable(k) {
@@ -373,6 +386,74 @@ function streak(id) {
     else break;
   }
   return s;
+}
+
+function dayCompleted(k) {
+  return S.habits.some((h) => isCompleted(h.id, k));
+}
+
+/* Consecutive days (back from today) with at least one rep. An unfinished today
+   doesn't break it; pure rest days (nothing scheduled) are skipped, not counted. */
+function dayStreak() {
+  const today = atMidnight(new Date());
+  let s = 0;
+  let i = dayCompleted(dkey(today)) ? 0 : 1;
+  for (; ; i++) {
+    const d = addDays(today, -i);
+    if (d < startDate()) break;
+    const k = dkey(d);
+    if (rateFor(k) === null) continue;
+    if (dayCompleted(k)) s++; else break;
+  }
+  return s;
+}
+
+function bestDayStreak() {
+  const today = atMidnight(new Date());
+  let best = 0, run = 0;
+  for (let i = elapsedDays() - 1; i >= 0; i--) {
+    const k = dkey(addDays(today, -i));
+    if (rateFor(k) === null) continue;
+    if (dayCompleted(k)) { run++; best = Math.max(best, run); } else run = 0;
+  }
+  return Math.max(best, dayStreak());
+}
+
+function perfectDays() {
+  const today = atMidnight(new Date());
+  let n = 0;
+  for (let i = 0; i < elapsedDays(); i++) if (rateFor(dkey(addDays(today, -i))) === 1) n++;
+  return n;
+}
+
+function dailyInsight() {
+  return DAILY_INSIGHTS[(dayNumber() + S.tipSeed) % DAILY_INSIGHTS.length];
+}
+
+function streakBannerCard() {
+  const s = dayStreak();
+  const best = bestDayStreak();
+  const todayDone = dayCompleted(todayKey());
+  const perfect = perfectDays();
+  const atRisk = s > 0 && !todayDone;
+  const state = atRisk ? 'risk' : s > 0 ? 'live' : 'cold';
+  const line = atRisk
+    ? `Your ${s}-day streak ends at midnight — one rep keeps it alive.`
+    : s > 0
+      ? (todayDone ? 'Streak secured for today. 🟢 Come back tomorrow.' : '')
+      : 'Log one rep today to start your streak.';
+  return `
+    <section class="card streak-banner ${state}">
+      <div class="streak-row">
+        <div class="streak-flame">${s > 0 ? '🔥' : '✦'}</div>
+        <div class="streak-main">
+          <div class="streak-count"><b>${s}</b><span>day${s === 1 ? '' : 's'} streak</span></div>
+          <div class="streak-meta">Best ${best} · ${perfect} perfect day${perfect === 1 ? '' : 's'}</div>
+        </div>
+      </div>
+      ${line ? `<div class="streak-line">${esc(line)}</div>` : ''}
+      <div class="streak-insight"><span>Today’s insight</span><p>${esc(dailyInsight())}</p></div>
+    </section>`;
 }
 
 function bestStreak() {
@@ -1174,7 +1255,61 @@ const ICONS = {
   coach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.9 8.9 0 01-3.2-.6L3 21l1.7-5.1a8.3 8.3 0 01-1.2-4.4 8.4 8.4 0 018.5-8.4 8.4 8.4 0 019 8.4z"/></svg>',
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.6-3.4 4.5-5 8-5s6.4 1.6 8 5"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+  vitals: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-5 3 10 2.4-6 1.6 3H21"/></svg>',
 };
+
+/* ---- Habit icon system: clean line icons instead of emoji ---- */
+const HI = (p, extra = '') => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${extra}>${p}</svg>`;
+const HABIT_ICONS = {
+  dumbbell: HI('<path d="M3 9v6M6 7.5v9M18 7.5v9M21 9v6M6 12h12"/>'),
+  run: HI('<path d="M2 12h3.4l2-6 3.6 12 2.4-8 1.8 4H22"/>'),
+  steps: HI('<ellipse cx="8" cy="7" rx="2.3" ry="3.2" fill="currentColor" stroke="none"/><path d="M5.7 12c0-.9.9-1.5 2.3-1.5s2.3.6 2.3 1.5c0 1.5-.5 2.3-2.3 2.3S5.7 13.5 5.7 12z" fill="currentColor" stroke="none"/><ellipse cx="16" cy="11" rx="2.3" ry="3.2" fill="currentColor" stroke="none"/><path d="M13.7 16c0-.9.9-1.5 2.3-1.5s2.3.6 2.3 1.5c0 1.5-.5 2.3-2.3 2.3s-2.3-.8-2.3-2.3z" fill="currentColor" stroke="none"/>'),
+  water: HI('<path d="M12 3c4 5 6 8 6 11a6 6 0 0 1-12 0c0-3 2-6 6-11z"/>'),
+  food: HI('<path d="M6 3v8M4.5 3v4a1.5 1.5 0 0 0 3 0V3M6 11v10M17 3c-1.6 0-2.6 2.2-2.6 4.8S15.4 12 17 12v9"/>'),
+  book: HI('<path d="M12 6c-2-1.2-4.6-1.5-7-1v12c2.4-.5 5-.2 7 1 2-1.2 4.6-1.5 7-1V5c-2.4-.5-5-.2-7 1z"/><path d="M12 6v13"/>'),
+  leaf: HI('<path d="M12 21c0-6 3-9.5 8-11.5C19 16 16 19.5 12 21z"/><path d="M12 21c0-6-3-9.5-8-11.5C5 16 8 19.5 12 21z"/><path d="M12 21v-9"/>'),
+  moon: HI('<path d="M20 14.5A8 8 0 1 1 10 4.2 6.5 6.5 0 0 0 20 14.5z"/>'),
+  pen: HI('<path d="M4 20l1-4L16 5l3 3L8 19z"/><path d="M14 7l3 3"/>'),
+  money: HI('<circle cx="12" cy="12" r="8.5"/><path d="M12 7v10M14.6 9.3c-.6-.8-1.6-1.1-2.6-1.1-1.4 0-2.4.8-2.4 1.9 0 2.6 5.2 1.3 5.2 4 0 1.2-1 2-2.6 2-1.1 0-2.1-.4-2.7-1.2"/>'),
+  target: HI('<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><circle cx="12" cy="12" r="1.3" fill="currentColor" stroke="none"/>'),
+  phoneOff: HI('<rect x="6" y="3" width="12" height="18" rx="2.5"/><path d="M10 6h4"/><path d="M4 4l16 16"/>'),
+  sun: HI('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.3M12 19.2v2.3M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.5 12h2.3M19.2 12h2.3M4.4 19.6l1.6-1.6M18 6l1.6-1.6"/>'),
+  pill: HI('<rect x="3" y="9" width="18" height="6" rx="3" transform="rotate(-45 12 12)"/><path d="M8.4 8.4l7.2 7.2"/>'),
+  music: HI('<path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>'),
+  home: HI('<path d="M4 11l8-7 8 7"/><path d="M6 9.5V20h12V9.5"/>'),
+  heart: HI('<path d="M12 20S4 14.5 4 8.9A4.3 4.3 0 0 1 12 6a4.3 4.3 0 0 1 8 2.9C20 14.5 12 20 12 20z"/>'),
+  coffee: HI('<path d="M5 8h12v4a5 5 0 0 1-5 5h-2a5 5 0 0 1-5-5z"/><path d="M17 9h2.2a2.3 2.3 0 0 1 0 4.6H17"/><path d="M9 3.5c-.5 1 .5 1.6 0 2.6M12.5 3.5c-.5 1 .5 1.6 0 2.6"/>'),
+  cold: HI('<path d="M12 2v20M4 7l16 10M20 7L4 17"/><path d="M9 3.6L12 6l3-2.4M9 20.4L12 18l3 2.4"/>'),
+  spark: HI('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/>'),
+  check: ICONS.check,
+};
+
+function habitIcon(h) {
+  const n = (h && h.name ? h.name : '').toLowerCase();
+  const has = (...ws) => ws.some((w) => n.includes(w));
+  if (has('workout', 'gym', 'lift', 'strength', 'train', 'exercise', 'push-up', 'pushup', 'squat', 'weights', 'pull-up')) return HABIT_ICONS.dumbbell;
+  if (has('run', 'jog', 'cardio', 'sprint', 'treadmill')) return HABIT_ICONS.run;
+  if (has('walk', 'steps', '10k', 'stroll', 'hike', 'step ')) return HABIT_ICONS.steps;
+  if (has('water', 'hydrate', 'drink', 'glass', 'h2o')) return HABIT_ICONS.water;
+  if (has('eat', 'meal', 'veg', 'fruit', 'salad', 'protein', 'cook', 'nutrition', 'diet', 'breakfast', 'lunch', 'dinner', 'snack', 'greens', 'sugar')) return HABIT_ICONS.food;
+  if (has('read', 'book', 'study', 'learn', 'pages', 'course', 'article', 'audiobook')) return HABIT_ICONS.book;
+  if (has('meditat', 'mindful', 'breath', 'calm', 'zen', 'yoga', 'stretch', 'mobility', 'grateful', 'gratitude')) return HABIT_ICONS.leaf;
+  if (has('sleep', 'bed', 'rest', 'nap', 'wind down', 'wind-down', 'lights out')) return HABIT_ICONS.moon;
+  if (has('journal', 'write', 'plan', 'reflect', 'diary', 'note', 'affirm', 'intention')) return HABIT_ICONS.pen;
+  if (has('money', 'save', 'budget', 'expense', 'invest', 'spend', 'finance', 'bill', 'subscription', 'net worth')) return HABIT_ICONS.money;
+  if (has('focus', 'deep work', 'ship', 'code', 'build', 'inbox', 'email', 'priority', 'task', 'work', 'study block')) return HABIT_ICONS.target;
+  if (has('phone', 'screen', 'social', 'scroll', 'digital', 'no phone', 'sunset', 'detox')) return HABIT_ICONS.phoneOff;
+  if (has('morning', 'wake', 'sunrise', 'sunlight', 'sunshine')) return HABIT_ICONS.sun;
+  if (has('supplement', 'vitamin', 'pill', 'medication', 'creatine', 'omega', 'magnesium')) return HABIT_ICONS.pill;
+  if (has('music', 'guitar', 'piano', 'sing', 'instrument', 'practice', 'language', 'draw', 'paint', 'art', 'create', 'design')) return HABIT_ICONS.music;
+  if (has('clean', 'tidy', 'declutter', 'chore', 'laundry', 'dishes', 'admin', 'organize', 'make bed')) return HABIT_ICONS.home;
+  if (has('call', 'family', 'friend', 'relationship', 'connect', 'love', 'partner', 'kids', 'text', 'reach out', 'date')) return HABIT_ICONS.heart;
+  if (has('coffee', 'caffeine', 'tea')) return HABIT_ICONS.coffee;
+  if (has('cold', 'ice', 'shower', 'sauna', 'plunge')) return HABIT_ICONS.cold;
+  if (has('nature', 'outdoor', 'garden', 'plant', 'outside', 'fresh air')) return HABIT_ICONS.leaf;
+  const byCat = { learn: 'book', move: 'dumbbell', eat: 'food', money: 'money', mind: 'leaf', work: 'target', sleep: 'moon', create: 'music', connect: 'heart', home: 'home', custom: 'spark' };
+  return HABIT_ICONS[byCat[h && h.cat]] || HABIT_ICONS.spark;
+}
 
 /* ---------------- theme ---------------- */
 
@@ -1326,7 +1461,7 @@ function premiumBenefits() {
 
 const app = document.getElementById('app');
 
-const TAB_ORDER = ['today', 'progress', 'habits', 'focus', 'protocol', 'coach', 'profile'];
+const TAB_ORDER = ['today', 'progress', 'habits', 'focus', 'protocol', 'vitals', 'coach', 'profile'];
 function mainTabOf(id) {
   return TAB_ORDER.includes(id) ? id : 'today';
 }
@@ -1340,7 +1475,7 @@ function render() {
   const animate = lastRenderedTab !== tab;
   const directionClass = animate ? ` enter-${tabDirection === 'prev' ? 'prev' : 'next'}` : '';
   lastRenderedTab = tab;
-  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, coach: viewCoach, profile: viewProfile };
+  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, vitals: viewVitals, coach: viewCoach, profile: viewProfile };
   app.innerHTML = `
     <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
     <button class="side-toggle ${navOpen ? 'open' : ''}" data-act="${navOpen ? 'side-close' : 'side-open'}" aria-label="${navOpen ? 'Close menu' : 'Open menu'}">
@@ -1389,6 +1524,7 @@ function sideDrawer() {
         <div class="side-group">
           <div class="side-label">Operations</div>
           ${sideNavBtn('protocol', 'Protocol', ICONS.protocol, `${S.protocols.length}`)}
+          ${sideNavBtn('vitals', 'Vitals', ICONS.vitals)}
         </div>
         <button class="side-upgrade" data-act="paywall">${S.premium ? 'Premium Active' : 'Upgrade to Pro'}</button>
       </aside>
@@ -1459,6 +1595,7 @@ function viewToday() {
       </div>
     </header>
 
+    ${S.habits.length ? streakBannerCard() : ''}
     ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div></div>` : ''}
     ${forgeActive() ? `<div class="forge-banner">🔥 <div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
@@ -1562,7 +1699,7 @@ function habitCheckTile(h) {
   const cls = st === 'done' ? 'done' : st === 'min' ? 'done min' : st === 'skip' ? 'skip' : off ? 'off' : '';
   return `
     <button class="habit-check-tile ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}">
-      <span class="habit-check-emoji">${h.emoji}</span>
+      <span class="habit-check-emoji">${habitIcon(h)}</span>
       <span class="habit-check-name">${esc(shortHabitName(h.name))}</span>
       <span class="habit-check-state">${done ? '✓' : st === 'skip' ? '–' : '+'}</span>
     </button>`;
@@ -1913,7 +2050,7 @@ function quickPill(h) {
   const on = st === 'done' || st === 'min';
   const off = !scheduledFor(h, todayKey()) && !on;
   const cls = st === 'done' ? 'done' : st === 'min' ? 'done min' : st === 'skip' ? 'skip' : off ? 'off' : '';
-  return `<button class="qpill ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}"><span class="qe">${h.emoji}</span><span class="qn">${esc(h.name)}</span><span class="qc">${on ? ICONS.check : ''}</span></button>`;
+  return `<button class="qpill ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}"><span class="qe">${habitIcon(h)}</span><span class="qn">${esc(h.name)}</span><span class="qc">${on ? ICONS.check : ''}</span></button>`;
 }
 
 function taskRow(h) {
@@ -1926,7 +2063,7 @@ function taskRow(h) {
     <div class="task-row ${cls}">
       <div class="task-main" data-act="toggle" data-id="${h.id}">
         <span class="task-check">${ICONS.check}</span>
-        <span class="task-emoji">${h.emoji}</span>
+        <span class="task-emoji">${habitIcon(h)}</span>
         <div style="flex:1;min-width:0">
           <div class="task-name">${esc(h.name)}</div>
           <div class="task-state">${stateLab || rhythmLabel(h, true)}</div>
@@ -2034,17 +2171,15 @@ function libraryPanel() {
 
 function challengeTemplatesPanel() {
   return `
-    <section class="card templates-card">
+    <section class="card templates-card minimal">
       <div class="card-head">
         <span class="eyebrow">Challenge templates</span>
-        <span class="pro-badge">GROWTH</span>
       </div>
-      <div class="template-grid">
+      <div class="template-grid minimal">
         ${CHALLENGE_TEMPLATES.map((t) => `
-          <button class="template-tile" data-act="template-apply" data-id="${t.id}">
-            <span>${t.emoji}</span>
+          <button class="template-tile" data-act="template-apply" data-id="${t.id}" title="${esc(t.desc)}">
+            <span class="tt-emoji">${t.emoji}</span>
             <b>${esc(t.name)}</b>
-            <small>${esc(t.desc)}</small>
           </button>`).join('')}
       </div>
     </section>`;
@@ -2059,7 +2194,7 @@ function mineRow(h) {
   }
   return `
     <div class="mine-row">
-      <span class="lib-emoji">${h.emoji}</span>
+      <span class="lib-emoji">${habitIcon(h)}</span>
       <div class="mine-copy">
         <div class="lib-name">${esc(h.name)}</div>
         <div class="lib-cat">${rhythmLabel(h)} · min: ${esc(h.min || '2-minute version')}</div>
@@ -2084,7 +2219,7 @@ function libList() {
     return `
       <button class="ltile ${added ? 'added' : ''}" data-act="lib-toggle" data-id="${h.id}" title="min: ${esc(h.min)}">
         <span class="ltb">${added ? '✓' : '+'}</span>
-        <span class="lte">${h.emoji}</span>
+        <span class="lte">${habitIcon(h)}</span>
         <span class="ltn">${esc(h.name)}</span>
       </button>`;
   }).join('')}</div>`;
@@ -2270,6 +2405,8 @@ function viewFocus() {
       <div class="focus-next-line"><b>Protect next:</b> ${esc(next ? next.name : (S.profile.goal || 'your next important block'))}</div>
     </section>
 
+    ${focusAllDayCard()}
+
     <section class="card focus-shield-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Focus targets</span>
@@ -2323,6 +2460,31 @@ function focusTargetSummary() {
     </div>`;
 }
 
+/* All-day lock: one persistent, day-scoped shield slot for every focus target. */
+function allDayLockActive() {
+  const l = S.focus && S.focus.allDayLock;
+  return !!(l && l.on && l.date === todayKey());
+}
+
+function focusAllDayCard() {
+  const on = allDayLockActive();
+  const targets = focusStats().blockedCount;
+  return `
+    <section class="card focus-allday-card ${on ? 'on' : ''}">
+      <div class="allday-row">
+        <div class="allday-copy">
+          <span class="tip-tag" style="margin:0">All-day lock</span>
+          <div class="allday-title">${on ? 'Locked all day' : 'Lock apps for the whole day'}</div>
+          <p>${on
+            ? `Your ${targets} target${targets === 1 ? '' : 's'} are shielded until midnight — one slot, no timer.`
+            : 'Shield every focus target from now until midnight. One switch, no timer, no exits.'}</p>
+        </div>
+        <button class="allday-switch ${on ? 'on' : ''}" data-act="focus-allday-toggle" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Toggle all-day lock"><i></i></button>
+      </div>
+      ${!targets ? '<div class="allday-empty">Add at least one app or site below, then flip the lock.</div>' : ''}
+    </section>`;
+}
+
 /* ============================================================
    PROGRESS
    ============================================================ */
@@ -2338,6 +2500,7 @@ function viewProgress() {
       </div>
     </header>
 
+    ${commandCenterCard()}
     ${progressArcMapCard()}
     ${progressAnalyticsCard()}
     ${moodGraphPanel()}
@@ -2348,6 +2511,108 @@ function viewProgress() {
     ${progressPulseCard()}
     ${progressMantraCard()}
   `;
+}
+
+/* ---- Command Center: Whoop/Oura-style biometric deck from real Arc90 data ---- */
+function cmTier(pct) { return pct >= 70 ? 'good' : pct >= 45 ? 'mid' : 'low'; }
+
+function cmRing(pct) {
+  const R = 52, C = 2 * Math.PI * R;
+  const off = C * (1 - Math.max(0, Math.min(100, pct)) / 100);
+  return `
+    <div class="cmd-ring">
+      <svg viewBox="0 0 120 120" aria-hidden="true">
+        <circle class="cmd-ring-track" cx="60" cy="60" r="${R}" fill="none" stroke-width="11"/>
+        <circle class="cmd-ring-fill" cx="60" cy="60" r="${R}" fill="none" stroke-width="11" stroke-linecap="round"
+          stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${off.toFixed(1)}" transform="rotate(-90 60 60)"/>
+      </svg>
+      <div class="cmd-ring-center"><b data-countup="${Math.round(pct)}">0</b><span>%</span></div>
+    </div>`;
+}
+
+function cmGauge(pct, label, value) {
+  const len = Math.PI * 80; // semicircle arc length for r=80
+  const fill = Math.max(0, Math.min(100, pct));
+  return `
+    <div class="cmd-gauge ${cmTier(fill)}">
+      <svg viewBox="0 0 200 118" aria-hidden="true">
+        <path class="cmd-gauge-track" d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke-width="13" stroke-linecap="round"/>
+        <path class="cmd-gauge-fill" d="M20,100 A80,80 0 0 1 180,100" fill="none" stroke-width="13" stroke-linecap="round"
+          stroke-dasharray="${(len * fill / 100).toFixed(1)} ${len.toFixed(1)}"/>
+      </svg>
+      <div class="cmd-gauge-center"><b>${esc(String(value))}</b><span>${esc(label)}</span></div>
+    </div>`;
+}
+
+function commandCenterCard() {
+  const k = todayKey();
+  const ready = momentum();
+  const tier = cmTier(ready);
+  const readyWord = ready >= 70 ? 'Primed' : ready >= 45 ? 'Building' : 'Recover';
+  const s = sleepStats(7);
+  const sleepPct = s.avg ? Math.min(100, Math.round((s.avg / Math.max(1, s.goal)) * 100)) : 0;
+  const f = focusStats();
+  const focusPct = Math.round((f.consistency / 7) * 100);
+  const keptPct = Math.round(avgRate(7) * 100);
+
+  const act = actionable(k);
+  const totalToday = Math.max(1, act.length);
+  const doneToday = act.filter((h) => isCompleted(h.id, k)).length;
+  const strain = Math.min(21, Math.round((doneToday * 1.6 + f.todayMinutes / 12) * 10) / 10);
+  const strainPct = Math.round((strain / 21) * 100);
+
+  const h = healthDay(k);
+  const sd = sleepDay(k);
+  const set = S.health.settings;
+  const pctOf = (v, g) => Math.min(100, Math.round((Number(v) || 0) / Math.max(1, g) * 100));
+
+  const metrics = [
+    { label: 'Sleep performance', pct: sleepPct, c: 'm-cyan' },
+    { label: 'Focus shield', pct: focusPct, c: 'm-acc' },
+    { label: 'Consistency', pct: keptPct, c: 'm-mint' },
+  ];
+  const vitals = [
+    { k: 'Habits', v: `${doneToday}/${totalToday}`, pct: Math.round((doneToday / totalToday) * 100), c: 'v-acc' },
+    { k: 'Hydration', v: `${h.water}/${set.waterGoal}`, pct: pctOf(h.water, set.waterGoal), c: 'v-cyan' },
+    { k: 'Steps', v: h.steps ? `${h.steps}` : '—', pct: pctOf(h.steps, set.stepGoal), c: 'v-mint' },
+    { k: 'Sleep', v: sd.hours !== '' ? `${sd.hours}h` : '—', pct: sd.hours !== '' ? pctOf(sd.hours, set.sleepGoal) : 0, c: 'v-amber' },
+  ];
+
+  return `
+    <section class="card cmd-center">
+      <div class="card-head">
+        <span class="eyebrow">Command center</span>
+        <span class="cmd-live"><i></i>live</span>
+      </div>
+      <div class="cmd-deck">
+        <div class="cmd-ring-wrap ${tier}">
+          ${cmRing(ready)}
+          <div class="cmd-ring-meta"><b>Readiness</b><span>${readyWord}</span></div>
+        </div>
+        <div class="cmd-metrics">
+          ${metrics.map((m) => `
+            <div class="cmd-metric ${m.c}">
+              <div class="cmd-metric-top"><span>${m.label}</span><b>${m.pct}%</b></div>
+              <div class="cmd-bar"><i style="width:${Math.max(3, m.pct)}%"></i></div>
+            </div>`).join('')}
+        </div>
+      </div>
+      <div class="cmd-gauge-wrap ${cmTier(strainPct)}">
+        ${cmGauge(strainPct, 'daily load', strain.toFixed(1))}
+        <div class="cmd-gauge-copy">
+          <b>Today’s load</b>
+          <small>${doneToday} rep${doneToday === 1 ? '' : 's'} · ${formatFocusMinutes(f.todayMinutes)} focused</small>
+        </div>
+      </div>
+      <div class="cmd-vitals">
+        ${vitals.map((v) => `
+          <div class="cmd-vital ${v.c}">
+            <span class="cv-k">${v.k}</span>
+            <span class="cv-v">${esc(v.v)}</span>
+            <div class="cmd-bar sm"><i style="width:${Math.max(3, v.pct)}%"></i></div>
+          </div>`).join('')}
+      </div>
+    </section>`;
 }
 
 function progressAnalyticsCard() {
@@ -2911,7 +3176,7 @@ function habitBreakdownInner(rec) {
     const pct = Math.round(habitRate(h.id, elapsedDays()) * 100);
     return `
       <div class="hbar-row">
-        <span class="e">${h.emoji}</span>
+        <span class="e">${habitIcon(h)}</span>
         <div class="hbar-meta">
           <div class="hbar-name">${esc(h.name)}</div>
           <div class="hbar-track"><div class="hbar-fill ${pct < 50 ? 'weak' : ''}" style="width:${pct}%"></div></div>
@@ -2967,6 +3232,109 @@ function viewProtocol() {
     ${sleepAnalysisCard()}
 
     <div class="empty-note" style="padding-top:10px">Track what you already do. Arc90 records patterns, adherence, and body signals only; medical decisions stay with you and a licensed professional.</div>
+  `;
+}
+
+/* ============================================================
+   VITALS — biohacking metrics hub
+   ============================================================ */
+function vitalVal(key, k) {
+  if (key === 'sleep') { const s = sleepDay(k); return s.hours === '' ? null : Number(s.hours); }
+  const m = S.health[key];
+  if (!m) return null;
+  const v = m[k];
+  if (v === undefined || v === '' || v === null) return null;
+  return key === 'weight' ? v : Number(v);
+}
+
+function vitalLatest(key) {
+  const today = atMidnight(new Date());
+  for (let i = 0; i < 90; i++) {
+    const k = dkey(addDays(today, -i));
+    const v = vitalVal(key, k);
+    if (v !== null && v !== undefined && v !== '') return { k, v };
+  }
+  return null;
+}
+
+function vitalTrend(key) {
+  const today = atMidnight(new Date());
+  const vals = [];
+  for (let i = 0; i < 90 && vals.length < 2; i++) {
+    const v = vitalVal(key, dkey(addDays(today, -i)));
+    if (v !== null && v !== '' && v !== undefined && !isNaN(Number(v))) vals.push(Number(v));
+  }
+  if (vals.length < 2) return null;
+  const d = vals[0] - vals[1];
+  return { dir: d > 0 ? 'up' : d < 0 ? 'down' : 'flat', delta: Math.round(Math.abs(d) * 10) / 10 };
+}
+
+function vitalSpark(key, n = 12) {
+  const today = atMidnight(new Date());
+  const vals = [];
+  for (let i = n - 1; i >= 0; i--) {
+    const raw = vitalVal(key, dkey(addDays(today, -i)));
+    vals.push((raw === null || raw === '' || raw === undefined) ? null : Number(raw));
+  }
+  const nums = vals.filter((x) => x !== null && !isNaN(x));
+  if (!nums.length) return vals.map(() => '<i class="cv-spark-bar empty"></i>').join('');
+  const max = Math.max(...nums), min = Math.min(...nums), range = Math.max(0.001, max - min);
+  return vals.map((v) => {
+    if (v === null || isNaN(v)) return '<i class="cv-spark-bar empty"></i>';
+    const pct = Math.max(14, Math.round(((v - min) / range) * 100));
+    return `<i class="cv-spark-bar" style="height:${pct}%"></i>`;
+  }).join('');
+}
+
+function vitalCard(m) {
+  const latest = vitalLatest(m.key);
+  const today = vitalVal(m.key, todayKey());
+  const t = vitalTrend(m.key);
+  let badge = '';
+  if (t && t.dir !== 'flat') {
+    const good = m.dir === 'flat' ? null : (m.dir === 'down' ? t.dir === 'down' : t.dir === 'up');
+    const cls = good === null ? 'flat' : (good ? 'good' : 'bad');
+    badge = `<span class="vital-trend ${cls}">${t.dir === 'up' ? '▲' : '▼'} ${t.delta}</span>`;
+  }
+  const goalTxt = m.goal
+    ? `goal ${m.goal}${m.unit ? ' ' + m.unit : ''}`
+    : (m.dir === 'down' ? 'lower trends = better' : m.dir === 'up' ? 'higher trends = better' : 'track the trend');
+  return `
+    <section class="card vital-card">
+      <div class="vital-top"><span class="vital-label">${esc(m.label)}</span>${badge}</div>
+      <div class="vital-value">${latest ? esc(String(latest.v)) : '—'}${m.unit ? `<em>${esc(m.unit)}</em>` : ''}</div>
+      <div class="vital-spark">${vitalSpark(m.key)}</div>
+      <div class="vital-sub">${esc(goalTxt)}</div>
+      <div class="vital-log">
+        <input id="vital-${m.key}" type="number" step="${m.step}" min="0" placeholder="${esc(m.ph)}" value="${today !== null && today !== undefined ? esc(String(today)) : ''}"/>
+        <button class="btn btn-ghost" data-act="vital-save" data-key="${m.key}">Log</button>
+      </div>
+    </section>`;
+}
+
+function viewVitals() {
+  const set = S.health.settings;
+  const metrics = [
+    { key: 'rhr', label: 'Resting HR', unit: 'bpm', dir: 'down', step: '1', ph: 'bpm' },
+    { key: 'hrv', label: 'HRV', unit: 'ms', dir: 'up', step: '1', ph: 'ms' },
+    { key: 'vo2', label: 'VO2 max', unit: '', dir: 'up', step: '0.1', ph: 'ml/kg/min' },
+    { key: 'weight', label: 'Weight', unit: '', dir: 'flat', step: '0.1', ph: 'kg / lb' },
+    { key: 'sleep', label: 'Sleep', unit: 'h', dir: 'up', step: '0.25', ph: 'hours', goal: set.sleepGoal },
+    { key: 'steps', label: 'Steps', unit: '', dir: 'up', step: '100', ph: 'steps', goal: set.stepGoal },
+    { key: 'water', label: 'Hydration', unit: '', dir: 'up', step: '1', ph: 'glasses', goal: set.waterGoal },
+  ];
+  return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Vitals</h1>
+        <div class="sub">Biohacking signals · recovery, sleep, output</div>
+      </div>
+    </header>
+    <div class="vital-grid">
+      ${metrics.map(vitalCard).join('')}
+    </div>
+    <div class="empty-note" style="padding-top:10px">Log manually for now — the native build can auto-sync these from Apple Health, Oura, or Whoop. Arc90 tracks signals only; it never gives medical advice.</div>
   `;
 }
 
@@ -3087,7 +3455,7 @@ function protocolTodayStack() {
         <div>
           <span class="tip-tag" style="margin:0">Daily protocol</span>
           <h3>${stats.total ? (complete ? 'Stack complete' : `${remaining} left today`) : 'Choose your stack'}</h3>
-          <p>${stats.total ? 'Tap once to register. Open details only when you need context.' : 'Pick the routines you already follow. Arc90 turns them into a daily check-off stack.'}</p>
+          <p>${stats.total ? 'Tap once to register. Open details only when you need context.' : 'Pick the routines you already follow.'}</p>
         </div>
         <div class="protocol-score">
           <b>${stats.total ? pct : 0}%</b>
@@ -3107,16 +3475,15 @@ function protocolTodayStack() {
 }
 
 function protocolEmptyStarter() {
-  const starters = ['vit-d3', 'magnesium', 'creatine', 'protein', 'peptide-plan', 'sleep-window']
+  const starters = ['vit-d3', 'magnesium', 'med-morning', 'med-evening', 'med-prn', 'creatine', 'protein', 'peptide-plan', 'omega-3', 'sleep-window', 'caffeine', 'electrolytes']
     .map((id) => PROTOCOL_TEMPLATES.find((t) => t.id === id))
     .filter(Boolean);
   return `
-    <div class="protocol-empty-stack">
-      <b>No protocol selected yet</b>
-      <span>Start with one or two. These are tracking templates only; use your own label or clinician direction for amounts.</span>
+    <div class="protocol-empty-stack compact">
+      <span class="pes-hint">Tap what you already take — tracking only, your own label or clinician direction for amounts.</span>
       <div class="protocol-starter-grid">
         ${starters.map((t) => `
-          <button data-act="proto-template" data-id="${t.id}">
+          <button data-act="proto-template" data-id="${t.id}" title="${esc(t.name)}">
             <span>${t.emoji}</span>
             <b>${esc(t.name)}</b>
           </button>`).join('')}
@@ -3295,9 +3662,11 @@ function protocolAddForm() {
 }
 
 function sleepAnalysisCard() {
-  const today = sleepDay();
   const stats = sleepStats(7);
   const logged = stats.rows.length;
+  const editKey = sleepEditKey && sleepDay(sleepEditKey) ? sleepEditKey : todayKey();
+  const editing = sleepDay(editKey);
+  const isToday = editKey === todayKey();
   const qualityOptions = [
     ['strong', 'Deep'],
     ['steady', 'Steady'],
@@ -3308,7 +3677,9 @@ function sleepAnalysisCard() {
     const s = sleepDay(k);
     const h = s.hours === '' ? 0 : Number(s.hours);
     const pct = Math.max(8, Math.min(100, Math.round((h / Math.max(stats.goal + 2, 8)) * 100)));
-    return `<i class="${h >= stats.goal ? 'kept' : h ? 'low' : ''}" style="height:${h ? pct : 8}%"><span>${h ? h.toFixed(h % 1 ? 1 : 0) : ''}</span></i>`;
+    const cls = `${h >= stats.goal ? 'kept' : h ? 'low' : ''}${k === editKey ? ' editing' : ''}`;
+    const dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][new Date(k + 'T00:00').getDay()] || '';
+    return `<button class="sleep-bar ${cls}" data-act="sleep-day" data-key="${k}" aria-label="Log sleep for ${niceDate(k)}"><span class="sh">${h ? h.toFixed(h % 1 ? 1 : 0) : ''}</span><span class="strack"><i style="height:${h ? pct : 8}%"></i></span><span class="sd">${dow}</span></button>`;
   }).join('');
   return `
     <section class="card sleep-card">
@@ -3329,14 +3700,18 @@ function sleepAnalysisCard() {
         <div><span>Met goal</span><b>${stats.kept}/${logged || 7}</b></div>
         <div><span>Consistency</span><b>${esc(stats.consistency)}</b></div>
       </div>
+      <div class="sleep-form-head">
+        <span>Hours slept · <b>${isToday ? 'last night' : niceDate(editKey)}</b></span>
+        ${isToday ? '' : `<button class="mini-act" data-act="sleep-day" data-key="${todayKey()}">back to today</button>`}
+      </div>
       <div class="sleep-form">
-        <input id="sleepHours" type="number" min="0" max="18" step="0.25" value="${today.hours === '' ? '' : esc(today.hours)}" placeholder="hours"/>
+        <input id="sleepHours" type="number" min="0" max="18" step="0.25" value="${editing.hours === '' ? '' : esc(editing.hours)}" placeholder="hours"/>
         <div class="seg" id="sleepQualitySeg">
-          ${qualityOptions.map(([value, label]) => `<button class="${today.quality === value ? 'on' : ''}" data-sleep-quality="${value}">${label}</button>`).join('')}
+          ${qualityOptions.map(([value, label]) => `<button class="${editing.quality === value ? 'on' : ''}" data-sleep-quality="${value}">${label}</button>`).join('')}
         </div>
         <button class="btn" data-act="sleep-save">Save sleep</button>
       </div>
-      <div class="seg-hint">Scientific baseline: duration, regularity, and next-day performance matter together. This is pattern tracking, not diagnosis.</div>
+      <div class="seg-hint">Tap any bar to log the hours you slept that night. Duration, regularity, and next-day energy matter together — this is pattern tracking, not diagnosis.</div>
     </section>`;
 }
 
@@ -3640,27 +4015,49 @@ function viewSheet() {
 
 function sheetPaywall() {
   const copy = paywallCopy(sheet.context);
+  const compare = [
+    ['Active habits', `${FREE_HABITS}`, 'Unlimited'],
+    ['Command Center dashboard', '—', 'Full'],
+    ['Vitals & biohacking metrics', '—', 'Full'],
+    ['Forge recovery mode', '—', 'Included'],
+    ['Weekly reviews & exports', '—', 'Included'],
+    ['Focus all-day lock', '—', 'Included'],
+  ];
   return `
     <div class="paywall-hero">
       <span class="plan-kicker">${esc(copy.eyebrow)}</span>
       <h2>${esc(copy.title)}</h2>
       <div class="sheet-sub">${esc(copy.sub)}</div>
     </div>
-    <div class="pay-benefit-grid">
+
+    <div class="pay-stack">
       ${premiumBenefits().map(([title, body]) => `
-        <div class="pay-benefit">
+        <div class="pay-stack-row">
           <span class="pc">✓</span>
-          <b>${esc(title)}</b>
-          <small>${esc(body)}</small>
+          <div><b>${esc(title)}</b><small>${esc(body)}</small></div>
         </div>`).join('')}
     </div>
-    <div class="pay-price">
-      <div class="pp">${PREMIUM_OFFER.price}<span style="font-size:14px;color:var(--tx-2)">${PREMIUM_OFFER.interval}</span></div>
-      <div class="pm">${esc(PREMIUM_OFFER.cadence)} · ${esc(PREMIUM_OFFER.note)}</div>
+
+    <div class="pay-compare">
+      <div class="pay-compare-row head"><span>What you get</span><span>Free</span><span class="pro">Premium</span></div>
+      ${compare.map(([k, f, p]) => `
+        <div class="pay-compare-row">
+          <span>${esc(k)}</span>
+          <span class="${f === '—' ? 'no' : ''}">${esc(f)}</span>
+          <span class="yes">${esc(p)}</span>
+        </div>`).join('')}
     </div>
-    <button class="btn" data-act="stripe-checkout" style="margin-top:10px">${PREMIUM_OFFER.cta}</button>
-    <button class="btn btn-ghost" data-act="close-sheet" style="margin-top:9px">Continue with Free</button>
-    <div class="pay-note">Secure checkout opens through Stripe. The native App Store version will use StoreKit 2 subscriptions.</div>
+
+    <div class="pay-price2">
+      <div class="pp2">${PREMIUM_OFFER.price}<span>${PREMIUM_OFFER.interval}</span></div>
+      <div class="pp2-week">${esc(PREMIUM_OFFER.perWeek)}</div>
+      <div class="pp2-anchor">${esc(PREMIUM_OFFER.anchor)}</div>
+      <div class="pp2-urgency">★ Founding price — locked in for early members</div>
+    </div>
+
+    <button class="btn pay-cta" data-act="stripe-checkout">${PREMIUM_OFFER.cta} · ${PREMIUM_OFFER.price}${PREMIUM_OFFER.interval}</button>
+    <button class="btn btn-ghost" data-act="close-sheet" style="margin-top:9px">Maybe later — continue Free</button>
+    <div class="pay-trust"><span>✓ Cancel anytime</span><span>✓ Private &amp; local-first</span><span>✓ Secure Stripe</span></div>
   `;
 }
 
@@ -3672,7 +4069,7 @@ function sheetTask() {
   const rate30 = Math.round(habitRate(h.id, 30) * 100);
   const nextDue = nextScheduledDate(h);
   return `
-    <h2>${h.emoji} ${esc(h.name)}</h2>
+    <h2><span class="h2-glyph">${habitIcon(h)}</span>${esc(h.name)}</h2>
     <div class="sheet-sub">${rhythmLabel(h)} · next due ${niceDate(nextDue)} · today: ${todayStats === 'off' ? 'not scheduled' : todayStats}</div>
     <div class="habit-pulse">
       <div><span>${streak(h.id)}</span><small>streak</small></div>
@@ -3682,10 +4079,7 @@ function sheetTask() {
     ${habitMiniHeat(h)}
 
     <div class="sheet-section">Tune habit</div>
-    <div class="habit-edit-grid">
-      <div class="field"><label>Emoji</label><input id="habitEmoji" type="text" value="${esc(h.emoji)}" maxlength="4"/></div>
-      <div class="field"><label>Name</label><input id="habitName" type="text" value="${esc(h.name)}" maxlength="56"/></div>
-    </div>
+    <div class="field"><label>Name</label><input id="habitName" type="text" value="${esc(h.name)}" maxlength="56"/></div>
     <div class="field"><label>Minimum version</label><input id="habitMin" type="text" value="${esc(h.min || '2-minute version')}" maxlength="72"/></div>
     <button class="btn btn-ghost tune-save" data-act="habit-save" data-id="${h.id}">Save habit tuning</button>
 
@@ -3762,7 +4156,7 @@ function dayHabitRow(h, k) {
   return `
     <div class="day-edit-row">
       <div class="day-edit-main">
-        <span class="lib-emoji">${h.emoji}</span>
+        <span class="lib-emoji">${habitIcon(h)}</span>
         <div>
           <div class="lib-name">${esc(h.name)}</div>
           <div class="lib-cat">${rhythmLabel(h)} · ${esc(h.min || '2-minute version')}</div>
@@ -3975,7 +4369,7 @@ function pickRow(h) {
   return `
     <button class="pick-row ${on ? 'on' : ''}" data-act="ob-pick" data-id="${h.id}">
       <span class="pick-box">${ICONS.check}</span>
-      <span class="lib-emoji">${h.emoji}</span>
+      <span class="lib-emoji">${habitIcon(h)}</span>
       <div style="flex:1;min-width:0">
         <div class="lib-name">${esc(h.name)}</div>
         <div class="lib-cat">${catOf(h.cat).emoji} ${catOf(h.cat).name} · min: ${esc(h.min)}</div>
@@ -4117,10 +4511,8 @@ document.addEventListener('click', (e) => {
     case 'habit-save': {
       const h = S.habits.find((x) => String(x.id) === String(id));
       if (!h) break;
-      const emoji = document.getElementById('habitEmoji');
       const name = document.getElementById('habitName');
       const min = document.getElementById('habitMin');
-      if (emoji && emoji.value.trim()) h.emoji = emoji.value.trim().slice(0, 4);
       if (name && name.value.trim()) h.name = name.value.trim();
       if (min && min.value.trim()) h.min = min.value.trim();
       save();
@@ -4167,6 +4559,7 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'mood-quick': setQuickMood(id); break;
+    case 'feel-set': recordFeel(el.dataset.hid, id); break;
     case 'review': sheet = { type: 'review', date: todayKey() }; render(); break;
     case 'intention-save': {
       const k = todayKey();
@@ -4230,6 +4623,15 @@ document.addEventListener('click', (e) => {
       save();
       render();
       showNudge('Unlock logged. That is data, not failure.');
+      break;
+    }
+    case 'focus-allday-toggle': {
+      const cur = allDayLockActive();
+      if (!cur && !focusStats().blockedCount) { showNudge('Add at least one app or site to lock first.'); break; }
+      S.focus.allDayLock = { on: !cur, date: todayKey() };
+      save();
+      render();
+      showNudge(!cur ? 'All-day lock on — apps shielded until midnight. 🔒' : 'All-day lock off. Freedom restored.');
       break;
     }
     case 'focus-app-toggle': toggleFocusItem('apps', id); render(); break;
@@ -4381,16 +4783,41 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'proto-export': exportProtocolReport(); break;
+    case 'sleep-day': {
+      const key = el.dataset.key || todayKey();
+      sleepEditKey = key === todayKey() ? null : key;
+      render();
+      break;
+    }
+    case 'vital-save': {
+      const key = el.dataset.key;
+      const inp = document.getElementById('vital-' + key);
+      if (!inp) break;
+      const raw = inp.value.trim();
+      const k = todayKey();
+      if (key === 'sleep') setSleepDay(k, { hours: raw === '' ? '' : Math.max(0, Math.min(18, Number(raw) || 0)) });
+      else if (key === 'water') setHealthDay(k, { water: Math.max(0, Number(raw) || 0) });
+      else if (key === 'steps') setHealthDay(k, { steps: Math.max(0, Number(raw) || 0) });
+      else if (key === 'weight') setHealthDay(k, { weight: raw });
+      else { if (raw === '') delete S.health[key][k]; else S.health[key][k] = Math.max(0, Number(raw) || 0); }
+      save();
+      render();
+      const labels = { rhr: 'Resting HR', hrv: 'HRV', vo2: 'VO2 max', weight: 'Weight', sleep: 'Sleep', steps: 'Steps', water: 'Hydration' };
+      showNudge(raw === '' ? `${labels[key] || 'Metric'} cleared.` : `${labels[key] || 'Metric'} logged. 📈`);
+      break;
+    }
     case 'sleep-save': {
+      const k = sleepEditKey && sleepDay(sleepEditKey) ? sleepEditKey : todayKey();
       const hours = document.getElementById('sleepHours');
       const quality = document.querySelector('#sleepQualitySeg button.on');
       const raw = hours ? hours.value : '';
-      setSleepDay(todayKey(), {
+      setSleepDay(k, {
         hours: raw === '' ? '' : Math.max(0, Math.min(18, Number(raw) || 0)),
         quality: quality ? quality.dataset.sleepQuality : 'steady',
       });
+      sleepEditKey = null;
       render();
-      showNudge('Sleep signal saved.');
+      showNudge(k === todayKey() ? 'Sleep signal saved for last night.' : `Sleep saved for ${niceDate(k)}.`);
       break;
     }
     case 'water-add': {
@@ -4747,6 +5174,45 @@ function showNudge(text) {
   div.innerHTML = `<span class="ne">◔</span><span class="nt">${esc(text)}</span><button class="nx" data-act="nudge-x">✕</button>`;
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 9000);
+}
+
+function cheer() {
+  return CHEERS[Math.floor(Math.random() * CHEERS.length)] || 'Nice one. Keep going! 🙌';
+}
+
+/* Post-habit check-in: a friendly, non-blocking nudge with feeling buttons. */
+function showFeelNudge(habit) {
+  document.querySelector('.nudge')?.remove();
+  const div = document.createElement('div');
+  div.className = 'nudge feel-nudge';
+  div.innerHTML = `
+    <button class="nx" data-act="nudge-x" aria-label="Dismiss">✕</button>
+    <div class="feel-q">How do you feel after <b>${esc(habit.name)}</b>?</div>
+    <div class="feel-row">
+      ${HABIT_FEELINGS.map((f) => `
+        <button class="feel-btn" data-act="feel-set" data-id="${f.id}" data-hid="${esc(String(habit.id))}" aria-label="${esc(f.label)}">
+          <span class="fe">${f.emoji}</span>
+          <span class="fl">${esc(f.label)}</span>
+        </button>`).join('')}
+    </div>`;
+  document.body.appendChild(div);
+  setTimeout(() => { if (div.isConnected) div.remove(); }, 14000);
+}
+
+function recordFeel(habitId, feelId) {
+  const f = HABIT_FEELINGS.find((x) => x.id === feelId);
+  if (!f) return;
+  const k = todayKey();
+  const l = dlog(k);
+  l.feels = l.feels || {};
+  l.feels[String(habitId)] = feelId;
+  // Let a strong rep lift the day's energy/mood signal if it isn't already higher.
+  if (f.energy && (Number(l.energy) || 0) < f.energy) l.energy = f.energy;
+  if (f.mood && !l.mood) l.mood = f.mood;
+  S.log[k] = l;
+  save();
+  render();
+  showNudge(cheer());
 }
 
 function nudgeText() {

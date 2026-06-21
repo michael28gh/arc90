@@ -1,8 +1,8 @@
 /* Arc90 service worker — network-first app shell with offline fallback */
-const CACHE = 'arc90-v32';
+const CACHE = 'arc90-mark2-v38';
 const SHELL = [
-  './',
-  './index.html',
+  '/',
+  '/app',
   './css/styles.css',
   './js/data.js',
   './js/app.js',
@@ -36,6 +36,6 @@ self.addEventListener('fetch', (e) => {
         caches.open(CACHE).then((c) => c.put(e.request, copy));
         return res;
       })
-      .catch(() => caches.match(e.request).then((hit) => hit || caches.match('./index.html')))
+      .catch(() => caches.match(e.request).then((hit) => hit || caches.match('/app')))
   );
 });
