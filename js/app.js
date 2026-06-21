@@ -2281,6 +2281,7 @@ function requestHealthSync() {
 }
 
 function safeStripeCheckout() {
+  track('checkout_clicked');
   showNudge('Opening secure Stripe Checkout...');
   fetch('/api/create-checkout-session', {
     method: 'POST',
@@ -2311,6 +2312,7 @@ function consumeCheckoutReturn() {
   if (status === 'success') {
     S.premium = true;
     save();
+    track('premium_activated');
     return 'Premium is active on this device. Welcome to the full Arc90.';
   }
   if (status === 'canceled') return 'Checkout canceled. You can keep using Arc90 Free.';
@@ -4442,6 +4444,7 @@ function finishOnboarding() {
   S.reminders = { mode: ob.remMode, time: ob.remTime };
   S.onboarded = true;
   save();
+  track('onboarding_completed');
   ob = null;
   if (S.reminders.mode !== 'off' && 'Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
@@ -4591,7 +4594,7 @@ document.addEventListener('click', (e) => {
       break;
     }
 
-    case 'paywall': sheet = { type: 'paywall' }; render(); break;
+    case 'paywall': track('paywall_viewed'); sheet = { type: 'paywall' }; render(); break;
     case 'premium-on': S.premium = true; save(); sheet = null; render(); confetti(); break;
     case 'premium-off': S.premium = false; save(); render(); break;
 
@@ -5165,6 +5168,11 @@ function confetti() {
     document.body.appendChild(b);
     setTimeout(() => b.remove(), 2800);
   }
+}
+
+/* Vercel Web Analytics custom funnel events — no-op if analytics unavailable. */
+function track(name, data) {
+  try { if (typeof window !== 'undefined' && typeof window.va === 'function') window.va('event', { name: name, data: data || {} }); } catch (e) { /* analytics optional */ }
 }
 
 function showNudge(text) {
