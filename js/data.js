@@ -251,6 +251,30 @@ const DAILY_INSIGHTS = [
   'Progress, not perfection. A 1% better day, 90 times, changes everything.',
 ];
 
+/* Short, punchy splash lines — one shows on open, rotating by the day. */
+const SPLASH_PHRASES = [
+  'Today is a vote for who you’re becoming.',
+  'Small reps. Real momentum.',
+  'Show up. The rest follows.',
+  'Discipline is a gift to your future self.',
+  'One day, or day one — go.',
+  'Build the arc, brick by brick.',
+  'Motivation fades. Systems stay.',
+  'Win the morning, win the day.',
+  'Don’t break the chain.',
+  'Consistency is the cheat code.',
+  'Become 1% better today.',
+  'The work works. Trust it.',
+  'Quiet reps, loud results.',
+  'Your streak is watching.',
+  'Make it easy. Just begin.',
+  'Identity over willpower.',
+  'Keep the promise to yourself.',
+  'Progress, not perfection.',
+  'Earn your evening.',
+  '90 days starts now.',
+];
+
 /* Quick post-habit check-in: how do you feel after the rep? */
 const HABIT_FEELINGS = [
   { id: 'energized', emoji: '⚡', label: 'More energy', energy: 5, mood: 'strong' },
