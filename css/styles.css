@@ -3794,3 +3794,29 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .pay-price2 .pp2-urgency { margin-top: 9px; display: inline-block; font-size: 11.5px; font-weight: 800; color: var(--amber); background: var(--amber-soft); border: 1px solid color-mix(in srgb, var(--amber) 30%, transparent); padding: 5px 12px; border-radius: 999px; }
 .pay-cta { margin-top: 4px; padding: 16px; font-size: 15.5px; font-weight: 800; }
 .pay-trust { display: flex; justify-content: center; flex-wrap: wrap; gap: 14px; margin-top: 13px; font-size: 11.5px; color: var(--tx-3); font-weight: 600; }
+
+
+/* ============================================================
+   Impeccable design pass (v41) — solid data numbers + reduced motion
+   ============================================================ */
+/* Key numbers were decorative gradient-clipped text (an absolute-ban slop tell + weak contrast).
+   Solid premium ink reads crisper and more like a pro instrument; the colored ring/bars still carry the accent. */
+.hstat-val.grad,
+.tile.lead .tv,
+.forecast-main b,
+.stat-card .big-num,
+.donut-center .dn {
+  background: none;
+  -webkit-text-fill-color: var(--tx);
+  color: var(--tx);
+}
+
+/* Accessibility: honor reduced-motion (the app has streak pulse, ring fills, tab transitions). */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

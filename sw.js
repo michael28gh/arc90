@@ -1,5 +1,5 @@
 /* Arc90 service worker — network-first app shell with offline fallback */
-const CACHE = 'arc90-mark2-v40';
+const CACHE = 'arc90-mark2-v41';
 const SHELL = [
   '/',
   '/app',
