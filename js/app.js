@@ -1461,7 +1461,7 @@ function premiumBenefits() {
 
 const app = document.getElementById('app');
 
-const TAB_ORDER = ['today', 'progress', 'habits', 'focus', 'protocol', 'vitals', 'coach', 'profile'];
+const TAB_ORDER = ['today', 'habits', 'progress', 'focus', 'protocol', 'vitals', 'profile'];
 function mainTabOf(id) {
   return TAB_ORDER.includes(id) ? id : 'today';
 }
@@ -1475,7 +1475,7 @@ function render() {
   const animate = lastRenderedTab !== tab;
   const directionClass = animate ? ` enter-${tabDirection === 'prev' ? 'prev' : 'next'}` : '';
   lastRenderedTab = tab;
-  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, vitals: viewVitals, coach: viewCoach, profile: viewProfile };
+  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
   app.innerHTML = `
     <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
     <button class="side-toggle ${navOpen ? 'open' : ''}" data-act="${navOpen ? 'side-close' : 'side-open'}" aria-label="${navOpen ? 'Close menu' : 'Open menu'}">
@@ -1510,21 +1510,22 @@ function sideDrawer() {
           <b>ARC<span>90</span></b>
         </div>
         <div class="side-group">
-          <div class="side-label">General</div>
           ${sideNavBtn('today', 'Dashboard', ICONS.today)}
-          ${sideNavBtn('progress', 'Monitoring', ICONS.progress)}
           ${sideNavBtn('habits', 'Habits', ICONS.habits, `${S.habits.length}`)}
         </div>
         <div class="side-group">
-          <div class="side-label">More</div>
+          <div class="side-label">General</div>
+          ${sideNavBtn('progress', 'Monitoring', ICONS.progress)}
           ${sideNavBtn('focus', 'Focus', ICONS.focus, `${focusStats().blockedCount}`)}
-          ${sideNavBtn('coach', 'AI Guidance', ICONS.coach)}
-          ${sideNavBtn('profile', 'Profile', ICONS.profile)}
         </div>
         <div class="side-group">
           <div class="side-label">Operations</div>
           ${sideNavBtn('protocol', 'Protocol', ICONS.protocol, `${S.protocols.length}`)}
           ${sideNavBtn('vitals', 'Vitals', ICONS.vitals)}
+        </div>
+        <div class="side-group">
+          <div class="side-label">Account</div>
+          ${sideNavBtn('profile', 'Profile', ICONS.profile)}
         </div>
         <button class="side-upgrade" data-act="paywall">${S.premium ? 'Premium Active' : 'Upgrade to Pro'}</button>
       </aside>
@@ -3936,7 +3937,6 @@ function viewProfile() {
     <button class="prow" data-act="tab" data-id="habits"><span class="pe">☑</span><span class="pl">Habit library</span><span class="pv">${S.habits.length}${S.premium ? '' : `/${FREE_HABITS}`} active</span><span class="arr">›</span></button>
     <button class="prow" data-act="tab" data-id="focus"><span class="pe">🎯</span><span class="pl">Focus system</span><span class="pv">${focusStats().blockedCount ? focusStats().blockedCount + ' targets' : 'set up shield'}</span><span class="arr">›</span></button>
     <button class="prow" data-act="tab" data-id="protocol"><span class="pe">🧬</span><span class="pl">Protocol tracker</span><span class="pv">${S.protocols.length ? S.protocols.length + ' tracked' : 'set up'}</span><span class="arr">›</span></button>
-    <button class="prow" data-act="tab" data-id="coach"><span class="pe">💬</span><span class="pl">AI Guidance</span><span class="pv">coach</span><span class="arr">›</span></button>
 
     <div class="premium-card profile-premium-card">
       <div class="pt">${S.premium ? 'Arc90 Premium · active' : PREMIUM_OFFER.name}</div>
