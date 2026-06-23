@@ -3842,3 +3842,69 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 @keyframes splashDraw { from { stroke-dashoffset: 565; } to { stroke-dashoffset: 0; } }
 @keyframes splash3d { from { opacity: 0; transform: rotateY(-44deg) rotateX(12deg) scale(0.82); } to { opacity: 1; transform: rotateY(0deg) rotateX(0deg) scale(1); } }
 @keyframes splashUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ---------- Comeback Button (v44) ---------- */
+.comeback-btn {
+  display: flex; align-items: center; gap: 13px; width: 100%; text-align: left;
+  padding: 14px 16px; margin-bottom: 14px; cursor: pointer;
+  border-radius: var(--r-lg); border: 1px solid var(--line);
+  background: linear-gradient(180deg, rgba(255,255,255,.04), transparent), var(--card-2);
+  color: var(--tx); transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.comeback-btn:hover { transform: translateY(-1px); border-color: var(--line-2); }
+.comeback-btn:active { transform: translateY(0) scale(.995); }
+.comeback-btn.urgent {
+  border-color: var(--accent-line);
+  background: linear-gradient(180deg, var(--accent-soft), transparent 70%), var(--card-2);
+  box-shadow: 0 18px 44px -28px var(--accent-glow), var(--card-edge);
+}
+.comeback-btn .cb-ico {
+  flex: 0 0 38px; height: 38px; display: grid; place-items: center; font-size: 19px;
+  border-radius: 12px; background: var(--accent-soft); color: var(--accent);
+  border: 1px solid var(--accent-line);
+}
+.comeback-btn.urgent .cb-ico { animation: cbPulse 2.4s ease-in-out infinite; }
+.comeback-btn .cb-txt { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.comeback-btn .cb-txt b { font-size: 14.5px; font-weight: 650; letter-spacing: -.01em; }
+.comeback-btn .cb-txt span { font-size: 12.5px; color: var(--tx-3); }
+@keyframes cbPulse { 0%,100% { box-shadow: 0 0 0 0 var(--accent-glow); } 50% { box-shadow: 0 0 0 5px transparent; } }
+
+/* Comeback sheet */
+.cb-sheet { padding: 4px 2px 8px; }
+.cb-sheet .cb-title { margin: 6px 0 6px; font-size: 21px; font-weight: 680; letter-spacing: -.02em; }
+.cb-sheet .cb-lead { margin: 0 0 16px; font-size: 14px; line-height: 1.5; color: var(--tx-2); }
+.cb-action {
+  display: flex; align-items: center; gap: 13px; padding: 14px;
+  border-radius: 16px; border: 1px solid var(--accent-line);
+  background: linear-gradient(180deg, var(--accent-soft), transparent 80%), var(--card-2);
+  margin-bottom: 16px;
+}
+.cb-action-ico { flex: 0 0 44px; height: 44px; display: grid; place-items: center; font-size: 21px; border-radius: 13px; background: var(--accent-soft); color: var(--accent); border: 1px solid var(--accent-line); }
+.cb-action-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.cb-action-txt b { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.cb-action-txt span { font-size: 13px; color: var(--tx-3); }
+.cb-do { width: 100%; margin-bottom: 8px; }
+.cb-other { width: 100%; padding: 11px; background: none; border: 0; cursor: pointer; font-size: 13px; color: var(--tx-3); border-radius: 12px; transition: color .15s ease, background .15s ease; }
+.cb-other:hover { color: var(--tx-2); background: rgba(255,255,255,.03); }
+
+/* ---------- Weak Spot Tracker (v44) ---------- */
+.weakspot-card .ws-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.ws-trend { font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); color: var(--tx-3); background: rgba(255,255,255,.02); }
+.ws-trend.up { color: var(--mint); border-color: color-mix(in srgb, var(--mint) 36%, transparent); background: var(--mint-soft); }
+.ws-trend.down { color: var(--amber); border-color: color-mix(in srgb, var(--amber) 36%, transparent); background: var(--amber-soft); }
+.ws-body { display: flex; align-items: center; gap: 13px; margin-bottom: 14px; }
+.ws-ico { flex: 0 0 44px; height: 44px; display: grid; place-items: center; font-size: 22px; border-radius: 13px; background: var(--card); border: 1px solid var(--line); }
+.ws-main b { display: block; font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
+.ws-rate { font-size: 12.5px; color: var(--tx-3); margin-top: 2px; }
+.ws-spark { display: flex; gap: 3px; margin-bottom: 12px; }
+.ws-spark .wsd { flex: 1; height: 22px; border-radius: 3px; background: var(--line); }
+.ws-spark .wsd.off { background: rgba(255,255,255,.03); }
+.ws-spark .wsd.rest { background: rgba(255,255,255,.05); }
+.ws-spark .wsd.miss { background: var(--amber-soft); border: 1px solid color-mix(in srgb, var(--amber) 24%, transparent); }
+.ws-spark .wsd.part { background: var(--accent-soft); }
+.ws-spark .wsd.full { background: linear-gradient(180deg, var(--accent-2), var(--accent)); }
+.ws-note { margin: 0 0 12px; font-size: 13.5px; line-height: 1.5; color: var(--tx-2); }
+.ws-more { width: 100%; padding: 11px; cursor: pointer; font-size: 13px; font-weight: 600; border-radius: 12px; border: 1px solid var(--line); background: rgba(255,255,255,.02); color: var(--tx-2); transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.ws-more:hover { border-color: var(--line-2); color: var(--tx); background: rgba(255,255,255,.04); }
+.ws-more.locked { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) { .comeback-btn.urgent .cb-ico { animation: none; } }

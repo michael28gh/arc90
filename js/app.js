@@ -333,8 +333,22 @@ function avgRate(nDays) {
 }
 
 /* Momentum Score: recent consistency weighted over the whole challenge.
-   60% last-7-days + 40% whole challenge. Rest days excluded, one miss can't sink it. */
-function momentum() { return Math.round(100 * (0.6 * avgRate(7) + 0.4 * avgRate(90))); }
+   60% last-7-days + 40% whole challenge. Rest days excluded, one miss can't sink it,
+   and coming back the day after a miss earns a bonus — recovery is rewarded, not punished. */
+function comebackBonus() {
+  const today = atMidnight(new Date());
+  if (!dayCompleted(dkey(today))) return 0;          // only rewards showing up today
+  for (let i = 1; i <= 3; i++) {                      // scan recent days for a miss to recover from
+    const k = dkey(addDays(today, -i));
+    if (rateFor(k) === null) continue;                // rest day — skip
+    return dayCompleted(k) ? 0 : 6;                   // missed then bounced back today → +6
+  }
+  return 0;
+}
+function momentum() {
+  const base = 100 * (0.6 * avgRate(7) + 0.4 * avgRate(90));
+  return Math.round(Math.max(0, Math.min(100, base + comebackBonus())));
+}
 
 function habitRate(id, n) {
   const today = atMidnight(new Date());
@@ -368,6 +382,190 @@ function strongestHabit() {
     if (r > bestR) { bestR = r; best = h; }
   }
   return best ? { habit: best, rate: bestR } : null;
+}
+
+/* ---------- Weak Spot Tracker: where the user keeps slipping (by category) ---------- */
+function categoryRate(catId, days, offset = 0) {
+  const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
+  if (!ids.length) return null;
+  const today = atMidnight(new Date());
+  let hit = 0, sched = 0;
+  for (let i = offset; i < offset + days && i < elapsedDays(); i++) {
+    const k = dkey(addDays(today, -i));
+    for (const id of ids) {
+      const h = S.habits.find((x) => String(x.id) === String(id));
+      const s = statusOf(id, k);
+      if (h && !scheduledFor(h, k) && s !== 'done' && s !== 'min') continue;
+      if (s === 'skip') continue;
+      sched++;
+      if (s === 'done' || s === 'min') hit++;
+    }
+  }
+  return sched ? hit / sched : null;
+}
+
+function weakSpots() {
+  const cats = [...new Set(S.habits.map((h) => h.cat || 'custom'))];
+  const out = [];
+  for (const id of cats) {
+    const rate = categoryRate(id, 14);
+    if (rate === null) continue;
+    const recent = categoryRate(id, 7, 0), prior = categoryRate(id, 7, 7);
+    let trend = 'flat';
+    if (recent != null && prior != null) {
+      if (recent - prior >= 0.08) trend = 'up';
+      else if (prior - recent >= 0.08) trend = 'down';
+    }
+    out.push({ catId: id, cat: catOf(id), rate, trend });
+  }
+  return out.sort((a, b) => a.rate - b.rate);
+}
+
+/* which weekday/segment this category gets dropped most — for a pattern observation, not a verdict */
+function worstDayLabel(catId) {
+  const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
+  if (!ids.length) return null;
+  const today = atMidnight(new Date());
+  const dow = Array.from({ length: 7 }, () => ({ hit: 0, sched: 0 }));
+  for (let i = 0; i < Math.min(28, elapsedDays()); i++) {
+    const d = addDays(today, -i), k = dkey(d);
+    for (const id of ids) {
+      const h = S.habits.find((x) => String(x.id) === String(id));
+      const s = statusOf(id, k);
+      if (h && !scheduledFor(h, k) && s !== 'done' && s !== 'min') continue;
+      if (s === 'skip') continue;
+      dow[d.getDay()].sched++;
+      if (s === 'done' || s === 'min') dow[d.getDay()].hit++;
+    }
+  }
+  const rate = (arr) => { let h = 0, sc = 0; for (const x of arr) { h += x.hit; sc += x.sched; } return sc >= 2 ? h / sc : null; };
+  const weekend = rate([dow[0], dow[6]]), week = rate([dow[1], dow[2], dow[3], dow[4], dow[5]]);
+  if (weekend != null && week != null && week - weekend >= 0.2) return 'weekends';
+  const names = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays'];
+  let worst = null, worstR = 1;
+  for (let d = 0; d < 7; d++) { const x = dow[d]; if (x.sched >= 2) { const r = x.hit / x.sched; if (r < worstR) { worstR = r; worst = d; } } }
+  return worst != null && worstR <= 0.5 ? names[worst] : null;
+}
+
+function observationFor(w) {
+  if (w.trend === 'up') return 'You’re clawing this one back. Keep the thread alive.';
+  const day = worstDayLabel(w.catId);
+  if (day) return `You tend to miss this on ${day}. Plan one small rep there.`;
+  if (w.trend === 'down') return 'This slipped this week — a minimum rep still counts.';
+  return 'This is your softest spot right now. One rep moves it.';
+}
+
+function catSparkDots(catId, days) {
+  const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
+  const today = atMidnight(new Date());
+  let out = '';
+  for (let i = days - 1; i >= 0; i--) {
+    if (i >= elapsedDays()) { out += '<i class="wsd off"></i>'; continue; }
+    const k = dkey(addDays(today, -i));
+    let hit = 0, sched = 0;
+    for (const id of ids) {
+      const h = S.habits.find((x) => String(x.id) === String(id));
+      const s = statusOf(id, k);
+      if (h && !scheduledFor(h, k) && s !== 'done' && s !== 'min') continue;
+      if (s === 'skip') continue;
+      sched++;
+      if (s === 'done' || s === 'min') hit++;
+    }
+    const cls = sched === 0 ? 'rest' : hit === 0 ? 'miss' : hit >= sched ? 'full' : 'part';
+    out += `<i class="wsd ${cls}"></i>`;
+  }
+  return out;
+}
+
+function weakSpotCard() {
+  if (!S.habits.length || elapsedDays() < 3) return '';
+  const spots = weakSpots();
+  if (!spots.length) return '';
+  const w = spots[0];
+  if (w.rate >= 0.85) return '';   // nothing meaningfully weak — don't manufacture a problem
+  const pct = Math.round(w.rate * 100);
+  const arrow = w.trend === 'up' ? '↑' : w.trend === 'down' ? '↓' : '→';
+  const tlabel = w.trend === 'up' ? 'improving' : w.trend === 'down' ? 'slipping' : 'holding';
+  const more = !S.premium
+    ? `<button class="ws-more locked" data-act="paywall">Unlock full pattern history →</button>`
+    : (spots.length > 1 ? `<button class="ws-more" data-act="tab" data-id="progress">See all ${spots.length} patterns →</button>` : '');
+  return `
+    <section class="card weakspot-card">
+      <div class="ws-head">
+        <span class="eyebrow">Weak spot</span>
+        <span class="ws-trend ${w.trend}">${arrow} ${tlabel}</span>
+      </div>
+      <div class="ws-body">
+        <span class="ws-ico">${w.cat.emoji}</span>
+        <div class="ws-main">
+          <b>${esc(w.cat.name)}</b>
+          <div class="ws-rate">${pct}% kept · last 14 days</div>
+        </div>
+      </div>
+      <div class="ws-spark" aria-hidden="true">${catSparkDots(w.catId, 14)}</div>
+      <p class="ws-note">${esc(observationFor(w))}</p>
+      ${more}
+    </section>`;
+}
+
+/* ---------- Comeback Button: the smallest next action to recover momentum ---------- */
+const COMEBACK_MICROS = [
+  'Drink one full glass of water', 'Walk for two minutes', 'Write one sentence',
+  'Tidy one small thing', 'Take five slow breaths', 'Do five push-ups', 'Step outside for sixty seconds',
+];
+function comebackMicro(n = 0) { return COMEBACK_MICROS[n % COMEBACK_MICROS.length]; }
+
+function comebackRep(n = 0) {
+  const k = todayKey();
+  const pending = S.habits.filter((h) => scheduledFor(h, k) && !isCompleted(h.id, k) && statusOf(h.id, k) !== 'skip');
+  if (!pending.length) return null;
+  const ordered = [...pending.filter((h) => h.min), ...pending.filter((h) => !h.min)];   // easiest (has a minimum) first
+  return ordered[n % ordered.length];
+}
+
+function comebackBtn() {
+  if (!S.habits.length) return '';
+  const urgent = momentum() < 50 || !allDoneToday();
+  const title = urgent ? 'Feeling off track?' : 'Want a quick win?';
+  const sub = urgent ? 'Tap for your smallest next move' : 'One small rep to extend the lead';
+  return `
+    <button class="comeback-btn ${urgent ? 'urgent' : ''}" data-act="comeback">
+      <span class="cb-ico">↻</span>
+      <span class="cb-txt"><b>${title}</b><span>${sub} →</span></span>
+    </button>`;
+}
+
+function sheetComeback() {
+  const n = (sheet && sheet.n) || 0;
+  const h = comebackRep(n);
+  if (h) {
+    const micro = h.min || 'Just the two-minute version';
+    return `
+      <div class="cb-sheet">
+        <span class="eyebrow">Your comeback move</span>
+        <h3 class="cb-title">One rep. Right now.</h3>
+        <p class="cb-lead">Forget the streak and forget yesterday. Momentum restarts with a single action.</p>
+        <div class="cb-action">
+          <span class="cb-action-ico">${habitIcon(h)}</span>
+          <div class="cb-action-txt"><b>${esc(h.name)}</b><span>${esc(micro)}</span></div>
+        </div>
+        <button class="btn cb-do" data-act="comeback-do" data-id="${h.id}">I did it →</button>
+        <button class="cb-other" data-act="comeback-other">Give me a different one</button>
+      </div>`;
+  }
+  const micro = comebackMicro(n);
+  return `
+    <div class="cb-sheet">
+      <span class="eyebrow">Your comeback move</span>
+      <h3 class="cb-title">One tiny action.</h3>
+      <p class="cb-lead">You’ve cleared today’s reps — here’s a bonus to stack a little more momentum.</p>
+      <div class="cb-action generic">
+        <span class="cb-action-ico">↻</span>
+        <div class="cb-action-txt"><b>${esc(micro)}</b><span>Do it now, then come back</span></div>
+      </div>
+      <button class="btn cb-do" data-act="comeback-generic-do">I did it →</button>
+      <button class="cb-other" data-act="comeback-other">Give me a different one</button>
+    </div>`;
 }
 
 function streak(id) {
@@ -1597,6 +1795,7 @@ function viewToday() {
     </header>
 
     ${S.habits.length ? streakBannerCard() : ''}
+    ${comebackBtn()}
     ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div></div>` : ''}
     ${forgeActive() ? `<div class="forge-banner">🔥 <div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
@@ -1668,6 +1867,7 @@ function viewToday() {
     ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
+    ${weakSpotCard()}
     ${todayStopCard()}
     ${todayFocusStrip()}
   `;
@@ -4007,6 +4207,7 @@ function viewSheet() {
     : sheet.type === 'day' ? sheetDay()
     : sheet.type === 'review' ? sheetReview()
     : sheet.type === 'protocol' ? sheetProtocol()
+    : sheet.type === 'comeback' ? sheetComeback()
     : '';
   return `
     <div class="sheet-wrap">
@@ -4487,6 +4688,22 @@ document.addEventListener('click', (e) => {
     case 'side-close': navOpen = false; render(); break;
     case 'tab': switchTab(id); break;
     case 'toggle': toggle(isNaN(+id) ? id : +id); break;
+    case 'comeback': sheet = { type: 'comeback', n: 0 }; render(); track('comeback_opened'); break;
+    case 'comeback-other': sheet = { type: 'comeback', n: ((sheet && sheet.n) || 0) + 1 }; render(); break;
+    case 'comeback-do': {
+      const hid = isNaN(+id) ? id : +id;
+      setStatus(hid, todayKey(), 'min');
+      if (navigator.vibrate) navigator.vibrate(16);
+      sheet = null; render(); confetti();
+      showNudge('You’re back. Never miss twice.');
+      track('comeback_done');
+      break;
+    }
+    case 'comeback-generic-do':
+      sheet = null; render(); confetti();
+      showNudge('That counts. Momentum restarts now.');
+      track('comeback_done');
+      break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
     case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
     case 'library-toggle': libraryOpen = !libraryOpen; render(); break;
