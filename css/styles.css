@@ -3963,3 +3963,9 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .proof-empty span { font-size: 13px; color: var(--tx-3); }
 .proof-cap { margin-top: 14px; text-align: center; font-size: 12px; color: var(--tx-3); }
 @media (min-width: 560px) { .proof-grid { column-count: 3; } }
+
+/* momentum daily delta (v48) */
+.mom-delta { font-weight: 700; }
+.mom-delta.up { color: var(--mint); }
+.mom-delta.down { color: var(--amber); }
+.mom-delta.flat { color: var(--tx-3); }

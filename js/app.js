@@ -335,20 +335,24 @@ function avgRate(nDays) {
 /* Momentum Score: recent consistency weighted over the whole challenge.
    60% last-7-days + 40% whole challenge. Rest days excluded, one miss can't sink it,
    and coming back the day after a miss earns a bonus — recovery is rewarded, not punished. */
-function comebackBonus() {
-  const today = atMidnight(new Date());
-  if (!dayCompleted(dkey(today))) return 0;          // only rewards showing up today
+function comebackBonusAsOf(back) {
+  const ref = addDays(atMidnight(new Date()), -back);
+  if (!dayCompleted(dkey(ref))) return 0;             // only rewards showing up that day
   for (let i = 1; i <= 3; i++) {                      // scan recent days for a miss to recover from
-    const k = dkey(addDays(today, -i));
+    const k = dkey(addDays(ref, -i));
     if (rateFor(k) === null) continue;                // rest day — skip
-    return dayCompleted(k) ? 0 : 6;                   // missed then bounced back today → +6
+    return dayCompleted(k) ? 0 : 6;                   // missed then bounced back → +6
   }
   return 0;
 }
-function momentum() {
-  const base = 100 * (0.6 * avgRate(7) + 0.4 * avgRate(90));
-  return Math.round(Math.max(0, Math.min(100, base + comebackBonus())));
+function comebackBonus() { return comebackBonusAsOf(0); }
+function momentumAsOf(back) {
+  const base = 100 * (0.6 * avgRateWindow(back, 7) + 0.4 * avgRateWindow(back, 90));
+  return Math.round(Math.max(0, Math.min(100, base + comebackBonusAsOf(back))));
 }
+function momentum() { return momentumAsOf(0); }
+/* change vs yesterday — shown as a daily delta so momentum feels alive */
+function momentumDelta() { return momentumAsOf(0) - momentumAsOf(1); }
 
 function habitRate(id, n) {
   const today = atMidnight(new Date());
@@ -1962,13 +1966,16 @@ function viewToday() {
   const frac = total ? done / total : 0;
   const C = 364.425;
   const mom = momentum();
-  const pill = mom >= 75 ? ['good', 'On track'] : mom >= 50 ? ['mid', 'Building'] : ['low', 'Needs attention'];
+  const pill = mom >= 70 ? ['good', 'Primed'] : mom >= 45 ? ['mid', 'Building'] : ['low', 'Recover'];
   const day = dayNumber();
   const todayPct = Math.round(frac * 100);
   const challengePct = Math.round((day / 90) * 100);
   const reps = totalReps();
   const dayLeftCount = daysLeft();
-  const weekTone = mom >= 75 ? 'Strong week' : mom >= 50 ? 'Gaining traction' : 'Needs a reset';
+  const weekTone = mom >= 70 ? 'Strong week' : mom >= 45 ? 'Gaining traction' : 'Needs a reset';
+  const md = momentumDelta();
+  const mdCls = md > 0 ? 'up' : md < 0 ? 'down' : 'flat';
+  const mdTxt = md > 0 ? `▲ +${md} today` : md < 0 ? `▼ ${Math.abs(md)} today` : 'Even today';
 
   const milestone = day === 30 ? ['Checkpoint · Day 30', 'One third of the arc. The routine is becoming who you are.']
     : day === 60 ? ['Checkpoint · Day 60', 'Two thirds in. This is where most people quit — you didn’t.']
@@ -2014,7 +2021,7 @@ function viewToday() {
           <div class="hstat">
             <div class="eyebrow">Momentum score</div>
             <div class="hstat-val grad"><span data-countup="${mom}">0</span><span class="unit">%</span></div>
-            <div class="hstat-note">${weekTone}</div>
+            <div class="hstat-note"><span class="mom-delta ${mdCls}">${mdTxt}</span> · ${weekTone}</div>
           </div>
           <div class="hstat">
             <div class="eyebrow">90-day goal</div>
@@ -2898,6 +2905,7 @@ function viewProgress() {
     ${progressArcMapCard()}
     ${progressAnalyticsCard()}
     ${moodGraphPanel()}
+    ${proofCard()}
     <section class="card">
       <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
       ${chart(7)}
@@ -5330,6 +5338,8 @@ document.addEventListener('change', (e) => {
 });
 
 function wireAfterRender() {
+  const proofTa = document.getElementById('proofNote');
+  if (proofTa && document.activeElement !== proofTa) proofTa.focus({ preventScroll: true });
   const libSearch = document.getElementById('libSearch');
   if (libSearch) libSearch.addEventListener('input', () => {
     libQuery = libSearch.value;
