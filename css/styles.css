@@ -3908,3 +3908,58 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .ws-more:hover { border-color: var(--line-2); color: var(--tx); background: rgba(255,255,255,.04); }
 .ws-more.locked { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
 @media (prefers-reduced-motion: reduce) { .comeback-btn.urgent .cb-ico { animation: none; } }
+
+/* ---------- Proof Wall (v46) ---------- */
+.proof-card { cursor: pointer; transition: transform .15s ease, border-color .15s ease; }
+.proof-card:hover { transform: translateY(-1px); border-color: var(--line-2); }
+.proof-count { font-size: 12px; font-weight: 600; color: var(--tx-3); padding: 3px 9px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.02); }
+.proof-thumbs { display: flex; gap: 6px; margin-bottom: 10px; }
+.proof-thumbs .pth { flex: 0 0 64px; width: 64px; height: 64px; border-radius: 10px; overflow: hidden; background: var(--card); border: 1px solid var(--line); }
+.proof-thumbs .pth img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.proof-sub { margin: 0; font-size: 13px; line-height: 1.5; color: var(--tx-2); }
+
+.proof-sheet { padding: 2px 0 8px; }
+.proof-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.proof-headsub { margin: 3px 0 0; font-size: 13px; color: var(--tx-3); }
+.proof-export { flex: 0 0 auto; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.proof-export:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.proof-add { display: flex; gap: 10px; margin-bottom: 14px; }
+.proof-add-btn { flex: 1; text-align: center; padding: 13px; border-radius: 13px; border: 1px solid var(--line); background: var(--card-2); color: var(--tx); font-size: 14px; font-weight: 600; cursor: pointer; transition: border-color .15s ease, background .15s ease; }
+.proof-add-btn:hover { border-color: var(--line-2); background: rgba(255,255,255,.04); }
+
+.proof-composer { margin-bottom: 16px; }
+.proof-ta { width: 100%; box-sizing: border-box; padding: 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--tx); font: inherit; font-size: 14px; resize: vertical; }
+.proof-ta:focus { outline: none; border-color: var(--accent-line); }
+.proof-tagrow { display: flex; flex-wrap: wrap; gap: 7px; margin: 10px 0; }
+.proof-tag { padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.02); color: var(--tx-3); font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.proof-tag.on { border-color: var(--accent-line); background: var(--accent-soft); color: var(--accent); }
+.proof-composer-actions { display: flex; gap: 10px; align-items: center; }
+.proof-composer-actions .cb-other { width: auto; flex: 0 0 auto; padding: 11px 16px; }
+.proof-composer-actions .btn { flex: 1; }
+
+.proof-filters { display: flex; gap: 7px; overflow-x: auto; margin-bottom: 14px; padding-bottom: 2px; -webkit-overflow-scrolling: touch; }
+.proof-fchip { flex: 0 0 auto; padding: 6px 13px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.02); color: var(--tx-3); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.proof-fchip.on { border-color: var(--line-2); background: rgba(255,255,255,.06); color: var(--tx); }
+
+.proof-grid { column-count: 2; column-gap: 10px; }
+.proof-tile { position: relative; break-inside: avoid; margin: 0 0 10px; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--card-2); }
+.proof-tile.photo img { width: 100%; display: block; }
+.proof-tile.note { padding: 14px; }
+.proof-tile.note blockquote { margin: 0; font-size: 14px; line-height: 1.5; color: var(--tx); font-style: italic; }
+.proof-tile figcaption { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; padding: 9px 11px; }
+.proof-tile.photo figcaption { position: absolute; inset: auto 0 0 0; background: linear-gradient(0deg, rgba(0,0,0,.72), transparent); }
+.proof-tile.note figcaption { padding: 11px 0 0; }
+.pt-date { font-size: 11px; color: var(--tx-3); }
+.proof-tile.photo .pt-date { color: rgba(255,255,255,.82); }
+.pt-tag { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 999px; background: rgba(255,255,255,.08); color: var(--tx-2); }
+.pt-tag.win { background: var(--mint-soft); color: var(--mint); }
+.pt-tag.progress { background: var(--accent-soft); color: var(--accent); }
+.pt-tag.milestone { background: var(--amber-soft); color: var(--amber); }
+.pt-del { position: absolute; top: 7px; right: 7px; width: 26px; height: 26px; border-radius: 999px; border: 0; cursor: pointer; background: rgba(8,9,14,.62); color: #fff; font-size: 12px; opacity: 0; transition: opacity .15s ease; backdrop-filter: blur(4px); }
+.proof-tile:hover .pt-del { opacity: 1; }
+.proof-empty { text-align: center; padding: 34px 18px; }
+.proof-empty .pe-ico { font-size: 30px; margin-bottom: 8px; }
+.proof-empty b { display: block; font-size: 15px; margin-bottom: 4px; }
+.proof-empty span { font-size: 13px; color: var(--tx-3); }
+.proof-cap { margin-top: 14px; text-align: center; font-size: 12px; color: var(--tx-3); }
+@media (min-width: 560px) { .proof-grid { column-count: 3; } }

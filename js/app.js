@@ -568,6 +568,188 @@ function sheetComeback() {
     </div>`;
 }
 
+/* ---------- Proof Wall: visual evidence of the transformation ---------- */
+const PROOF_TAGS = ['Win', 'Progress', 'Milestone', 'Note'];
+const PROOF_FREE_PHOTOS = 10;
+
+/* IndexedDB blob store — localStorage is too small for images */
+function idbOpen() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open('arc90', 1);
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('proof')) db.createObjectStore('proof'); };
+    req.onsuccess = () => res(req.result);
+    req.onerror = () => rej(req.error);
+  });
+}
+function idbPut(key, blob) { return idbOpen().then((db) => new Promise((res, rej) => { const tx = db.transaction('proof', 'readwrite'); tx.objectStore('proof').put(blob, key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+function idbGet(key) { return idbOpen().then((db) => new Promise((res, rej) => { const tx = db.transaction('proof', 'readonly'); const r = tx.objectStore('proof').get(key); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); }
+function idbDel(key) { return idbOpen().then((db) => new Promise((res, rej) => { const tx = db.transaction('proof', 'readwrite'); tx.objectStore('proof').delete(key); tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error); })); }
+
+/* downscale on import so stored proof stays small and fast */
+function downscaleImage(file, maxDim = 1280, quality = 0.82) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+      else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+      const c = document.createElement('canvas'); c.width = w; c.height = h;
+      c.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      c.toBlob((b) => b ? res(b) : rej(new Error('encode failed')), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('load failed')); };
+    img.src = url;
+  });
+}
+
+function proofItems() { return (S.proof || []).slice().sort((a, b) => b.ts - a.ts); }
+function proofPhotoCount() { return (S.proof || []).filter((p) => p.type === 'photo').length; }
+function proofId(prefix) { return prefix + Date.now().toString(36) + '-' + (proofSeq++); }
+
+const proofUrlCache = {};
+function hydrateProofImages() {
+  document.querySelectorAll('img[data-proof-id]').forEach((el) => {
+    if (el.dataset.hydrated) return;
+    const id = el.getAttribute('data-proof-id');
+    el.dataset.hydrated = '1';
+    if (proofUrlCache[id]) { el.src = proofUrlCache[id]; return; }
+    idbGet(id).then((blob) => { if (blob) { const u = URL.createObjectURL(blob); proofUrlCache[id] = u; el.src = u; } }).catch(() => {});
+  });
+}
+
+function arcAddProofPhoto(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (!S.premium && proofPhotoCount() >= PROOF_FREE_PHOTOS) { gate('proof-limit'); return; }
+  downscaleImage(file).then((blob) => {
+    const id = proofId('p');
+    return idbPut(id, blob).then(() => {
+      S.proof = S.proof || [];
+      S.proof.push({ id, type: 'photo', tag: 'Progress', ts: Date.now(), day: todayKey() });
+      save();
+      sheet = { type: 'proof', filter: 'all' };
+      render();
+      if (navigator.vibrate) navigator.vibrate(12);
+      track('proof_added', { type: 'photo' });
+    });
+  }).catch(() => showNudge('Could not add that image. Try another.'));
+}
+
+function addProofNote() {
+  const ta = document.getElementById('proofNote');
+  const text = (ta ? ta.value : '').trim();
+  if (!text) return;
+  S.proof = S.proof || [];
+  S.proof.push({ id: proofId('n'), type: 'note', text, tag: proofTag || 'Win', ts: Date.now(), day: todayKey() });
+  save();
+  sheet = { type: 'proof', filter: 'all' };
+  render();
+  track('proof_added', { type: 'note' });
+}
+
+function delProof(id) {
+  const it = (S.proof || []).find((p) => p.id === id);
+  S.proof = (S.proof || []).filter((p) => p.id !== id);
+  save();
+  if (it && it.type === 'photo') {
+    idbDel(id).catch(() => {});
+    if (proofUrlCache[id]) { URL.revokeObjectURL(proofUrlCache[id]); delete proofUrlCache[id]; }
+  }
+  render();
+}
+
+function proofDayLabel(p) {
+  const y = dkey(addDays(atMidnight(new Date()), -1));
+  if (p.day === todayKey()) return 'Today';
+  if (p.day === y) return 'Yesterday';
+  try { return fmtDate(dateFromKey(p.day)); } catch (e) { return ''; }
+}
+
+function proofCard() {
+  const items = proofItems();
+  const count = items.length;
+  const thumbs = items.filter((p) => p.type === 'photo').slice(0, 4);
+  return `
+    <section class="card proof-card" data-act="proof-open" role="button" tabindex="0">
+      <div class="ws-head">
+        <span class="eyebrow">Proof wall</span>
+        <span class="proof-count">${count ? count + ' entr' + (count === 1 ? 'y' : 'ies') : 'New'}</span>
+      </div>
+      ${thumbs.length ? `<div class="proof-thumbs">${thumbs.map((p) => `<span class="pth"><img data-proof-id="${p.id}" alt=""></span>`).join('')}</div>` : ''}
+      <p class="proof-sub">${count ? 'Your evidence that you’re changing. Tap to add or browse →' : 'Capture proof you’re improving — a photo, a screenshot, a small win. Tap to start your evidence file →'}</p>
+    </section>`;
+}
+
+function proofTile(p) {
+  const date = `<span class="pt-date">${proofDayLabel(p)}</span>`;
+  const tag = p.tag ? `<span class="pt-tag ${p.tag.toLowerCase()}">${p.tag}</span>` : '';
+  const del = `<button class="pt-del" data-act="proof-del" data-id="${p.id}" aria-label="Delete proof">✕</button>`;
+  if (p.type === 'photo') return `<figure class="proof-tile photo"><img data-proof-id="${p.id}" alt="Progress photo">${del}<figcaption>${tag}${date}</figcaption></figure>`;
+  return `<figure class="proof-tile note"><blockquote>${esc(p.text || '')}</blockquote>${del}<figcaption>${tag}${date}</figcaption></figure>`;
+}
+
+function sheetProofWall() {
+  const filter = (sheet && sheet.filter) || 'all';
+  const all = proofItems();
+  const items = all.filter((p) => filter === 'all' || p.tag === filter);
+  const compose = sheet && sheet.compose;
+  const exportBtn = S.premium && all.length ? `<button class="proof-export" data-act="proof-export">Export</button>` : '';
+  const filters = ['all', ...PROOF_TAGS].map((t) => `<button class="proof-fchip ${filter === t ? 'on' : ''}" data-act="proof-filter" data-id="${t}">${t === 'all' ? 'All' : t}</button>`).join('');
+  const composer = compose ? `
+      <div class="proof-composer">
+        <textarea id="proofNote" class="proof-ta" rows="3" placeholder="A small win, a milestone, a note to future you…"></textarea>
+        <div class="proof-tagrow">${PROOF_TAGS.map((t) => `<button class="proof-tag ${proofTag === t ? 'on' : ''}" data-act="proof-note-tag" data-id="${t}">${t}</button>`).join('')}</div>
+        <div class="proof-composer-actions">
+          <button class="cb-other" data-act="proof-compose-cancel">Cancel</button>
+          <button class="btn" data-act="proof-save-note">Save proof</button>
+        </div>
+      </div>` : '';
+  const grid = items.length
+    ? `<div class="proof-grid">${items.map(proofTile).join('')}</div>`
+    : `<div class="proof-empty"><div class="pe-ico">🧱</div><b>${all.length ? 'Nothing under this filter' : 'No proof yet'}</b><span>${all.length ? 'Try another tag.' : 'Add your first photo or win — small evidence compounds into undeniable proof.'}</span></div>`;
+  const capNote = !S.premium ? `<div class="proof-cap">${proofPhotoCount()}/${PROOF_FREE_PHOTOS} free photos used · <button class="inline-link" data-act="paywall">unlimited with Premium</button></div>` : '';
+  return `
+    <div class="proof-sheet">
+      <div class="proof-head">
+        <div><h3 class="cb-title" style="margin:0">Proof Wall</h3><p class="proof-headsub">Evidence you’re becoming who you said.</p></div>
+        ${exportBtn}
+      </div>
+      <div class="proof-add">
+        <label class="proof-add-btn" for="proofFile">📸 Photo</label>
+        <input type="file" id="proofFile" accept="image/*" hidden>
+        <button class="proof-add-btn" data-act="proof-compose">✍️ Note / win</button>
+      </div>
+      ${composer}
+      <div class="proof-filters">${filters}</div>
+      ${grid}
+      ${capNote}
+    </div>`;
+}
+
+function blobToDataURL(blob) { return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob); }); }
+function arcExportProof() {
+  const items = proofItems();
+  if (!items.length) { showNudge('Add some proof first.'); return; }
+  Promise.all(items.map((p) => p.type === 'photo' ? idbGet(p.id).then((b) => b ? blobToDataURL(b) : null).catch(() => null) : Promise.resolve(null)))
+    .then((datas) => {
+      const cards = items.map((p, i) => {
+        const head = `<div class="d">${proofDayLabel(p)} · ${esc(p.tag || '')}</div>`;
+        if (p.type === 'photo' && datas[i]) return `<div class="c">${head}<img src="${datas[i]}"></div>`;
+        if (p.type === 'note') return `<div class="c">${head}<p>${esc(p.text || '')}</p></div>`;
+        return '';
+      }).join('');
+      const html = `<!doctype html><meta charset="utf8"><title>ARC90 — My Proof</title><style>body{font-family:-apple-system,system-ui,sans-serif;background:#07080c;color:#e8e8f0;max-width:680px;margin:0 auto;padding:32px}h1{font-weight:800;letter-spacing:-.02em}.c{background:#12131a;border:1px solid #23242e;border-radius:14px;padding:14px;margin:12px 0}.c img{width:100%;border-radius:10px;display:block}.d{font-size:11px;color:#9aa;letter-spacing:.08em;text-transform:uppercase;margin-bottom:8px}p{margin:0;line-height:1.5}</style><h1>ARC90 — My Proof</h1><p style="color:#9aa">${items.length} entries · Day ${dayNumber()} of 90</p>${cards}`;
+      const blob = new Blob([html], { type: 'text/html' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href = url; a.download = 'arc90-proof.html'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 4000);
+      track('proof_exported');
+    }).catch(() => showNudge('Export failed. Try again.'));
+}
+
 function streak(id) {
   const today = atMidnight(new Date());
   let s = 0;
@@ -1636,6 +1818,11 @@ function paywallCopy(context = '') {
       title: 'Track wellness routines with more signal.',
       sub: 'Premium unlocks protocol tracking for supplements, medication notes, training routines, symptoms, and exports. Arc90 tracks only; it never gives dosing or medical advice.',
     },
+    'proof-limit': {
+      eyebrow: 'Proof Wall is filling up',
+      title: 'Keep every piece of evidence.',
+      sub: `Free saves up to ${PROOF_FREE_PHOTOS} progress photos. Premium unlocks unlimited proof, albums, and a 90-day export you can keep forever.`,
+    },
   };
   return copy[context] || {
     eyebrow: 'Upgrade your 90-day system',
@@ -1666,6 +1853,8 @@ function mainTabOf(id) {
 let lastRenderedTab = null;
 let tabDirection = 'next';
 let navOpen = false;
+let proofTag = 'Win';            // selected tag in the proof note composer
+let proofSeq = 0;                // disambiguates ids created in the same millisecond
 function render() {
   applyTheme();
   syncFocusState();
@@ -1683,6 +1872,7 @@ function render() {
     ${sheet ? viewSheet() : ''}
   `;
   wireAfterRender();
+  hydrateProofImages();
   sendWatchSnapshot('render');
 }
 
@@ -1868,6 +2058,7 @@ function viewToday() {
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
     ${weakSpotCard()}
+    ${proofCard()}
     ${todayStopCard()}
     ${todayFocusStrip()}
   `;
@@ -4208,6 +4399,7 @@ function viewSheet() {
     : sheet.type === 'review' ? sheetReview()
     : sheet.type === 'protocol' ? sheetProtocol()
     : sheet.type === 'comeback' ? sheetComeback()
+    : sheet.type === 'proof' ? sheetProofWall()
     : '';
   return `
     <div class="sheet-wrap">
@@ -4468,6 +4660,7 @@ function renderOnboarding() {
       <div class="ob-body">${steps[ob.step]()}</div>
     </div>`;
   wireAfterRender();
+  hydrateProofImages();
 }
 
 function obWelcome() {
@@ -4704,6 +4897,14 @@ document.addEventListener('click', (e) => {
       showNudge('That counts. Momentum restarts now.');
       track('comeback_done');
       break;
+    case 'proof-open': sheet = { type: 'proof', filter: 'all' }; render(); track('proof_opened'); break;
+    case 'proof-compose': sheet = { type: 'proof', filter: (sheet && sheet.filter) || 'all', compose: true }; render(); break;
+    case 'proof-compose-cancel': sheet = { type: 'proof', filter: (sheet && sheet.filter) || 'all' }; render(); break;
+    case 'proof-note-tag': proofTag = id; render(); break;
+    case 'proof-save-note': addProofNote(); break;
+    case 'proof-del': delProof(id); break;
+    case 'proof-filter': sheet = { type: 'proof', filter: id, compose: !!(sheet && sheet.compose) }; render(); break;
+    case 'proof-export': arcExportProof(); break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
     case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
     case 'library-toggle': libraryOpen = !libraryOpen; render(); break;
@@ -5122,6 +5323,9 @@ document.addEventListener('change', (e) => {
   if (e.target.id === 'importFile' && e.target.files && e.target.files[0]) {
     importDataFile(e.target.files[0]);
     e.target.value = '';
+  }
+  if (e.target.id === 'proofFile' && e.target.files && e.target.files[0]) {
+    arcAddProofPhoto(e.target);
   }
 });
 
