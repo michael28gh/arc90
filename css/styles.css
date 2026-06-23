@@ -3834,11 +3834,11 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 #splash.hide { opacity: 0; pointer-events: none; }
 .splash-stage { position: relative; width: 188px; height: 188px; perspective: 760px; display: flex; align-items: center; justify-content: center; }
 .splash-arc { position: absolute; inset: 0; width: 100%; height: 100%; transform-style: preserve-3d;
-  animation: splash3d 1.4s cubic-bezier(0.22,0.7,0.2,1) both; filter: drop-shadow(0 0 24px rgba(143,107,255,0.45)); }
-.splash-arc-fill { animation: splashDraw 1.15s cubic-bezier(0.22,0.7,0.2,1) both; }
+  animation: splash3d 0.7s cubic-bezier(0.22,0.7,0.2,1) both; filter: drop-shadow(0 0 24px rgba(143,107,255,0.45)); }
+.splash-arc-fill { animation: splashDraw 1.5s cubic-bezier(0.45,0,0.25,1) both; }
 .splash-mark { font-size: 23px; font-weight: 900; letter-spacing: 0.22em; color: #f7f7ff; animation: splashUp 0.7s ease-out 0.12s both; }
 .splash-mark b { color: #a986ff; }
 .splash-phrase { max-width: 320px; padding: 0 28px; margin: 0; text-align: center; font-size: 15px; font-style: italic; line-height: 1.5; color: #b8bbd4; animation: splashUp 0.7s ease-out 0.32s both; }
-@keyframes splashDraw { to { stroke-dashoffset: 150; } }
+@keyframes splashDraw { from { stroke-dashoffset: 565; } to { stroke-dashoffset: 0; } }
 @keyframes splash3d { from { opacity: 0; transform: rotateY(-44deg) rotateX(12deg) scale(0.82); } to { opacity: 1; transform: rotateY(0deg) rotateX(0deg) scale(1); } }
 @keyframes splashUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
