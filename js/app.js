@@ -875,6 +875,64 @@ function buildStoryCanvas() {
   return c;
 }
 
+function wrapCanvasText(ctx, text, maxW) {
+  const words = String(text).split(' '); const lines = []; let line = '';
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (ctx.measureText(t).width > maxW && line) { lines.push(line); line = w; } else line = t; }
+  if (line) lines.push(line); return lines;
+}
+function buildQuoteCanvas() {
+  const W = 1080, H = 1920, cx = W / 2;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const book = reflectionQuote();
+  const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif';
+  const INK = '#f4f5ff', MUTE = 'rgba(221,225,255,0.56)';
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.5, '#08090f'); bg.addColorStop(1, '#050609');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(cx, 880, 0, cx, 880, 760);
+  glow.addColorStop(0, 'rgba(143,107,255,0.18)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '800 60px ' + SANS;
+  const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
+  ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 200);
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 200);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = 'rgba(143,107,255,0.45)'; ctx.font = '800 240px Georgia, "Times New Roman", serif'; ctx.fillText('“', cx, 600);
+  ctx.fillStyle = INK; ctx.font = '600 66px ' + SANS;
+  const lines = wrapCanvasText(ctx, book.quote, W - 240).slice(0, 7);
+  const lh = 92; let y = 940 - (lines.length - 1) * lh / 2;
+  for (const ln of lines) { ctx.fillText(ln, cx, y); y += lh; }
+  ctx.fillStyle = MUTE; ctx.font = 'italic 500 42px ' + SANS; ctx.fillText('— ' + book.source, cx, y + 46);
+  ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS; ctx.fillText('arc90', cx, 1838);
+  return c;
+}
+function openQuoteShare() {
+  try {
+    shareCanvas = buildQuoteCanvas();
+    shareCardURL = shareCanvas.toDataURL('image/png');
+    sheet = { type: 'share' };
+    render();
+    track('share_opened', { kind: 'quote' });
+  } catch (e) { showNudge('Could not build the quote card. Try again.'); }
+}
+function dailyReflectionCard() {
+  const book = reflectionQuote();
+  return `
+    <section class="card reflection-card">
+      <div class="ws-head">
+        <span class="eyebrow">Daily reflection</span>
+        <span class="proof-count">Day ${dayNumber()}</span>
+      </div>
+      <blockquote class="reflection-q">${esc(book.quote)}</blockquote>
+      <div class="reflection-src">— ${esc(book.source)}</div>
+      <button class="reflection-share" data-act="share-quote"><span aria-hidden="true">↗</span> Share quote</button>
+    </section>`;
+}
+
 function shareCaption() {
   const stk = dayStreak();
   return `Day ${dayNumber()} of 90${stk > 1 ? ` · ${stk}-day streak` : ''}. Building my next 90 with ARC90. arc90.vercel.app`;
@@ -2079,14 +2137,14 @@ function sideDrawer() {
           ${sideNavBtn('habits', 'Habits', ICONS.habits, `${S.habits.length}`)}
         </div>
         <div class="side-group">
-          <div class="side-label">General</div>
-          ${sideNavBtn('progress', 'Monitoring', ICONS.progress)}
-          ${sideNavBtn('focus', 'Focus', ICONS.focus, `${focusStats().blockedCount}`)}
-        </div>
-        <div class="side-group">
           <div class="side-label">Operations</div>
           ${sideNavBtn('protocol', 'Protocol', ICONS.protocol, `${S.protocols.length}`)}
           ${sideNavBtn('vitals', 'Vitals', ICONS.vitals)}
+        </div>
+        <div class="side-group">
+          <div class="side-label">General</div>
+          ${sideNavBtn('progress', 'Monitoring', ICONS.progress)}
+          ${sideNavBtn('focus', 'Focus', ICONS.focus, `${focusStats().blockedCount}`)}
         </div>
         <div class="side-group">
           <div class="side-label">Account</div>
@@ -2239,6 +2297,7 @@ function viewToday() {
 
     ${weakSpotCard()}
     ${proofCard()}
+    ${dailyReflectionCard()}
     ${todayStopCard()}
     ${todayFocusStrip()}
   `;
@@ -3076,15 +3135,14 @@ function viewProgress() {
 
     ${commandCenterCard()}
     ${progressArcMapCard()}
-    ${progressAnalyticsCard()}
-    ${moodGraphPanel()}
-    ${proofCard()}
     <section class="card">
       <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
       ${chart(7)}
     </section>
+    ${progressAnalyticsCard()}
+    ${moodGraphPanel()}
     ${progressPulseCard()}
-    ${progressMantraCard()}
+    ${proofCard()}
   `;
 }
 
@@ -3803,7 +3861,6 @@ function viewProtocol() {
 
     ${protocolTodayStack()}
     ${protocolTemplatesPanel()}
-    ${protocolTrackerPanel()}
     ${sleepAnalysisCard()}
 
     <div class="empty-note" style="padding-top:10px">Track what you already do. Arc90 records patterns, adherence, and body signals only; medical decisions stay with you and a licensed professional.</div>
@@ -4043,9 +4100,12 @@ function protocolTodayStack() {
 
       <div class="protocol-actions">
         <button class="mini-act" data-act="proto-template-toggle">${protocolTemplatesOpen ? 'hide templates' : 'templates'}</button>
-        <button class="mini-act" data-act="proto-add">manual add</button>
+        <button class="mini-act" data-act="proto-add">${protoAddOpen ? 'close' : 'manual add'}</button>
         <button class="mini-act" data-act="proto-export">export</button>
       </div>
+      ${S.protocols.length ? `<div class="protocol-signal"><b>Signal</b> ${esc(protocolInsight())}</div>` : ''}
+      ${protoUrgent ? `<div class="urgent" style="margin-top:12px">⚠️ <div>${esc(URGENT_MSG)}</div></div>` : ''}
+      ${protoAddOpen ? protocolAddForm() : ''}
     </section>`;
 }
 
@@ -5088,6 +5148,7 @@ document.addEventListener('click', (e) => {
     case 'proof-filter': sheet = { type: 'proof', filter: id, compose: !!(sheet && sheet.compose) }; render(); break;
     case 'proof-export': arcExportProof(); break;
     case 'share': openShare(); break;
+    case 'share-quote': openQuoteShare(); break;
     case 'share-send': sendShare(); break;
     case 'share-save': saveShare(); break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
