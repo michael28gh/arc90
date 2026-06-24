@@ -778,62 +778,96 @@ function buildStoryCanvas() {
   const ctx = c.getContext('2d');
   const day = dayNumber();
   const frac = Math.max(0, Math.min(1, day / 90));
-  const mom = momentum(), stk = dayStreak(), pct = Math.round(frac * 100);
+  const mom = momentum(), stk = dayStreak(), reps = totalReps();
   const goal = (S.profile && S.profile.goal) || 'My next 90 days';
   const SANS = '-apple-system, "Helvetica Neue", Arial, sans-serif';
 
-  ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
-  const glow = ctx.createRadialGradient(cx, 600, 0, cx, 600, 1000);
+  const INK = '#f4f5ff', MUTE = 'rgba(221,225,255,0.56)', FAINT = 'rgba(221,225,255,0.40)';
+  const cap = (s) => s.split('').join(' ');
+
+  // background: vertical depth gradient + one focal glow behind the ring
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.45, '#08090f'); bg.addColorStop(1, '#050609');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(cx, 936, 0, cx, 936, 720);
   glow.addColorStop(0, 'rgba(143,107,255,0.20)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2;
-  storyRoundRect(ctx, 48, 48, W - 96, H - 96, 44); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2;
+  storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
 
   ctx.textBaseline = 'alphabetic';
-  ctx.font = '800 80px ' + SANS;
+
+  // wordmark
+  ctx.font = '800 86px ' + SANS;
   const wArc = ctx.measureText('ARC').width, wNine = ctx.measureText('90').width;
   const x0 = cx - (wArc + wNine) / 2;
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff'; ctx.fillText('ARC', x0, 240);
+  ctx.fillStyle = INK; ctx.fillText('ARC', x0, 230);
   const wm = ctx.createLinearGradient(x0 + wArc, 0, x0 + wArc + wNine, 0);
   wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
-  ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 240);
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 230);
   ctx.textAlign = 'center';
 
-  ctx.fillStyle = 'rgba(220,224,255,0.5)'; ctx.font = '700 27px ' + SANS;
-  ctx.fillText('MY 90-DAY ARC', cx, 308);
-  ctx.fillStyle = '#eef0ff'; ctx.font = '600 46px ' + SANS;
-  ctx.fillText(storyTruncate(ctx, goal, W - 240), cx, 384);
+  // hairline divider
+  ctx.strokeStyle = 'rgba(255,255,255,0.13)'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(cx - 44, 284); ctx.lineTo(cx + 44, 284); ctx.stroke();
 
-  const ry = 900, r = 300;
-  ctx.lineCap = 'round'; ctx.lineWidth = 42;
-  ctx.strokeStyle = 'rgba(220,224,255,0.08)'; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  // eyebrow + goal
+  ctx.fillStyle = FAINT; ctx.font = '700 25px ' + SANS;
+  ctx.fillText(cap('MY 90-DAY ARC'), cx, 350);
+  ctx.fillStyle = INK; ctx.font = '600 56px ' + SANS;
+  ctx.fillText(storyTruncate(ctx, goal, W - 280), cx, 426);
+
+  // hero ring
+  const ry = 936, r = 326;
+  ctx.lineCap = 'round'; ctx.lineWidth = 36;
+  ctx.strokeStyle = 'rgba(221,225,255,0.07)';
+  ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
   rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
-  ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * frac); ctx.stroke();
-  ctx.fillStyle = 'rgba(220,224,255,0.55)'; ctx.font = '700 36px ' + SANS; ctx.fillText('DAY', cx, ry - 78);
-  ctx.fillStyle = '#ffffff'; ctx.font = '800 210px ' + SANS; ctx.fillText(String(day), cx, ry + 58);
-  ctx.fillStyle = 'rgba(220,224,255,0.55)'; ctx.font = '700 40px ' + SANS; ctx.fillText('OF 90', cx, ry + 126);
+  ctx.save();
+  ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 38;
+  ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke();
+  ctx.restore();
+  // leading "activity dot" at the arc tip
+  ctx.save();
+  ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 24;
+  ctx.fillStyle = '#ecdcff';
+  ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 14, 0, 2 * Math.PI); ctx.fill();
+  ctx.restore();
+  // ring center
+  ctx.fillStyle = MUTE; ctx.font = '700 32px ' + SANS; ctx.fillText(cap('DAY'), cx, ry - 116);
+  ctx.fillStyle = INK; ctx.font = '800 236px ' + SANS; ctx.fillText(String(day), cx, ry + 64);
+  ctx.fillStyle = MUTE; ctx.font = '600 42px ' + SANS; ctx.fillText('of 90', cx, ry + 150);
 
-  const sy = 1400;
-  const stat = (x, val, lab) => {
-    ctx.fillStyle = '#ffffff'; ctx.font = '800 78px ' + SANS; ctx.fillText(val, x, sy);
-    ctx.fillStyle = 'rgba(220,224,255,0.5)'; ctx.font = '700 27px ' + SANS; ctx.fillText(lab, x, sy + 50);
+  // stats panel (glass) with hairline dividers
+  const px = 96, pw = W - 192, py = 1432, ph = 226;
+  ctx.fillStyle = 'rgba(255,255,255,0.045)';
+  storyRoundRect(ctx, px, py, pw, ph, 40); ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2;
+  storyRoundRect(ctx, px, py, pw, ph, 40); ctx.stroke();
+  for (const dvx of [px + pw / 3, px + 2 * pw / 3]) { ctx.beginPath(); ctx.moveTo(dvx, py + 48); ctx.lineTo(dvx, py + ph - 48); ctx.stroke(); }
+  const col = (i) => px + pw / 6 + (pw / 3) * i;
+  const stat = (i, val, lab) => {
+    ctx.fillStyle = INK; ctx.font = '800 82px ' + SANS; ctx.fillText(val, col(i), py + 120);
+    ctx.fillStyle = FAINT; ctx.font = '700 24px ' + SANS; ctx.fillText(cap(lab), col(i), py + 170);
   };
-  stat(cx - 322, String(mom), 'MOMENTUM');
-  stat(cx, String(stk), 'DAY STREAK');
-  stat(cx + 322, pct + '%', 'COMPLETE');
+  stat(0, String(mom), 'MOMENTUM');
+  stat(1, String(stk), 'STREAK');
+  stat(2, String(reps), 'REPS');
 
-  ctx.fillStyle = 'rgba(220,224,255,0.72)'; ctx.font = 'italic 500 42px ' + SANS;
-  ctx.fillText(stk > 1 ? `${stk} days. Still showing up.` : `Day ${day}. Still showing up.`, cx, 1632);
+  // motivational line
+  ctx.fillStyle = 'rgba(221,225,255,0.78)'; ctx.font = 'italic 500 44px ' + SANS;
+  ctx.fillText(stk > 1 ? `${stk} days. Still showing up.` : `Day ${day}. Still showing up.`, cx, 1748);
 
-  ctx.font = '700 36px ' + SANS; const fa = 'arc90.vercel.app'; const wfa = ctx.measureText(fa).width;
-  ctx.font = '600 32px ' + SANS; const fb = '  ·  build your next 90 days'; const wfb = ctx.measureText(fb).width;
+  // footer
+  ctx.font = '700 34px ' + SANS; const fa = 'arc90.vercel.app'; const wfa = ctx.measureText(fa).width;
+  ctx.font = '500 30px ' + SANS; const fb = '   ·   build your next 90 days'; const wfb = ctx.measureText(fb).width;
   const fx = cx - (wfa + wfb) / 2;
   ctx.textAlign = 'left';
-  const fg = ctx.createLinearGradient(fx, 0, fx + wfa, 0); fg.addColorStop(0, '#5ee4ff'); fg.addColorStop(1, '#c14cff');
-  ctx.font = '700 36px ' + SANS; ctx.fillStyle = fg; ctx.fillText(fa, fx, 1812);
-  ctx.font = '600 32px ' + SANS; ctx.fillStyle = 'rgba(220,224,255,0.45)'; ctx.fillText(fb, fx + wfa, 1812);
+  ctx.fillStyle = '#a78bff'; ctx.font = '700 34px ' + SANS; ctx.fillText(fa, fx, 1838);
+  ctx.fillStyle = 'rgba(221,225,255,0.42)'; ctx.font = '500 30px ' + SANS; ctx.fillText(fb, fx + wfa, 1838);
   ctx.textAlign = 'center';
 
   return c;
