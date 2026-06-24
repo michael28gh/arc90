@@ -2935,19 +2935,86 @@ function consumeCheckoutReturn() {
   const status = params.get('checkout');
   if (!status) return '';
 
+  const sessionId = params.get('session_id') || '';
   params.delete('checkout');
+  params.delete('session_id');
   const nextSearch = params.toString();
   const cleanUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
   window.history.replaceState({}, '', cleanUrl);
 
-  if (status === 'success') {
-    S.premium = true;
-    save();
-    track('premium_activated');
-    return 'Premium is active on this device. Welcome to the full Arc90.';
-  }
   if (status === 'canceled') return 'Checkout canceled. You can keep using Arc90 Free.';
+  if (status === 'success') {
+    if (sessionId) { verifyPremiumSession(sessionId); return 'Verifying your purchase…'; }
+    return 'Finishing checkout — if Premium doesn’t unlock, reopen the link from your Stripe receipt.';
+  }
   return '';
+}
+
+/* Server-verified premium: only unlock after Stripe confirms the session was actually paid. */
+function verifyPremiumSession(sessionId) {
+  fetch(`/api/verify-session?session_id=${encodeURIComponent(sessionId)}`)
+    .then((r) => r.json())
+    .then((d) => {
+      if (d && d.paid) {
+        S.premium = true;
+        if (d.email) S.billingEmail = d.email;
+        save();
+        track('premium_activated');
+        render();
+        confetti();
+        showNudge('Premium is active. Welcome to the full Arc90.');
+      } else {
+        showNudge('We couldn’t confirm that purchase yet. If you were charged, reopen your receipt link or contact support.');
+      }
+    })
+    .catch(() => showNudge('Could not verify your purchase — check your connection and reopen the receipt link.'));
+}
+
+/* ---------- Email capture (opt-in; sending deferred) ---------- */
+function emailCaptureCard() {
+  if (S.subscribed) {
+    return `
+      <section class="card subscribe-card done">
+        <div class="sub-done"><span class="sub-check" aria-hidden="true">✓</span>
+          <div><b>You’re on the list</b><span>We’ll only email when there’s something worth your time.</span></div>
+        </div>
+      </section>`;
+  }
+  return `
+    <section class="card subscribe-card">
+      <span class="eyebrow">Stay in the loop</span>
+      <h3 class="sub-title">Get launch updates</h3>
+      <p class="sub-copy">New features and the occasional note on building your 90. No spam — leave anytime.</p>
+      <label class="sub-label" for="subEmail">Email</label>
+      <input id="subEmail" class="sub-input" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="subStatus" />
+      <label class="sub-consent">
+        <input id="subConsent" type="checkbox" />
+        <span>Yes, email me ARC90 updates. I can unsubscribe at any time.</span>
+      </label>
+      <button class="btn sub-btn" data-act="subscribe">Keep me posted</button>
+      <div id="subStatus" class="sub-status" role="status" aria-live="polite"></div>
+    </section>`;
+}
+
+function submitSubscribe() {
+  const emailEl = document.getElementById('subEmail');
+  const consentEl = document.getElementById('subConsent');
+  const statusEl = document.getElementById('subStatus');
+  const btn = document.querySelector('[data-act="subscribe"]');
+  if (!emailEl || !consentEl) return;
+  const email = emailEl.value.trim().toLowerCase();
+  const setStatus = (msg, cls) => { if (statusEl) { statusEl.textContent = msg; statusEl.className = `sub-status ${cls || ''}`; } };
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { setStatus('Enter a valid email address.', 'err'); emailEl.focus(); return; }
+  if (!consentEl.checked) { setStatus('Check the box to confirm you want updates.', 'err'); consentEl.focus(); return; }
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+  setStatus('', '');
+  fetch('/api/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, consent: true, source: 'app' }) })
+    .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (ok && d && d.ok) { S.subscribed = true; save(); track('subscribed'); render(); showNudge('You’re on the list. Thanks for backing ARC90.'); }
+      else { setStatus((d && d.error) || 'Could not save. Try again.', 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Keep me posted'; } }
+    })
+    .catch(() => { setStatus('Network error. Please try again.', 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Keep me posted'; } });
 }
 
 /* ============================================================
@@ -4534,6 +4601,8 @@ function viewProfile() {
       ${S.profile.motivation ? `<div style="font-size:12.5px;color:var(--tx-3);margin-top:7px;font-style:italic">“${esc(S.profile.motivation)}”</div>` : ''}
     </section>
 
+    ${emailCaptureCard()}
+
     <div class="section-title">Reminders</div>
     <section class="card reminder-card">
       <div class="reminder-head">
@@ -5149,6 +5218,7 @@ document.addEventListener('click', (e) => {
     case 'proof-export': arcExportProof(); break;
     case 'share': openShare(); break;
     case 'share-quote': openQuoteShare(); break;
+    case 'subscribe': submitSubscribe(); break;
     case 'share-send': sendShare(); break;
     case 'share-save': saveShare(); break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;

@@ -3979,6 +3979,24 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .protocol-signal { margin-top: 12px; padding: 11px 13px; border-radius: 12px; background: rgba(255,255,255,0.03); border: 1px solid var(--line); font-size: 13px; line-height: 1.5; color: var(--tx-2); }
 .protocol-signal b { margin-right: 7px; text-transform: uppercase; letter-spacing: .06em; font-size: 11px; font-weight: 700; color: var(--tx-3); }
 
+/* Email capture opt-in (v55) */
+.subscribe-card .sub-title { margin: 8px 0 4px; font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.subscribe-card .sub-copy { margin: 0 0 14px; font-size: 13px; line-height: 1.5; color: var(--tx-3); }
+.sub-label { display: block; font-size: 12px; font-weight: 600; color: var(--tx-2); margin-bottom: 6px; }
+.sub-input { width: 100%; box-sizing: border-box; height: 48px; padding: 0 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--card); color: var(--tx); font: inherit; font-size: 16px; transition: border-color .15s ease, box-shadow .15s ease; }
+.sub-input::placeholder { color: var(--tx-3); }
+.sub-input:focus { outline: none; border-color: var(--accent-line); box-shadow: 0 0 0 3px var(--accent-soft); }
+.sub-consent { display: flex; align-items: flex-start; gap: 10px; margin: 12px 0; cursor: pointer; font-size: 13px; line-height: 1.45; color: var(--tx-2); }
+.sub-consent input { width: 22px; height: 22px; margin: 1px 0 0; flex: 0 0 22px; accent-color: var(--accent); cursor: pointer; }
+.sub-btn { width: 100%; }
+.sub-btn:disabled { opacity: .55; cursor: default; }
+.sub-status { margin-top: 10px; font-size: 12.5px; min-height: 1em; color: var(--tx-3); }
+.sub-status.err { color: var(--amber); }
+.subscribe-card.done .sub-done { display: flex; align-items: center; gap: 12px; }
+.subscribe-card.done .sub-check { flex: 0 0 36px; height: 36px; display: grid; place-items: center; border-radius: 999px; background: var(--mint-soft); color: var(--mint); font-weight: 800; }
+.subscribe-card.done b { display: block; font-size: 15px; }
+.subscribe-card.done .sub-done span { font-size: 12.5px; color: var(--tx-3); }
+
 /* ---------- Share progress (v49) ---------- */
 .streak-banner { position: relative; }
 .streak-share { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--tx-2); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; }
