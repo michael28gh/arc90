@@ -754,6 +754,140 @@ function arcExportProof() {
     }).catch(() => showNudge('Export failed. Try again.'));
 }
 
+/* ---------- Share progress: a Strava-style 9:16 story card + native share sheet ---------- */
+function storyRoundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function storyTruncate(ctx, text, maxW) {
+  if (ctx.measureText(text).width <= maxW) return text;
+  let t = text;
+  while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
+  return t + '…';
+}
+
+/* draws the shareable card at Instagram-Stories resolution (1080×1920) */
+function buildStoryCanvas() {
+  const W = 1080, H = 1920, cx = W / 2;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const day = dayNumber();
+  const frac = Math.max(0, Math.min(1, day / 90));
+  const mom = momentum(), stk = dayStreak(), pct = Math.round(frac * 100);
+  const goal = (S.profile && S.profile.goal) || 'My next 90 days';
+  const SANS = '-apple-system, "Helvetica Neue", Arial, sans-serif';
+
+  ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(cx, 600, 0, cx, 600, 1000);
+  glow.addColorStop(0, 'rgba(143,107,255,0.20)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 2;
+  storyRoundRect(ctx, 48, 48, W - 96, H - 96, 44); ctx.stroke();
+
+  ctx.textBaseline = 'alphabetic';
+  ctx.font = '800 80px ' + SANS;
+  const wArc = ctx.measureText('ARC').width, wNine = ctx.measureText('90').width;
+  const x0 = cx - (wArc + wNine) / 2;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff'; ctx.fillText('ARC', x0, 240);
+  const wm = ctx.createLinearGradient(x0 + wArc, 0, x0 + wArc + wNine, 0);
+  wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 240);
+  ctx.textAlign = 'center';
+
+  ctx.fillStyle = 'rgba(220,224,255,0.5)'; ctx.font = '700 27px ' + SANS;
+  ctx.fillText('MY 90-DAY ARC', cx, 308);
+  ctx.fillStyle = '#eef0ff'; ctx.font = '600 46px ' + SANS;
+  ctx.fillText(storyTruncate(ctx, goal, W - 240), cx, 384);
+
+  const ry = 900, r = 300;
+  ctx.lineCap = 'round'; ctx.lineWidth = 42;
+  ctx.strokeStyle = 'rgba(220,224,255,0.08)'; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
+  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
+  ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * frac); ctx.stroke();
+  ctx.fillStyle = 'rgba(220,224,255,0.55)'; ctx.font = '700 36px ' + SANS; ctx.fillText('DAY', cx, ry - 78);
+  ctx.fillStyle = '#ffffff'; ctx.font = '800 210px ' + SANS; ctx.fillText(String(day), cx, ry + 58);
+  ctx.fillStyle = 'rgba(220,224,255,0.55)'; ctx.font = '700 40px ' + SANS; ctx.fillText('OF 90', cx, ry + 126);
+
+  const sy = 1400;
+  const stat = (x, val, lab) => {
+    ctx.fillStyle = '#ffffff'; ctx.font = '800 78px ' + SANS; ctx.fillText(val, x, sy);
+    ctx.fillStyle = 'rgba(220,224,255,0.5)'; ctx.font = '700 27px ' + SANS; ctx.fillText(lab, x, sy + 50);
+  };
+  stat(cx - 322, String(mom), 'MOMENTUM');
+  stat(cx, String(stk), 'DAY STREAK');
+  stat(cx + 322, pct + '%', 'COMPLETE');
+
+  ctx.fillStyle = 'rgba(220,224,255,0.72)'; ctx.font = 'italic 500 42px ' + SANS;
+  ctx.fillText(stk > 1 ? `${stk} days. Still showing up.` : `Day ${day}. Still showing up.`, cx, 1632);
+
+  ctx.font = '700 36px ' + SANS; const fa = 'arc90.app'; const wfa = ctx.measureText(fa).width;
+  ctx.font = '600 32px ' + SANS; const fb = '  ·  build your next 90 days'; const wfb = ctx.measureText(fb).width;
+  const fx = cx - (wfa + wfb) / 2;
+  ctx.textAlign = 'left';
+  const fg = ctx.createLinearGradient(fx, 0, fx + wfa, 0); fg.addColorStop(0, '#5ee4ff'); fg.addColorStop(1, '#c14cff');
+  ctx.font = '700 36px ' + SANS; ctx.fillStyle = fg; ctx.fillText(fa, fx, 1812);
+  ctx.font = '600 32px ' + SANS; ctx.fillStyle = 'rgba(220,224,255,0.45)'; ctx.fillText(fb, fx + wfa, 1812);
+  ctx.textAlign = 'center';
+
+  return c;
+}
+
+function shareCaption() {
+  const stk = dayStreak();
+  return `Day ${dayNumber()} of 90${stk > 1 ? ` · ${stk}-day streak` : ''}. Building my next 90 with ARC90. arc90.app`;
+}
+function openShare() {
+  try {
+    shareCanvas = buildStoryCanvas();
+    shareCardURL = shareCanvas.toDataURL('image/png');
+    sheet = { type: 'share' };
+    render();
+    track('share_opened');
+  } catch (e) { showNudge('Could not build your card. Try again.'); }
+}
+function storySaveBlob(blob, name) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+function sendShare() {
+  if (!shareCanvas) return;
+  const name = `arc90-day${dayNumber()}.png`;
+  shareCanvas.toBlob((blob) => {
+    if (!blob) return;
+    const file = new File([blob], name, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      navigator.share({ files: [file], text: shareCaption() }).then(() => track('share_sent')).catch(() => {});
+    } else {
+      storySaveBlob(blob, name);
+      showNudge('Saved your card — post it to your story.');
+      track('share_saved');
+    }
+  }, 'image/png');
+}
+function saveShare() {
+  if (!shareCanvas) return;
+  const name = `arc90-day${dayNumber()}.png`;
+  shareCanvas.toBlob((blob) => { if (blob) { storySaveBlob(blob, name); showNudge('Saved — post it anytime.'); track('share_saved'); } }, 'image/png');
+}
+function sheetShare() {
+  return `
+    <div class="story-sheet">
+      <span class="eyebrow">Share your progress</span>
+      <h3 class="cb-title" style="margin:4px 0 14px">Your story card is ready</h3>
+      <div class="story-preview"><img class="story-img" src="${shareCardURL}" alt="Your ARC90 progress card"></div>
+      <button class="btn story-send" data-act="share-send">Share to Instagram, Messages…</button>
+      <button class="cb-other" data-act="share-save">Save image</button>
+    </div>`;
+}
+
 function streak(id) {
   const today = atMidnight(new Date());
   let s = 0;
@@ -828,6 +962,7 @@ function streakBannerCard() {
       : 'Log one rep today to start your streak.';
   return `
     <section class="card streak-banner ${state}">
+      <button class="streak-share" data-act="share" aria-label="Share your progress">↗ Share</button>
       <div class="streak-row">
         <div class="streak-flame">${s > 0 ? '🔥' : '✦'}</div>
         <div class="streak-main">
@@ -1859,6 +1994,8 @@ let tabDirection = 'next';
 let navOpen = false;
 let proofTag = 'Win';            // selected tag in the proof note composer
 let proofSeq = 0;                // disambiguates ids created in the same millisecond
+let shareCanvas = null;          // last-built story card (canvas) for native share / save
+let shareCardURL = '';           // its dataURL for the preview sheet
 function render() {
   applyTheme();
   syncFocusState();
@@ -1993,7 +2130,7 @@ function viewToday() {
 
     ${S.habits.length ? streakBannerCard() : ''}
     ${comebackBtn()}
-    ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div></div>` : ''}
+    ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div><button class="milestone-share" data-act="share">Share this milestone ↗</button></div>` : ''}
     ${forgeActive() ? `<div class="forge-banner">🔥 <div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
     <section class="card hero-card">
@@ -4408,6 +4545,7 @@ function viewSheet() {
     : sheet.type === 'protocol' ? sheetProtocol()
     : sheet.type === 'comeback' ? sheetComeback()
     : sheet.type === 'proof' ? sheetProofWall()
+    : sheet.type === 'share' ? sheetShare()
     : '';
   return `
     <div class="sheet-wrap">
@@ -4913,6 +5051,9 @@ document.addEventListener('click', (e) => {
     case 'proof-del': delProof(id); break;
     case 'proof-filter': sheet = { type: 'proof', filter: id, compose: !!(sheet && sheet.compose) }; render(); break;
     case 'proof-export': arcExportProof(); break;
+    case 'share': openShare(); break;
+    case 'share-send': sendShare(); break;
+    case 'share-save': saveShare(); break;
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
     case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
     case 'library-toggle': libraryOpen = !libraryOpen; render(); break;

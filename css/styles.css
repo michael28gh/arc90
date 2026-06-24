@@ -3969,3 +3969,14 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .mom-delta.up { color: var(--mint); }
 .mom-delta.down { color: var(--amber); }
 .mom-delta.flat { color: var(--tx-3); }
+
+/* ---------- Share progress (v49) ---------- */
+.streak-banner { position: relative; }
+.streak-share { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--tx-2); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; }
+.streak-share:hover { border-color: var(--line-2); color: var(--tx); background: rgba(255,255,255,.09); }
+.milestone-share { margin-top: 12px; padding: 9px 15px; border-radius: 11px; border: 1px solid var(--accent-line); background: var(--accent-soft); color: var(--accent); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s ease; }
+.milestone-share:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.story-sheet { padding: 2px 0 8px; text-align: center; }
+.story-preview { width: 270px; max-width: 74%; margin: 0 auto 16px; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); box-shadow: 0 24px 60px -28px rgba(0,0,0,.9); }
+.story-img { width: 100%; display: block; }
+.story-send { width: 100%; margin-bottom: 8px; }
