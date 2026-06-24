@@ -821,7 +821,7 @@ function buildStoryCanvas() {
   // hero ring
   const ry = 936, r = 326;
   ctx.lineCap = 'round'; ctx.lineWidth = 36;
-  ctx.strokeStyle = 'rgba(221,225,255,0.07)';
+  ctx.strokeStyle = 'rgba(221,225,255,0.13)';
   ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
@@ -836,10 +836,16 @@ function buildStoryCanvas() {
   ctx.fillStyle = '#ecdcff';
   ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 14, 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
-  // ring center
-  ctx.fillStyle = MUTE; ctx.font = '700 32px ' + SANS; ctx.fillText(cap('DAY'), cx, ry - 116);
-  ctx.fillStyle = INK; ctx.font = '800 236px ' + SANS; ctx.fillText(String(day), cx, ry + 64);
-  ctx.fillStyle = MUTE; ctx.font = '600 42px ' + SANS; ctx.fillText('of 90', cx, ry + 150);
+  // ring center — measure the numeral's ink box and center it exactly on the ring middle (ry)
+  ctx.fillStyle = INK; ctx.font = '800 232px ' + SANS;
+  const numStr = String(day);
+  const nm = ctx.measureText(numStr);
+  const nAsc = nm.actualBoundingBoxAscent || 165, nDesc = nm.actualBoundingBoxDescent || 0;
+  const numBase = ry + (nAsc - nDesc) / 2;
+  ctx.fillText(numStr, cx, numBase);
+  const numTop = numBase - nAsc, numBot = numBase + nDesc;
+  ctx.fillStyle = MUTE; ctx.font = '700 30px ' + SANS; ctx.fillText(cap('DAY'), cx, numTop - 34);
+  ctx.fillStyle = MUTE; ctx.font = '600 38px ' + SANS; ctx.fillText('of 90', cx, numBot + 56);
 
   // stats panel (glass) with hairline dividers
   const px = 96, pw = W - 192, py = 1432, ph = 226;
@@ -861,14 +867,10 @@ function buildStoryCanvas() {
   ctx.fillStyle = 'rgba(221,225,255,0.78)'; ctx.font = 'italic 500 44px ' + SANS;
   ctx.fillText(stk > 1 ? `${stk} days. Still showing up.` : `Day ${day}. Still showing up.`, cx, 1748);
 
-  // footer
-  ctx.font = '700 34px ' + SANS; const fa = 'arc90.vercel.app'; const wfa = ctx.measureText(fa).width;
-  ctx.font = '500 30px ' + SANS; const fb = '   ·   build your next 90 days'; const wfb = ctx.measureText(fb).width;
-  const fx = cx - (wfa + wfb) / 2;
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#a78bff'; ctx.font = '700 34px ' + SANS; ctx.fillText(fa, fx, 1838);
-  ctx.fillStyle = 'rgba(221,225,255,0.42)'; ctx.font = '500 30px ' + SANS; ctx.fillText(fb, fx + wfa, 1838);
+  // footer — clean brand sign-off
   ctx.textAlign = 'center';
+  ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS;
+  ctx.fillText('arc90', cx, 1838);
 
   return c;
 }
