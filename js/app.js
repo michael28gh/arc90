@@ -827,7 +827,7 @@ function buildStoryCanvas() {
   ctx.fillStyle = 'rgba(220,224,255,0.72)'; ctx.font = 'italic 500 42px ' + SANS;
   ctx.fillText(stk > 1 ? `${stk} days. Still showing up.` : `Day ${day}. Still showing up.`, cx, 1632);
 
-  ctx.font = '700 36px ' + SANS; const fa = 'arc90.app'; const wfa = ctx.measureText(fa).width;
+  ctx.font = '700 36px ' + SANS; const fa = 'arc90.vercel.app'; const wfa = ctx.measureText(fa).width;
   ctx.font = '600 32px ' + SANS; const fb = '  ·  build your next 90 days'; const wfb = ctx.measureText(fb).width;
   const fx = cx - (wfa + wfb) / 2;
   ctx.textAlign = 'left';
@@ -841,7 +841,7 @@ function buildStoryCanvas() {
 
 function shareCaption() {
   const stk = dayStreak();
-  return `Day ${dayNumber()} of 90${stk > 1 ? ` · ${stk}-day streak` : ''}. Building my next 90 with ARC90. arc90.app`;
+  return `Day ${dayNumber()} of 90${stk > 1 ? ` · ${stk}-day streak` : ''}. Building my next 90 with ARC90. arc90.vercel.app`;
 }
 function openShare() {
   try {
