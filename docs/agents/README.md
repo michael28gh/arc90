@@ -30,5 +30,18 @@ Open each folder as its own workspace/session in VS Code. In each session:
 | **4 · Retention & Product** | `agent/retention` | engagement view fns in app.js | /api, css, landing |
 | **5 · QA, Release & Integrator** | `main` | merges, cache bump, build, deploy, `scripts/smoke.mjs` | feature logic (only merges it) |
 
+## Marketing automation lane
+
+These agents operate inside the Jarvis console for Arc90 growth automation. They draft content, research, outreach, and paid-media recommendations, but live posting and DMs stay gated behind official platform credentials and explicit approval.
+
+| Agent | Owns | Live action policy |
+|-------|------|--------------------|
+| **6 · Marketing Automation Orchestrator** | Daily marketing packet and routing across all growth agents | Drafts only until approved |
+| **7 · Instagram UGC & Carousel** | UGC image brief, 5-slide carousel, caption, hashtags | Needs Meta OAuth + approval |
+| **8 · Instagram Competitor Research** | Public competitor scan and improvement recommendations | Public research only |
+| **9 · TikTok Creator Outreach** | Three creator targets and personalized DM drafts/day | Manual send only |
+| **10 · TikTok Organic Video** | Higgsfield prompt, TikTok caption, video checklist | Needs TikTok OAuth + approval |
+| **11 · TikTok Ads** | Paid test plan, UTMs, budget gates, kill rules | Paused until pixel + approval |
+
 ## The cardinal rule
 Only the **Release agent** pushes to `main`, bumps the cache version (`index.html ?v=` + `sw.js CACHE`), and runs `deploy:prod`. Everyone else commits to their own branch and stays in their lane.

@@ -3997,6 +3997,12 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .subscribe-card.done b { display: block; font-size: 15px; }
 .subscribe-card.done .sub-done span { font-size: 12.5px; color: var(--tx-3); }
 
+/* Today's Arc share button (v56) */
+.hero-topline-actions { display: flex; align-items: center; gap: 8px; }
+.hero-share { width: 40px; height: 40px; flex: 0 0 40px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.03); color: var(--tx-2); font-size: 17px; line-height: 1; cursor: pointer; display: grid; place-items: center; transition: border-color .15s ease, color .15s ease, background .15s ease, transform .12s ease; }
+.hero-share:hover { border-color: var(--accent-line); color: var(--accent); background: var(--accent-soft); }
+.hero-share:active { transform: scale(.94); }
+
 /* ---------- Share progress (v49) ---------- */
 .streak-banner { position: relative; }
 .streak-share { position: absolute; top: 14px; right: 14px; z-index: 2; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--line); background: rgba(255,255,255,.05); color: var(--tx-2); font-size: 12px; font-weight: 600; cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease; }

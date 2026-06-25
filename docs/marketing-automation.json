@@ -1,0 +1,147 @@
+{
+  "project": "Arc90",
+  "mode": "draft_and_approval",
+  "timezone": "America/Los_Angeles",
+  "dailyRunTime": "09:00",
+  "summary": [
+    {
+      "label": "Daily channels",
+      "value": "2"
+    },
+    {
+      "label": "Marketing agents",
+      "value": "6"
+    },
+    {
+      "label": "Creator DMs/day",
+      "value": "3"
+    },
+    {
+      "label": "Live posting",
+      "value": "Gated"
+    }
+  ],
+  "agents": [
+    {
+      "name": "Arc90 Marketing Automation Orchestrator",
+      "file": "docs/agents/6-marketing-automation-orchestrator.md",
+      "channel": "Controller",
+      "cadence": "Daily",
+      "status": "Draft approval",
+      "output": "Coordinates Instagram, TikTok organic, creator outreach, competitor research, and TikTok ads without live posting until credentials are approved."
+    },
+    {
+      "name": "Instagram UGC and Carousel Agent",
+      "file": "docs/agents/7-instagram-content-automation.md",
+      "channel": "Instagram",
+      "cadence": "Daily",
+      "status": "Draft only",
+      "output": "Generates one UGC image brief, one 5-slide carousel, and one caption variation per day for Arc90."
+    },
+    {
+      "name": "Instagram Competitor Research Agent",
+      "file": "docs/agents/8-instagram-competitor-research.md",
+      "channel": "Research",
+      "cadence": "Daily scan",
+      "status": "Manual review",
+      "output": "Reviews competitor posts, hooks, creative formats, offers, and engagement signals, then reports improvement opportunities."
+    },
+    {
+      "name": "TikTok Creator Outreach Agent",
+      "file": "docs/agents/9-tiktok-creator-outreach.md",
+      "channel": "TikTok creators",
+      "cadence": "3 drafts/day",
+      "status": "Manual send",
+      "output": "Finds three relevant creators and drafts personalized collaboration messages. No automated unsolicited sending."
+    },
+    {
+      "name": "TikTok Organic Video Agent",
+      "file": "docs/agents/10-tiktok-organic-video.md",
+      "channel": "TikTok organic",
+      "cadence": "Daily",
+      "status": "Draft approval",
+      "output": "Turns the daily UGC image into a Higgsfield video prompt, caption, hashtags, and posting checklist."
+    },
+    {
+      "name": "TikTok Ads Agent",
+      "file": "docs/agents/11-tiktok-ads-agent.md",
+      "channel": "TikTok ads",
+      "cadence": "After organic signal",
+      "status": "Paused needs pixel",
+      "output": "Promotes only winning organic videos after TikTok pixel, budget, UTMs, and approval gates are ready."
+    }
+  ],
+  "pipeline": [
+    {
+      "step": "1",
+      "title": "Select daily angle",
+      "owner": "Marketing Orchestrator",
+      "artifact": "Hook, audience pain, CTA, and compliance notes"
+    },
+    {
+      "step": "2",
+      "title": "Generate Instagram assets",
+      "owner": "Instagram Content Agent",
+      "artifact": "UGC image brief, carousel copy, and caption"
+    },
+    {
+      "step": "3",
+      "title": "Generate TikTok video draft",
+      "owner": "TikTok Organic Video Agent",
+      "artifact": "Higgsfield prompt, video checklist, caption, and hashtags"
+    },
+    {
+      "step": "4",
+      "title": "Scan competitors",
+      "owner": "Instagram Competitor Research Agent",
+      "artifact": "Competitor observations and next creative test"
+    },
+    {
+      "step": "5",
+      "title": "Prepare creator outreach",
+      "owner": "TikTok Creator Outreach Agent",
+      "artifact": "Three personalized DM drafts"
+    },
+    {
+      "step": "6",
+      "title": "Queue approved posts",
+      "owner": "Marketing Orchestrator",
+      "artifact": "Drafts ready for official API or manual posting"
+    }
+  ],
+  "integrations": [
+    {
+      "name": "Instagram Graph API",
+      "state": "Needs credentials",
+      "requirement": "Meta app, Instagram professional account, OAuth token, content publishing permissions, and approved media URLs."
+    },
+    {
+      "name": "TikTok Content Posting API",
+      "state": "Needs credentials",
+      "requirement": "TikTok developer app, approved video.upload or video.publish scope, OAuth token, and user consent."
+    },
+    {
+      "name": "Higgsfield",
+      "state": "Manual export",
+      "requirement": "Use existing prompts in marketing/launch-2026-06/01_TikTok_Ads/higgsfield-prompts until API access is confirmed."
+    },
+    {
+      "name": "TikTok Ads",
+      "state": "Paused needs pixel",
+      "requirement": "TikTok pixel, UTMs, test budget, and winning organic creative before paid spend."
+    },
+    {
+      "name": "Creator outreach",
+      "state": "Manual send",
+      "requirement": "Send only personalized messages to relevant creators. Do not automate unsolicited DMs."
+    }
+  ],
+  "guardrails": [
+    "Keep all copy in the habit, focus, discipline, and 90-day system lane.",
+    "Avoid medical, dosing, treatment, body transformation, weight-loss, or guaranteed-result claims.",
+    "Generate drafts first. Live posting requires OAuth credentials and explicit approval.",
+    "Do not scrape private data or bypass platform limits.",
+    "Creator outreach must be personalized and manually approved before sending.",
+    "Paid TikTok ads remain paused until pixel tracking and organic winners exist."
+  ]
+}

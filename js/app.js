@@ -919,6 +919,110 @@ function openQuoteShare() {
     track('share_opened', { kind: 'quote' });
   } catch (e) { showNudge('Could not build the quote card. Try again.'); }
 }
+function buildTodayCanvas() {
+  const W = 1080, H = 1920, cx = W / 2;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  const k = todayKey();
+  const act = actionable(k);
+  const total = act.length;
+  const done = act.filter((h) => isCompleted(h.id, k)).length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const frac = total ? done / total : 0;
+  const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif';
+  const INK = '#f4f5ff', MUTE = 'rgba(221,225,255,0.56)', FAINT = 'rgba(221,225,255,0.40)';
+  const cap = (s) => s.split('').join(' ');
+
+  // background
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.45, '#08090f'); bg.addColorStop(1, '#050609');
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(cx, 600, 0, cx, 600, 720);
+  glow.addColorStop(0, 'rgba(143,107,255,0.20)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
+
+  ctx.textBaseline = 'alphabetic';
+  // wordmark
+  ctx.font = '800 60px ' + SANS;
+  const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
+  ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 188);
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 188);
+  ctx.textAlign = 'center';
+  // eyebrow + date
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('TODAY'), cx, 250);
+  ctx.fillStyle = MUTE; ctx.font = '600 28px ' + SANS; ctx.fillText(dateStr, cx, 292);
+
+  // today ring
+  const ry = 580, r = 190;
+  ctx.lineCap = 'round'; ctx.lineWidth = 30;
+  ctx.strokeStyle = 'rgba(221,225,255,0.10)'; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
+  const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
+  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
+  if (frac > 0) {
+    ctx.save(); ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 34;
+    ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 22; ctx.fillStyle = '#ecdcff';
+    ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 12, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = INK; ctx.font = '800 138px ' + SANS;
+  const ps = pct + '%', pm = ctx.measureText(ps);
+  ctx.fillText(ps, cx, (ry - 16) + ((pm.actualBoundingBoxAscent || 100) - (pm.actualBoundingBoxDescent || 0)) / 2);
+  ctx.fillStyle = MUTE; ctx.font = '700 34px ' + SANS; ctx.fillText(`${done} of ${total} today`, cx, ry + 80);
+
+  // today's habits
+  ctx.textAlign = 'left';
+  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('HABITS'), 110, 904);
+  let y = 968;
+  for (const h of act.slice(0, 6)) {
+    const isDone = isCompleted(h.id, k);
+    storyRoundRect(ctx, 110, y - 38, 46, 46, 14);
+    if (isDone) { ctx.fillStyle = '#8f6bff'; ctx.fill(); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '700 30px ' + SANS; ctx.fillText('✓', 133, y - 6); ctx.textAlign = 'left'; }
+    else { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(221,225,255,0.20)'; ctx.stroke(); }
+    ctx.fillStyle = isDone ? INK : FAINT; ctx.font = (isDone ? '600 38px ' : '500 38px ') + SANS;
+    ctx.fillText(storyTruncate(ctx, h.name, W - 320), 184, y);
+    y += 72;
+  }
+  if (act.length > 6) { ctx.fillStyle = FAINT; ctx.font = '500 30px ' + SANS; ctx.fillText(`+${act.length - 6} more`, 184, y - 8); }
+
+  // 90-day field
+  const gpct = Math.round((dayNumber() / 90) * 100);
+  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.textAlign = 'left'; ctx.fillText(cap('90-DAY FIELD'), 110, 1452);
+  ctx.fillStyle = MUTE; ctx.font = '600 26px ' + SANS; ctx.textAlign = 'right'; ctx.fillText(`${gpct}% of the arc`, W - 110, 1452);
+  const cols = 18, gx = 110, gy = 1496, gw = W - 220, cell = gw / cols, dot = cell - 11;
+  const start = startDate(), todayMid = atMidnight(new Date());
+  for (let i = 0; i < 90; i++) {
+    const d = addDays(start, i), kk = dkey(d), col = i % cols, row = Math.floor(i / cols);
+    const x = gx + col * cell, yy = gy + row * cell;
+    let fill = 'rgba(221,225,255,0.06)';
+    if (d <= todayMid) {
+      const rr = rateFor(kk);
+      if (rr !== null && rr >= 1) fill = '#8f6bff';
+      else if (rr !== null && rr >= 0.5) fill = 'rgba(143,107,255,0.62)';
+      else if (rr !== null && rr > 0) fill = 'rgba(143,107,255,0.34)';
+      else fill = 'rgba(221,225,255,0.12)';
+    }
+    ctx.fillStyle = fill; storyRoundRect(ctx, x, yy, dot, dot, 7); ctx.fill();
+    if (kk === todayKey()) { ctx.strokeStyle = '#ecdcff'; ctx.lineWidth = 3; storyRoundRect(ctx, x, yy, dot, dot, 7); ctx.stroke(); }
+  }
+
+  // footer
+  ctx.textAlign = 'center'; ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS; ctx.fillText('arc90', cx, 1838);
+  return c;
+}
+function openTodayShare() {
+  try {
+    shareCanvas = buildTodayCanvas();
+    shareCardURL = shareCanvas.toDataURL('image/png');
+    sheet = { type: 'share' };
+    render();
+    track('share_opened', { kind: 'today' });
+  } catch (e) { showNudge('Could not build your card. Try again.'); }
+}
+
 function dailyReflectionCard() {
   const book = reflectionQuote();
   return `
@@ -2233,7 +2337,10 @@ function viewToday() {
           <span class="eyebrow">Today’s arc</span>
           <strong>${total ? `${done} of ${total} complete` : 'No habits due'}</strong>
         </div>
-        <span class="status-pill ${pill[0]}">${pill[1]}</span>
+        <div class="hero-topline-actions">
+          <span class="status-pill ${pill[0]}">${pill[1]}</span>
+          ${S.habits.length ? `<button class="hero-share" data-act="share-today" aria-label="Share today’s arc">↗</button>` : ''}
+        </div>
       </div>
 
       <div class="hero">
@@ -5218,6 +5325,7 @@ document.addEventListener('click', (e) => {
     case 'proof-export': arcExportProof(); break;
     case 'share': openShare(); break;
     case 'share-quote': openQuoteShare(); break;
+    case 'share-today': openTodayShare(); break;
     case 'subscribe': submitSubscribe(); break;
     case 'share-send': sendShare(); break;
     case 'share-save': saveShare(); break;
