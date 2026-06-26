@@ -1,3 +1,10 @@
+---
+name: arc90-retention-product
+description: Owns the ARC90 daily engagement loop — onboarding, streaks, comeback flow, reflection, and retention instrumentation in app.js.
+model: sonnet
+tools: ["Read","Write","Edit","Bash"]
+worktree: /Users/michael28gh/Projects/arc90-retention
+---
 # Agent 4 — Retention & Product
 
 > First read `docs/agents/HOUSE-RULES.md`. Work in worktree `../arc90-retention` on branch `agent/retention`.

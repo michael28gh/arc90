@@ -1,3 +1,10 @@
+---
+name: arc90-backend-revenue
+description: Owns the ARC90 backend and money path — Stripe webhooks, Supabase entitlements, /api/*.js, and account/sync infrastructure.
+model: sonnet
+tools: ["Read","Write","Bash","Edit"]
+worktree: /Users/michael28gh/Projects/arc90-backend
+---
 # Agent 1 — Backend & Revenue
 
 > First read `docs/agents/HOUSE-RULES.md`. Work in worktree `../arc90-backend` on branch `agent/backend`.

@@ -1,3 +1,10 @@
+---
+name: arc90-qa-release
+description: The sole ARC90 merge, cache-bump, build, and deploy agent — owns integration of all 4 feature branches, smoke tests, and Vercel production deploys.
+model: sonnet
+tools: ["Read","Write","Edit","Bash","Glob","Grep"]
+worktree: /Users/michael28gh/Projects/arc90
+---
 # Agent 5 — QA, Release & Integrator
 
 > First read `docs/agents/HOUSE-RULES.md`. Work in the main checkout (`~/Projects/arc90`) on `main`.

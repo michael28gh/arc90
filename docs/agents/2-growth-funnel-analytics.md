@@ -1,3 +1,10 @@
+---
+name: arc90-growth-funnel-analytics
+description: Turns ARC90 into a measured funnel — event tracking, funnel dashboard, email capture, and landing page conversion optimization.
+model: sonnet
+tools: ["Read","Write","Bash","Edit","WebSearch"]
+worktree: /Users/michael28gh/Projects/arc90-growth
+---
 # Agent 2 — Growth, Funnel & Analytics
 
 > First read `docs/agents/HOUSE-RULES.md`. Work in worktree `../arc90-growth` on branch `agent/growth`.

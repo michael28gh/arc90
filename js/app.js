@@ -1162,7 +1162,7 @@ function streakBannerCard() {
     <section class="card streak-banner ${state}">
       <button class="streak-share" data-act="share" aria-label="Share your progress">↗ Share</button>
       <div class="streak-row">
-        <div class="streak-flame">${s > 0 ? '🔥' : '✦'}</div>
+        <div class="streak-flame">✦</div>
         <div class="streak-main">
           <div class="streak-count"><b>${s}</b><span>day${s === 1 ? '' : 's'} streak</span></div>
           <div class="streak-meta">Best ${best} · ${perfect} perfect day${perfect === 1 ? '' : 's'}</div>
@@ -2035,7 +2035,7 @@ function applyTheme() {
   const resolved = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   document.documentElement.dataset.theme = resolved;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = resolved === 'light' ? '#e4e4df' : '#000000';
+  if (meta) meta.content = resolved === 'light' ? '#f2f2f2' : resolved === 'mono' ? '#0a0a0a' : '#03040a';
 }
 mqLight.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });
 
@@ -2329,7 +2329,7 @@ function viewToday() {
     ${S.habits.length ? streakBannerCard() : ''}
     ${comebackBtn()}
     ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div><button class="milestone-share" data-act="share">Share this milestone ↗</button></div>` : ''}
-    ${forgeActive() ? `<div class="forge-banner">🔥 <div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
+    ${forgeActive() ? `<div class="forge-banner"><div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
     <section class="card hero-card">
       <div class="hero-topline">
@@ -2806,7 +2806,7 @@ function taskRow(h) {
           <div class="task-name">${esc(h.name)}</div>
           <div class="task-state">${stateLab || rhythmLabel(h, true)}</div>
         </div>
-        <span class="task-streak">${s > 0 ? `🔥 ${s}` : ''}</span>
+        <span class="task-streak">${s > 0 ? `✦ ${s}` : ''}</span>
       </div>
       <button class="task-more" data-act="task-sheet" data-id="${h.id}" aria-label="More options">⋯</button>
     </div>`;
@@ -4531,7 +4531,7 @@ function forgeView() {
     return `
       <section class="card forge-card">
         <div class="card-head" style="margin-bottom:8px">
-          <span class="eyebrow" style="color:var(--amber)">🔥 Forge Mode · Day ${forgeDay()} of 7</span>
+          <span class="eyebrow" style="color:var(--amber)">Forge Mode · Day ${forgeDay()} of 7</span>
         </div>
         <div class="tip-body" style="margin-bottom:10px">A 7-day reset. Minimum versions only on your focus habits — the win is the streak, not the size.</div>
         ${anchor ? `<div class="forge-day"><span class="fd">ANCHOR</span><div><b>${anchor.emoji} ${esc(anchor.name)}</b> — keep it exactly as is. It holds the day together.</div></div>` : ''}
@@ -4732,9 +4732,9 @@ function viewProfile() {
     <div class="section-title">Appearance</div>
     <section class="card">
       <div class="seg">
-        <button class="${S.theme === 'auto' ? 'on' : ''}" data-act="theme" data-id="auto">Auto</button>
-        <button class="${S.theme === 'light' ? 'on' : ''}" data-act="theme" data-id="light">Light</button>
         <button class="${S.theme === 'dark' ? 'on' : ''}" data-act="theme" data-id="dark">Dark</button>
+        <button class="${S.theme === 'light' ? 'on' : ''}" data-act="theme" data-id="light">Light</button>
+        <button class="${S.theme === 'mono' ? 'on' : ''}" data-act="theme" data-id="mono">White/Black</button>
       </div>
     </section>
 
