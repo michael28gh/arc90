@@ -4,7 +4,7 @@
     {
       "name": "arc90",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "5180"],
+      "runtimeArgs": ["-m", "http.server", "5180", "--directory", "dist"],
       "port": 5180
     }
   ]

@@ -48,7 +48,7 @@ function defaultState() {
     habits: [],                  // [{id, emoji, name, cat, min}]
     customSeq: 0,
     log: {},                     // { 'YYYY-MM-DD': {done:[], min:[], skip:[]} }
-    health: { water: {}, weight: {}, steps: {}, sleep: {}, rhr: {}, hrv: {}, vo2: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7 } },
+    health: { water: {}, weight: {}, steps: {}, sleep: {}, rhr: {}, hrv: {}, vo2: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7, wakeTarget: '07:00', sleepOnset: 14 } },
     weeklyReviews: {},           // { 'YYYY-WW-ish': {summary, focus, action, generated} }
     product: { stripeMode: 'server-required', nativeBridge: false },
     reminders: { mode: 'daily', time: '08:00' },
@@ -58,6 +58,11 @@ function defaultState() {
     focus: defaultFocusState(),  // shield list, focus sessions, schedules, unlocks
     protocols: [],               // [{id, name, type, amount, freq, time, notes, logs:[{date, symptoms, note, urgent}]}]
     protoSeq: 0,
+    tasks: [],                   // [{id, title, due:'YYYY-MM-DDTHH:MM'|'', remind:bool, done:bool, notified:bool, created}]
+    taskSeq: 0,
+    journal: {},                 // { 'YYYY-MM-DD': text }
+    pushClientId: '',            // anonymous id for the Web Push registration
+    cardStyle: 'analyst',        // share-card style: analyst | certificate | quote | clear
   };
 }
 
@@ -70,6 +75,10 @@ function normalizeState(data) {
   if (s.reminders.mode === '5h') s.reminders.mode = '4h';
   s.health = Object.assign(defaultState().health, data.health || {});
   s.health.settings = Object.assign(defaultState().health.settings, (data.health && data.health.settings) || {});
+  if (!s.health.settings.wakeTarget) s.health.settings.wakeTarget = '07:00';
+  if (!s.health.settings.sleepOnset) s.health.settings.sleepOnset = 14;
+  if (!('alarmTime' in s.health.settings)) s.health.settings.alarmTime = '';
+  if (!('soundTimerMin' in s.health.settings)) s.health.settings.soundTimerMin = 15;
   s.health.water = s.health.water && typeof s.health.water === 'object' ? s.health.water : {};
   s.health.weight = s.health.weight && typeof s.health.weight === 'object' ? s.health.weight : {};
   s.health.steps = s.health.steps && typeof s.health.steps === 'object' ? s.health.steps : {};
@@ -99,10 +108,27 @@ function normalizeState(data) {
     logs: Array.isArray(p.logs) ? p.logs : [],
   })) : [];
   s.firedSlots = data.firedSlots && typeof data.firedSlots === 'object' ? data.firedSlots : {};
+  s.tasks = Array.isArray(data.tasks) ? data.tasks.map((t) => ({
+    id: t.id,
+    title: String(t.title || '').slice(0, 200),
+    due: t.due || '',
+    remind: t.remind !== false,
+    done: !!t.done,
+    notified: !!t.notified,
+    created: t.created || 0,
+  })) : [];
+  s.taskSeq = Number(data.taskSeq) || 0;
+  s.journal = data.journal && typeof data.journal === 'object' ? data.journal : {};
+  s.cardStyle = ['analyst', 'certificate', 'quote', 'clear'].includes(data.cardStyle) ? data.cardStyle : 'analyst';
   return s;
 }
 
 let S = load();
+// Ask the browser to protect localStorage/IndexedDB from eviction — critical for a
+// 90-day program on iOS, which purges storage after ~7 days of non-use otherwise.
+try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {}); } catch (e) { /* best effort */ }
+// Refresh the Web Push registration once per launch (subscriptions rotate; prefs may change).
+setTimeout(() => { try { if (S.onboarded) syncPushSubscription(); } catch (e) { /* optional */ } }, 5000);
 let tab = 'today';
 let sheet = null;                // {type:'paywall'|'protocol'|'task'|'edit', ...}
 let libCat = 'all';
@@ -142,7 +168,7 @@ function atMidnight(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function startDate() { return atMidnight(new Date(S.profile.start + 'T00:00:00')); }
 function dayNumber() {
-  const n = Math.floor((atMidnight(new Date()) - startDate()) / DAY_MS) + 1;
+  const n = Math.round((atMidnight(new Date()) - startDate()) / DAY_MS) + 1;
   return Math.max(1, Math.min(90, n));
 }
 function elapsedDays() { return dayNumber(); }
@@ -672,16 +698,17 @@ function proofDayLabel(p) {
   try { return fmtDate(dateFromKey(p.day)); } catch (e) { return ''; }
 }
 
-function proofCard() {
+function proofCard(featured = false) {
   const items = proofItems();
   const count = items.length;
-  const thumbs = items.filter((p) => p.type === 'photo').slice(0, 4);
+  const thumbs = items.filter((p) => p.type === 'photo').slice(0, featured ? 5 : 4);
   return `
-    <section class="card proof-card" data-act="proof-open" role="button" tabindex="0">
+    <section class="card proof-card${featured ? ' proof-featured' : ''}" data-act="proof-open" role="button" tabindex="0">
       <div class="ws-head">
         <span class="eyebrow">Proof wall</span>
-        <span class="proof-count">${count ? count + ' entr' + (count === 1 ? 'y' : 'ies') : 'New'}</span>
+        <span class="proof-count">${count ? count + ' entr' + (count === 1 ? 'y' : 'ies') : 'Start it'}</span>
       </div>
+      ${featured ? `<div class="proof-feat-title">The receipts on who you’re becoming</div>` : ''}
       ${thumbs.length ? `<div class="proof-thumbs">${thumbs.map((p) => `<span class="pth"><img data-proof-id="${p.id}" alt=""></span>`).join('')}</div>` : ''}
       <p class="proof-sub">${count ? 'Your evidence that you’re changing. Tap to add or browse →' : 'Capture proof you’re improving — a photo, a screenshot, a small win. Tap to start your evidence file →'}</p>
     </section>`;
@@ -700,7 +727,8 @@ function sheetProofWall() {
   const all = proofItems();
   const items = all.filter((p) => filter === 'all' || p.tag === filter);
   const compose = sheet && sheet.compose;
-  const exportBtn = S.premium && all.length ? `<button class="proof-export" data-act="proof-export">Export</button>` : '';
+  // Export is never premium-gated: users always own their data ("honest & private by default")
+  const exportBtn = all.length ? `<button class="proof-export" data-act="proof-export">Export</button>` : '';
   const filters = ['all', ...PROOF_TAGS].map((t) => `<button class="proof-fchip ${filter === t ? 'on' : ''}" data-act="proof-filter" data-id="${t}">${t === 'all' ? 'All' : t}</button>`).join('');
   const composer = compose ? `
       <div class="proof-composer">
@@ -769,6 +797,26 @@ function storyTruncate(ctx, text, maxW) {
   let t = text;
   while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
   return t + '…';
+}
+
+/* Greedy word-wrap for canvas text; last permitted line gets an ellipsis on overflow. */
+function storyWrapLines(ctx, text, maxW, maxLines) {
+  const words = String(text).split(/\s+/).filter(Boolean);
+  const lines = [];
+  let cur = '';
+  for (let i = 0; i < words.length; i++) {
+    const t = cur ? cur + ' ' + words[i] : words[i];
+    if (ctx.measureText(t).width <= maxW || !cur) { cur = t; continue; }
+    lines.push(cur);
+    cur = words[i];
+    if (lines.length === maxLines - 1) {
+      const rest = [cur, ...words.slice(i + 1)].join(' ');
+      lines.push(storyTruncate(ctx, rest, maxW));
+      return lines;
+    }
+  }
+  if (cur) lines.push(cur);
+  return lines;
 }
 
 /* draws the shareable card at Instagram-Stories resolution (1080×1920) */
@@ -919,9 +967,23 @@ function openQuoteShare() {
     track('share_opened', { kind: 'quote' });
   } catch (e) { showNudge('Could not build the quote card. Try again.'); }
 }
+// Share-card palette per app theme, so the shared picture matches the user's appearance.
+function cardTheme() {
+  const t = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
+  const P = {
+    mono:  { bg: ['#141414', '#0b0b0b', '#050505'], glow: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.08)', ink: '#f4f4f4', mute: 'rgba(244,244,244,0.58)', faint: 'rgba(244,244,244,0.42)', track: 'rgba(255,255,255,0.10)', grad: ['#d6d6d6', '#f4f4f4', '#c8c8c8'], accent: '#f2f2f2', on: '#000000', ringGlow: 'rgba(255,255,255,0.30)', tick: '#ffffff', dim: 'rgba(255,255,255,0.07)' },
+    dark:  { bg: ['#0c0e18', '#08090f', '#050609'], glow: 'rgba(143,107,255,0.20)', border: 'rgba(255,255,255,0.05)', ink: '#f4f5ff', mute: 'rgba(221,225,255,0.58)', faint: 'rgba(221,225,255,0.42)', track: 'rgba(221,225,255,0.10)', grad: ['#5ee4ff', '#8f6bff', '#c14cff'], accent: '#8f6bff', on: '#ffffff', ringGlow: 'rgba(143,107,255,0.5)', tick: '#ecdcff', dim: 'rgba(221,225,255,0.09)' },
+    light: { bg: ['#ffffff', '#f1f1f1', '#e6e6e6'], glow: 'rgba(0,0,0,0.035)', border: 'rgba(0,0,0,0.14)', ink: '#141414', mute: 'rgba(17,17,17,0.66)', faint: 'rgba(17,17,17,0.54)', track: 'rgba(0,0,0,0.14)', grad: ['#555555', '#222222', '#111111'], accent: '#141414', on: '#ffffff', ringGlow: 'rgba(0,0,0,0.18)', tick: '#111111', dim: 'rgba(0,0,0,0.08)' },
+    green: { bg: ['#08150e', '#050b08', '#030604'], glow: 'rgba(52,211,153,0.17)', border: 'rgba(180,255,214,0.08)', ink: '#eafff4', mute: 'rgba(234,255,244,0.58)', faint: 'rgba(234,255,244,0.42)', track: 'rgba(180,255,214,0.12)', grad: ['#6ee7b7', '#34d399', '#10b981'], accent: '#34d399', on: '#04140d', ringGlow: 'rgba(52,211,153,0.45)', tick: '#eafff4', dim: 'rgba(180,255,214,0.08)' },
+    red:   { bg: ['#170709', '#0a0405', '#060203'], glow: 'rgba(255,93,108,0.17)', border: 'rgba(255,205,210,0.08)', ink: '#fff0f1', mute: 'rgba(255,240,241,0.58)', faint: 'rgba(255,240,241,0.42)', track: 'rgba(255,205,210,0.12)', grad: ['#ff8f7a', '#ff5d6c', '#e23950'], accent: '#ff5d6c', on: '#1a0306', ringGlow: 'rgba(255,93,108,0.45)', tick: '#fff0f1', dim: 'rgba(255,205,210,0.08)' },
+  };
+  return P[t] || P.dark;
+}
+
 function buildTodayCanvas() {
-  const W = 1080, H = 1920, cx = W / 2;
-  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const W = 1080, cx = W / 2;
+  const P = cardTheme();
+  const c = document.createElement('canvas'); c.width = W; c.height = 400;
   const ctx = c.getContext('2d');
   const k = todayKey();
   const act = actionable(k);
@@ -930,97 +992,290 @@ function buildTodayCanvas() {
   const pct = total ? Math.round((done / total) * 100) : 0;
   const frac = total ? done / total : 0;
   const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif';
-  const INK = '#f4f5ff', MUTE = 'rgba(221,225,255,0.56)', FAINT = 'rgba(221,225,255,0.40)';
+  const SERIF = 'Georgia, "Times New Roman", serif';
   const cap = (s) => s.split('').join(' ');
+  const firstName = (S.profile.name || '').trim().split(' ')[0];
+  const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
+  const book = reflectionQuote();
 
-  // background
+  // ---- measure: reflection line count + dynamic total height ----
+  let qf = 42;
+  ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
+  let qLines = storyWrapLines(ctx, '“' + book.quote + '”', 860, 3);
+  if (qLines.length === 3 && ctx.measureText(qLines[2]).width > 700) {
+    qf = 37; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
+    qLines = storyWrapLines(ctx, '“' + book.quote + '”', 860, 3);
+  }
+  const MAXH = 20;
+  const shown = act.slice(0, MAXH);
+  const extra = act.length - shown.length;
+  const reflBottom = 876 + qLines.length * (qf + 16);
+  const sourceY = reflBottom + 14;
+  const habitsLabelY = sourceY + 80;
+  const habitRow0 = habitsLabelY + 58;
+  const rowH = 66;
+  const habitsBottom = habitRow0 + shown.length * rowH + (extra ? 44 : 0);
+  const fieldLabelY = habitsBottom + 20;
+  const cols = 18, gx = 110, gw = W - 220, cell = gw / cols, dot = cell - 11;
+  const gy = fieldLabelY + 40;
+  const fieldRows = Math.ceil(90 / cols);
+  const H = Math.round(gy + fieldRows * cell + 66);
+  c.height = H; // resizing clears the canvas + resets context — draw below
+
+  // ---- background ----
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.45, '#08090f'); bg.addColorStop(1, '#050609');
+  bg.addColorStop(0, P.bg[0]); bg.addColorStop(0.45, P.bg[1]); bg.addColorStop(1, P.bg[2]);
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
-  const glow = ctx.createRadialGradient(cx, 600, 0, cx, 600, 720);
-  glow.addColorStop(0, 'rgba(143,107,255,0.20)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  const glow = ctx.createRadialGradient(cx, 560, 0, cx, 560, 760);
+  glow.addColorStop(0, P.glow); glow.addColorStop(1, 'rgba(0,0,0,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
 
   ctx.textBaseline = 'alphabetic';
   // wordmark
   ctx.font = '800 60px ' + SANS;
   const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
-  ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 188);
-  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
-  ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 188);
+  ctx.textAlign = 'left'; ctx.fillStyle = P.ink; ctx.fillText('ARC', x0, 168);
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, P.grad[1]); wm.addColorStop(1, P.grad[2]);
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 168);
   ctx.textAlign = 'center';
-  // eyebrow + date
-  const dateStr = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase();
-  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('TODAY'), cx, 250);
-  ctx.fillStyle = MUTE; ctx.font = '600 28px ' + SANS; ctx.fillText(dateStr, cx, 292);
+  if (firstName) {
+    ctx.fillStyle = P.mute; ctx.font = '600 34px ' + SANS;
+    ctx.fillText(storyTruncate(ctx, firstName + '’s arc', 700), cx, 226);
+    ctx.fillStyle = P.faint; ctx.font = '600 25px ' + SANS; ctx.fillText(dateStr, cx, 272);
+  } else {
+    ctx.fillStyle = P.faint; ctx.font = '600 25px ' + SANS; ctx.fillText(dateStr, cx, 232);
+  }
 
   // today ring
-  const ry = 580, r = 190;
-  ctx.lineCap = 'round'; ctx.lineWidth = 30;
-  ctx.strokeStyle = 'rgba(221,225,255,0.10)'; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  const ry = 540, r = 175;
+  ctx.lineCap = 'round'; ctx.lineWidth = 28;
+  ctx.strokeStyle = P.track; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
-  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
+  rg.addColorStop(0, P.grad[0]); rg.addColorStop(0.5, P.grad[1]); rg.addColorStop(1, P.grad[2]);
   if (frac > 0) {
-    ctx.save(); ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 34;
+    ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 34;
     ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke(); ctx.restore();
-    ctx.save(); ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 22; ctx.fillStyle = '#ecdcff';
-    ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 12, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 22; ctx.fillStyle = P.tick;
+    ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 11, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
   }
-  ctx.fillStyle = INK; ctx.font = '800 138px ' + SANS;
-  const ps = pct + '%', pm = ctx.measureText(ps);
-  ctx.fillText(ps, cx, (ry - 16) + ((pm.actualBoundingBoxAscent || 100) - (pm.actualBoundingBoxDescent || 0)) / 2);
-  ctx.fillStyle = MUTE; ctx.font = '700 34px ' + SANS; ctx.fillText(`${done} of ${total} today`, cx, ry + 80);
+  const ps = pct + '%';
+  let nf = 116;
+  ctx.font = '800 ' + nf + 'px ' + SANS;
+  while (ctx.measureText(ps).width > 272 && nf > 72) { nf -= 4; ctx.font = '800 ' + nf + 'px ' + SANS; }
+  ctx.fillStyle = P.ink; ctx.textBaseline = 'middle';
+  ctx.fillText(ps, cx, ry - 26);
+  ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = P.mute; ctx.font = '700 31px ' + SANS; ctx.fillText(`${done} of ${total} today`, cx, ry + 86);
 
-  // today's habits
+  // daily reflection
+  ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.fillText(cap('DAILY REFLECTION'), cx, 812);
+  ctx.fillStyle = P.ink; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
+  let qy = 876;
+  for (const line of qLines) { ctx.fillText(line, cx, qy); qy += qf + 16; }
+  ctx.fillStyle = P.accent; ctx.font = '600 27px ' + SANS;
+  ctx.fillText('— ' + book.source, cx, qy + 14);
+
+  // today's habits — ALL of them: completed checked, missed unchecked
   ctx.textAlign = 'left';
-  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('HABITS'), 110, 904);
-  let y = 968;
-  for (const h of act.slice(0, 6)) {
+  ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.fillText(cap('TODAY’S HABITS'), 110, habitsLabelY);
+  ctx.fillStyle = P.faint; ctx.textAlign = 'right'; ctx.font = '700 22px ' + SANS; ctx.fillText(`${done}/${total}`, W - 110, habitsLabelY);
+  ctx.textAlign = 'left';
+  let y = habitRow0;
+  for (const h of shown) {
     const isDone = isCompleted(h.id, k);
-    storyRoundRect(ctx, 110, y - 38, 46, 46, 14);
-    if (isDone) { ctx.fillStyle = '#8f6bff'; ctx.fill(); ctx.fillStyle = '#fff'; ctx.textAlign = 'center'; ctx.font = '700 30px ' + SANS; ctx.fillText('✓', 133, y - 6); ctx.textAlign = 'left'; }
-    else { ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(221,225,255,0.20)'; ctx.stroke(); }
-    ctx.fillStyle = isDone ? INK : FAINT; ctx.font = (isDone ? '600 38px ' : '500 38px ') + SANS;
-    ctx.fillText(storyTruncate(ctx, h.name, W - 320), 184, y);
-    y += 72;
+    storyRoundRect(ctx, 110, y - 34, 42, 42, 13);
+    if (isDone) {
+      ctx.fillStyle = P.accent; ctx.fill();
+      ctx.fillStyle = P.on; ctx.textAlign = 'center'; ctx.font = '700 27px ' + SANS; ctx.fillText('✓', 131, y - 5); ctx.textAlign = 'left';
+    } else {
+      ctx.lineWidth = 3; ctx.strokeStyle = P.track; ctx.stroke();
+    }
+    ctx.fillStyle = isDone ? P.ink : P.faint; ctx.font = (isDone ? '600 34px ' : '500 34px ') + SANS;
+    ctx.fillText(storyTruncate(ctx, h.name, W - 320), 178, y);
+    y += rowH;
   }
-  if (act.length > 6) { ctx.fillStyle = FAINT; ctx.font = '500 30px ' + SANS; ctx.fillText(`+${act.length - 6} more`, 184, y - 8); }
+  if (extra > 0) { ctx.fillStyle = P.faint; ctx.font = '500 28px ' + SANS; ctx.fillText(`+${extra} more`, 178, y + 4); }
 
   // 90-day field
   const gpct = Math.round((dayNumber() / 90) * 100);
-  ctx.fillStyle = FAINT; ctx.font = '700 23px ' + SANS; ctx.textAlign = 'left'; ctx.fillText(cap('90-DAY FIELD'), 110, 1452);
-  ctx.fillStyle = MUTE; ctx.font = '600 26px ' + SANS; ctx.textAlign = 'right'; ctx.fillText(`${gpct}% of the arc`, W - 110, 1452);
-  const cols = 18, gx = 110, gy = 1496, gw = W - 220, cell = gw / cols, dot = cell - 11;
+  ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.textAlign = 'left'; ctx.fillText(cap('90-DAY FIELD'), 110, fieldLabelY);
+  ctx.fillStyle = P.mute; ctx.font = '600 26px ' + SANS; ctx.textAlign = 'right'; ctx.fillText(`${gpct}% of the arc`, W - 110, fieldLabelY);
   const start = startDate(), todayMid = atMidnight(new Date());
   for (let i = 0; i < 90; i++) {
     const d = addDays(start, i), kk = dkey(d), col = i % cols, row = Math.floor(i / cols);
     const x = gx + col * cell, yy = gy + row * cell;
-    let fill = 'rgba(221,225,255,0.06)';
+    ctx.globalAlpha = 1;
+    let fill = P.dim;
     if (d <= todayMid) {
       const rr = rateFor(kk);
-      if (rr !== null && rr >= 1) fill = '#8f6bff';
-      else if (rr !== null && rr >= 0.5) fill = 'rgba(143,107,255,0.62)';
-      else if (rr !== null && rr > 0) fill = 'rgba(143,107,255,0.34)';
-      else fill = 'rgba(221,225,255,0.12)';
+      if (rr !== null && rr >= 1) { fill = P.accent; }
+      else if (rr !== null && rr >= 0.5) { fill = P.accent; ctx.globalAlpha = 0.6; }
+      else if (rr !== null && rr > 0) { fill = P.accent; ctx.globalAlpha = 0.32; }
+      else { fill = P.dim; }
     }
     ctx.fillStyle = fill; storyRoundRect(ctx, x, yy, dot, dot, 7); ctx.fill();
-    if (kk === todayKey()) { ctx.strokeStyle = '#ecdcff'; ctx.lineWidth = 3; storyRoundRect(ctx, x, yy, dot, dot, 7); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+    if (kk === todayKey()) { ctx.strokeStyle = P.tick; ctx.lineWidth = 3; storyRoundRect(ctx, x, yy, dot, dot, 7); ctx.stroke(); }
   }
 
-  // footer
-  ctx.textAlign = 'center'; ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS; ctx.fillText('arc90', cx, 1838);
+  ctx.textAlign = 'center';
   return c;
 }
-function openTodayShare() {
+
+// Shared inputs for the alternate share-card styles.
+function cardCommon() {
+  const k = todayKey();
+  const act = actionable(k);
+  const total = act.length;
+  const done = act.filter((h) => isCompleted(h.id, k)).length;
+  return {
+    P: cardTheme(),
+    SANS: '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif',
+    SERIF: 'Georgia, "Times New Roman", serif',
+    firstName: (S.profile.name || '').trim().split(' ')[0] || 'You',
+    day: dayNumber(), stk: dayStreak(),
+    total, done, pct: total ? Math.round((done / total) * 100) : 0, frac: total ? done / total : 0,
+    book: reflectionQuote(),
+  };
+}
+function cardBg(ctx, W, H, P, gy) {
+  const bg = ctx.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, P.bg[0]); bg.addColorStop(0.5, P.bg[1]); bg.addColorStop(1, P.bg[2]);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+  const glow = ctx.createRadialGradient(W / 2, gy, 0, W / 2, gy, 760);
+  glow.addColorStop(0, P.glow); glow.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
+}
+function cardWordmark(ctx, cx, y, P, SANS, size) {
+  ctx.font = '800 ' + size + 'px ' + SANS;
+  const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
+  ctx.textAlign = 'left'; ctx.fillStyle = P.ink; ctx.fillText('ARC', x0, y);
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, P.grad[1]); wm.addColorStop(1, P.grad[2]);
+  ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, y);
+  ctx.textAlign = 'center';
+}
+
+// BIG & CLEAR — identity-led status card: name headline, refined ring, status pill
+function cardBigClear() {
+  const W = 1080, cx = W / 2, H = 1160;
+  const { P, SANS, firstName, day, stk, total, done, pct, frac } = cardCommon();
+  const cap = (s) => s.split('').join(' ');
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  cardBg(ctx, W, H, P, 620);
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  cardWordmark(ctx, cx, 150, P, SANS, 44);
+
+  // identity headline + gradient accent underline
+  ctx.fillStyle = P.ink; ctx.font = '800 66px ' + SANS; ctx.fillText(storyTruncate(ctx, firstName, 820), cx, 300);
+  const uw = 92; const ug = ctx.createLinearGradient(cx - uw, 0, cx + uw, 0); ug.addColorStop(0, P.grad[0]); ug.addColorStop(1, P.grad[2]);
+  ctx.strokeStyle = ug; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(cx - uw, 334); ctx.lineTo(cx + uw, 334); ctx.stroke();
+  ctx.fillStyle = P.mute; ctx.font = '600 30px ' + SANS; ctx.fillText(`Day ${day} of 90`, cx, 392);
+
+  // refined ring with glowing head dot
+  const ry = 662, r = 208;
+  ctx.lineCap = 'round'; ctx.lineWidth = 30;
+  ctx.strokeStyle = P.track; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
+  const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
+  const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r); rg.addColorStop(0, P.grad[0]); rg.addColorStop(0.5, P.grad[1]); rg.addColorStop(1, P.grad[2]);
+  if (frac > 0) {
+    ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 38; ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 24; ctx.fillStyle = P.tick;
+    ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 13, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = P.faint; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('COMPLETE'), cx, ry - 62);
+  const psv = pct + '%'; let nf = 128; ctx.font = '800 ' + nf + 'px ' + SANS;
+  while (ctx.measureText(psv).width > 300 && nf > 82) { nf -= 4; ctx.font = '800 ' + nf + 'px ' + SANS; }
+  ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; ctx.fillText(psv, cx, ry + 20); ctx.textBaseline = 'alphabetic';
+
+  // status pill
+  const pill = stk > 1 ? `${done} of ${total} today   ·   ${stk}-day streak` : `${done} of ${total} habits today`;
+  ctx.font = '700 30px ' + SANS;
+  const pw = ctx.measureText(pill).width + 64, ph = 68, px = cx - pw / 2, py = 962;
+  ctx.fillStyle = P.dim; storyRoundRect(ctx, px, py, pw, ph, 34); ctx.fill();
+  ctx.strokeStyle = P.border; ctx.lineWidth = 1.5; storyRoundRect(ctx, px, py, pw, ph, 34); ctx.stroke();
+  ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; ctx.fillText(pill, cx, py + ph / 2 + 2); ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = P.faint; ctx.font = '600 24px ' + SANS;
+  ctx.fillText(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), cx, H - 84);
+  return c;
+}
+
+// QUOTE — the daily reflection as the hero, built to be shared as wisdom
+function cardQuote() {
+  const W = 1080, cx = W / 2;
+  const { P, SANS, SERIF, firstName, day, pct, book } = cardCommon();
+  const c = document.createElement('canvas'); c.width = W; c.height = 400;
+  const ctx = c.getContext('2d');
+  let qf = 62; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
+  let lines = storyWrapLines(ctx, book.quote, 840, 7);
+  while (lines.length > 5 && qf > 42) { qf -= 4; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF; lines = storyWrapLines(ctx, book.quote, 840, 7); }
+  const quoteTop = 500, lineH = qf + 22, quoteH = lines.length * lineH;
+  const H = Math.round(quoteTop + quoteH + 340);
+  c.height = H;
+  cardBg(ctx, W, H, P, H * 0.4);
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = P.accent; ctx.font = '800 210px ' + SERIF; ctx.fillText('“', cx, 360);
+  ctx.fillStyle = P.ink; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
+  let y = quoteTop; for (const ln of lines) { ctx.fillText(ln, cx, y); y += lineH; }
+  ctx.fillStyle = P.accent; ctx.font = '600 36px ' + SANS; ctx.fillText('— ' + book.source, cx, y + 34);
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 90, y + 120); ctx.lineTo(cx + 90, y + 120); ctx.stroke();
+  cardWordmark(ctx, cx, y + 210, P, SANS, 40);
+  ctx.fillStyle = P.mute; ctx.font = '600 28px ' + SANS; ctx.fillText(`${firstName}  ·  Day ${day} of 90  ·  ${pct}% today`, cx, y + 258);
+  return c;
+}
+
+// CERTIFICATE — formal, framed, pride-worthy
+function cardCertificate() {
+  const W = 1080, cx = W / 2, H = 1460;
+  const { P, SANS, SERIF, firstName, day, stk, total, done, pct } = cardCommon();
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const ctx = c.getContext('2d');
+  cardBg(ctx, W, H, P, 700);
+  ctx.strokeStyle = P.accent; ctx.lineWidth = 4; storyRoundRect(ctx, 56, 56, W - 112, H - 112, 34); ctx.stroke();
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; storyRoundRect(ctx, 78, 78, W - 156, H - 156, 26); ctx.stroke();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  cardWordmark(ctx, cx, 182, P, SANS, 40);
+  ctx.fillStyle = P.mute; ctx.font = '700 26px ' + SANS; ctx.fillText('C E R T I F I C A T E   O F   P R O G R E S S', cx, 264);
+  ctx.strokeStyle = P.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 170, 302); ctx.lineTo(cx + 170, 302); ctx.stroke();
+  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('This certifies that', cx, 404);
+  ctx.fillStyle = P.ink; ctx.font = '700 92px ' + SERIF; ctx.fillText(storyTruncate(ctx, firstName, 820), cx, 502);
+  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('showed up for', cx, 582);
+  ctx.fillStyle = P.accent; ctx.font = '800 118px ' + SERIF; ctx.fillText('Day ' + day, cx, 716);
+  ctx.fillStyle = P.mute; ctx.font = '600 34px ' + SANS; ctx.fillText('of the 90-day arc', cx, 778);
+  const sy = 1010, sr = 138;
+  ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 30;
+  ctx.strokeStyle = P.accent; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(cx, sy, sr, 0, 2 * Math.PI); ctx.stroke(); ctx.restore();
+  ctx.fillStyle = P.ink; ctx.font = '800 74px ' + SANS; ctx.textBaseline = 'middle'; ctx.fillText(pct + '%', cx, sy - 4); ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = P.mute; ctx.font = '600 30px ' + SANS; ctx.fillText(`${done} of ${total} habits today`, cx, sy + sr + 54);
+  if (stk > 1) { ctx.fillStyle = P.accent; ctx.font = '800 32px ' + SANS; ctx.fillText(`${stk}-day streak`, cx, sy + sr + 116); }
+  ctx.fillStyle = P.faint; ctx.font = '600 26px ' + SANS;
+  ctx.fillText(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), cx, H - 116);
+  return c;
+}
+
+function buildShareCard() {
+  const s = S.cardStyle || 'analyst';
   try {
-    shareCanvas = buildTodayCanvas();
-    shareCardURL = shareCanvas.toDataURL('image/png');
-    sheet = { type: 'share' };
-    render();
-    track('share_opened', { kind: 'today' });
-  } catch (e) { showNudge('Could not build your card. Try again.'); }
+    if (s === 'certificate') return cardCertificate();
+    if (s === 'quote') return cardQuote();
+    if (s === 'clear') return cardBigClear();
+  } catch (e) { /* fall back to analyst */ }
+  return buildTodayCanvas();
+}
+function rebuildShareCard() {
+  try { shareCanvas = buildShareCard(); shareCardURL = shareCanvas.toDataURL('image/png'); return true; }
+  catch (e) { shareCanvas = null; shareCardURL = ''; return false; }
+}
+function openTodayShare() {
+  if (!rebuildShareCard()) { showNudge('Could not build your card. Try again.'); return; }
+  sheet = { type: 'share', styled: true };
+  render();
+  track('share_opened', { kind: 'today' });
 }
 
 function dailyReflectionCard() {
@@ -1062,11 +1317,17 @@ function sendShare() {
     if (!blob) return;
     const file = new File([blob], name, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      navigator.share({ files: [file], text: shareCaption() }).then(() => track('share_sent')).catch(() => {});
+      navigator.share({ files: [file], text: shareCaption() })
+        .then(() => track('share_sent'))
+        .catch(() => {})
+        // Close the in-app sheet either way so returning from the OS share sheet
+        // lands you back in the app cleanly instead of on a stuck modal.
+        .finally(() => { sheet = null; render(); });
     } else {
       storySaveBlob(blob, name);
       showNudge('Saved your card — post it to your story.');
       track('share_saved');
+      sheet = null; render();
     }
   }, 'image/png');
 }
@@ -1076,10 +1337,21 @@ function saveShare() {
   shareCanvas.toBlob((blob) => { if (blob) { storySaveBlob(blob, name); showNudge('Saved — post it anytime.'); track('share_saved'); } }, 'image/png');
 }
 function sheetShare() {
+  const styled = sheet && sheet.styled;
+  const cur = S.cardStyle || 'analyst';
+  const styles = [['analyst', 'Progress', '◔'], ['certificate', 'Certificate', '🏅'], ['quote', 'Quote', '❝'], ['clear', 'Big &amp; Clear', '◎']];
+  const picker = styled ? `
+      <div class="card-style-row">
+        ${styles.map(([id, name, ico]) => `
+          <button class="card-style-chip${cur === id ? ' on' : ''}" data-act="card-style" data-id="${id}" aria-pressed="${cur === id}">
+            <span class="csc-ico">${ico}</span><span class="csc-name">${name}</span>
+          </button>`).join('')}
+      </div>` : '';
   return `
     <div class="story-sheet">
       <span class="eyebrow">Share your progress</span>
-      <h3 class="cb-title" style="margin:4px 0 14px">Your story card is ready</h3>
+      <h3 class="cb-title" style="margin:4px 0 12px">${styled ? 'Pick your card' : 'Your story card is ready'}</h3>
+      ${picker}
       <div class="story-preview"><img class="story-img" src="${shareCardURL}" alt="Your ARC90 progress card"></div>
       <button class="btn story-send" data-act="share-send">Share to Instagram, Messages…</button>
       <button class="cb-other" data-act="share-save">Save image</button>
@@ -1401,12 +1673,14 @@ function sleepDay(k = todayKey()) {
     hours: raw.hours === '' || raw.hours === undefined ? '' : Number(raw.hours),
     quality: raw.quality || 'steady',
     note: raw.note || '',
+    wakeMood: raw.wakeMood || '',
   };
 }
 
 function setSleepDay(k, patch) {
   S.health.sleep[k] = Object.assign({}, sleepDay(k), patch);
-  if (S.health.sleep[k].hours === '' && !S.health.sleep[k].note) delete S.health.sleep[k];
+  const d = S.health.sleep[k];
+  if (d.hours === '' && !d.note && !d.wakeMood) delete S.health.sleep[k];
   save();
 }
 
@@ -1779,6 +2053,16 @@ function moodOptionChips(current, extraClass = '') {
     </div>`;
 }
 
+function wakeMoodChips(current) {
+  return `
+    <div class="mood-choice-row wake-mood-row">
+      ${MOOD_OPTIONS.map(([id, label]) => `
+        <button class="${current === id ? 'on' : ''}" data-act="wake-mood" data-id="${id}" aria-label="Woke up feeling ${esc(label)}">
+          ${esc(label)}
+        </button>`).join('')}
+    </div>`;
+}
+
 function setQuickMood(id, k = todayKey()) {
   const opt = MOOD_OPTIONS.find(([m]) => m === id);
   if (!opt) return;
@@ -1789,6 +2073,26 @@ function setQuickMood(id, k = todayKey()) {
   save();
   render();
   showNudge(`Mood logged: ${opt[1]}.`);
+}
+
+function energyOptionChips(current, extraClass = '') {
+  return `
+    <div class="mood-choice-row ${extraClass}">
+      ${[1, 2, 3, 4, 5].map((n) => `
+        <button class="${Number(current) === n ? 'on' : ''}" data-act="energy-quick" data-id="${n}" aria-label="Set energy to ${esc(energyLabel(n))}">
+          ${n}
+        </button>`).join('')}
+    </div>`;
+}
+function setQuickEnergy(id, k = todayKey()) {
+  const n = Math.max(1, Math.min(5, Number(id) || 0));
+  if (!n) return;
+  const l = dlog(k);
+  l.energy = n;
+  S.log[k] = l;
+  save();
+  render();
+  showNudge(`Energy logged: ${energyLabel(n)}.`);
 }
 
 function energyLabel(value) {
@@ -1892,7 +2196,7 @@ function habitMiniHeat(h, nDays = 21) {
 
 function dateFromKey(k) { return atMidnight(new Date(k + 'T00:00:00')); }
 function challengeDayFor(k) {
-  return Math.floor((dateFromKey(k) - startDate()) / DAY_MS) + 1;
+  return Math.round((dateFromKey(k) - startDate()) / DAY_MS) + 1;
 }
 function dayStats(k) {
   const act = actionable(k);
@@ -1955,11 +2259,11 @@ function greeting() {
 function customCount() { return S.habits.filter((h) => String(h.id).startsWith('c')).length; }
 function forgeActive() {
   if (!S.forge) return false;
-  const d = Math.floor((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
+  const d = Math.round((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
   return d >= 1 && d <= 7;
 }
 function forgeDay() {
-  return Math.floor((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
+  return Math.round((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
 }
 
 const ICONS = {
@@ -1973,6 +2277,8 @@ const ICONS = {
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.6-3.4 4.5-5 8-5s6.4 1.6 8 5"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   vitals: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-5 3 10 2.4-6 1.6 3H21"/></svg>',
+  sleep: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 10 4.2 6.5 6.5 0 0 0 20 14.5z"/></svg>',
+  plan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="16" rx="3"/><path d="M8 3v3M16 3v3M4 9.5h16"/><path d="M8.6 14l2 2 3.8-4"/></svg>',
 };
 
 /* ---- Habit icon system: clean line icons instead of emoji ---- */
@@ -2035,7 +2341,10 @@ function applyTheme() {
   const resolved = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   document.documentElement.dataset.theme = resolved;
   const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.content = resolved === 'light' ? '#f2f2f2' : resolved === 'mono' ? '#0a0a0a' : '#03040a';
+  if (meta) {
+    const bar = { light: '#f2f2f2', mono: '#0a0a0a', green: '#050b08', red: '#0a0405', dark: '#03040a' };
+    meta.content = bar[resolved] || '#03040a';
+  }
 }
 mqLight.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });
 
@@ -2183,8 +2492,9 @@ function premiumBenefits() {
 
 const app = document.getElementById('app');
 
-const TAB_ORDER = ['today', 'habits', 'progress', 'focus', 'protocol', 'vitals', 'profile'];
+const TAB_ORDER = ['today', 'habits', 'sleep', 'focus', 'plan', 'progress', 'profile'];
 function mainTabOf(id) {
+  if (id === 'protocol' || id === 'vitals') return 'sleep'; // reached from the Sleep tab
   return TAB_ORDER.includes(id) ? id : 'today';
 }
 let lastRenderedTab = null;
@@ -2201,13 +2511,18 @@ function render() {
   const animate = lastRenderedTab !== tab;
   const directionClass = animate ? ` enter-${tabDirection === 'prev' ? 'prev' : 'next'}` : '';
   lastRenderedTab = tab;
-  const views = { today: viewToday, habits: viewHabits, focus: viewFocus, progress: viewProgress, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
+  const views = { today: viewToday, habits: viewHabits, sleep: viewSleep, focus: viewFocus, plan: viewPlan, progress: viewProgress, coach: viewCoach, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
   app.innerHTML = `
     <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
-    <button class="side-toggle ${navOpen ? 'open' : ''}" data-act="${navOpen ? 'side-close' : 'side-open'}" aria-label="${navOpen ? 'Close menu' : 'Open menu'}">
-      <span></span><span></span>
-    </button>
-    ${navOpen ? sideDrawer() : ''}
+    <nav class="tabbar seven">
+      ${tabBtn('today', 'Today', ICONS.today)}
+      ${tabBtn('habits', 'Habits', ICONS.habits)}
+      ${tabBtn('sleep', 'Sleep', ICONS.sleep)}
+      ${tabBtn('focus', 'Focus', ICONS.focus)}
+      ${tabBtn('plan', 'Plan', ICONS.plan)}
+      ${tabBtn('progress', 'Progress', ICONS.progress)}
+      ${tabBtn('profile', 'Profile', ICONS.profile)}
+    </nav>
     ${sheet ? viewSheet() : ''}
   `;
   wireAfterRender();
@@ -2326,8 +2641,6 @@ function viewToday() {
       </div>
     </header>
 
-    ${S.habits.length ? streakBannerCard() : ''}
-    ${comebackBtn()}
     ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div><button class="milestone-share" data-act="share">Share this milestone ↗</button></div>` : ''}
     ${forgeActive() ? `<div class="forge-banner"><div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
@@ -2393,7 +2706,15 @@ function viewToday() {
 
     </section>
 
-    ${premiumLaunchCard()}
+    ${S.habits.length ? streakBannerCard() : ''}
+
+    <button class="coach-entry" data-act="tab" data-id="coach">
+      <span class="coach-entry-ico">${ICONS.coach}</span>
+      <span class="coach-entry-txt">
+        <b>Ask your Coach</b>
+        <small>Your read, where to improve &amp; a 7-day plan →</small>
+      </span>
+    </button>
 
     <div class="card-head today-reps-head">
       <span class="section-title" style="margin:0">Today</span>
@@ -2402,11 +2723,14 @@ function viewToday() {
     ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
-    ${weakSpotCard()}
-    ${proofCard()}
-    ${dailyReflectionCard()}
     ${todayStopCard()}
+
+    ${premiumLaunchCard()}
+
+    ${weakSpotCard()}
+    ${dailyReflectionCard()}
     ${todayFocusStrip()}
+    ${comebackBtn()}
   `;
 }
 
@@ -2459,7 +2783,7 @@ function todayStopCard() {
       <div class="today-stop-head">
         <div>
           <span class="tip-tag" style="margin:0">Today’s stop</span>
-          <h3>Water and mood</h3>
+          <h3>Water, mood &amp; energy</h3>
         </div>
         <button class="mini-act" data-act="review">edit</button>
       </div>
@@ -2477,8 +2801,11 @@ function todayStopCard() {
         <div class="stop-tile mood-count">
           <span>Mood</span>
           <b>${esc(mood)}</b>
-          <small>${esc(energy)}</small>
           ${moodOptionChips(l.mood, 'compact')}
+          <div class="stop-energy">
+            <span class="stop-energy-label">Energy${l.energy ? ` · ${esc(energyLabel(l.energy))}` : ''}</span>
+            ${energyOptionChips(l.energy, 'compact energy-row')}
+          </div>
         </div>
         <div class="water-graph" aria-label="7 day water graph">
           ${waterGraphRows().map((r) => `<div class="water-day ${r.today ? 'today' : ''}"><i style="height:${Math.max(8, r.pct)}%"></i><span>${esc(r.label)}</span></div>`).join('')}
@@ -3293,6 +3620,137 @@ function focusAllDayCard() {
 }
 
 /* ============================================================
+   PLAN — tasks with deadlines + reminders, and a daily journal
+   ============================================================ */
+
+function defaultTaskDue() {
+  const d = new Date(); d.setHours(18, 0, 0, 0);
+  if (d.getTime() < Date.now()) d.setDate(d.getDate() + 1);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function fmtTaskDue(due) {
+  if (!due) return '';
+  const d = new Date(due);
+  if (isNaN(d.getTime())) return '';
+  const now = new Date();
+  const t = new Date(now); t.setDate(now.getDate() + 1);
+  const day = d.toDateString() === now.toDateString() ? 'Today'
+    : d.toDateString() === t.toDateString() ? 'Tomorrow'
+    : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+  return `${day} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function taskOverdue(t) { return t.due && !t.done && new Date(t.due).getTime() < Date.now(); }
+
+function journalStreak() {
+  const today = atMidnight(new Date());
+  let s = 0;
+  for (let i = 0; i < 400; i++) {
+    const v = String((S.journal && S.journal[dkey(addDays(today, -i))]) || '').trim();
+    if (v) s++; else if (i === 0) continue; else break;
+  }
+  return s;
+}
+function journalCount() { return Object.values(S.journal || {}).filter((v) => String(v).trim()).length; }
+
+function taskRow(t) {
+  const over = taskOverdue(t);
+  const due = fmtTaskDue(t.due);
+  return `
+    <div class="plan-task${t.done ? ' done' : ''}${over ? ' overdue' : ''}">
+      <button class="plan-task-check${t.done ? ' on' : ''}" data-act="task-toggle" data-id="${t.id}" aria-pressed="${t.done}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? ICONS.check : ''}</button>
+      <div class="plan-task-body">
+        <div class="plan-task-title">${esc(t.title)}</div>
+        ${due ? `<div class="plan-task-due">${over ? '⚠ ' : ''}${due}${t.remind && !t.done ? ' · 🔔' : ''}</div>` : ''}
+      </div>
+      <button class="plan-task-del" data-act="task-del" data-id="${t.id}" aria-label="Delete task">✕</button>
+    </div>`;
+}
+
+function viewPlan() {
+  const tasks = (S.tasks || []).slice().sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (!a.due && !b.due) return (b.created || 0) - (a.created || 0);
+    if (!a.due) return 1;
+    if (!b.due) return -1;
+    return new Date(a.due) - new Date(b.due);
+  });
+  const open = tasks.filter((t) => !t.done);
+  const overdue = open.filter(taskOverdue).length;
+  const jKey = todayKey();
+  const jText = (S.journal && S.journal[jKey]) || '';
+  const jStreak = journalStreak();
+  const jCount = journalCount();
+  return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Plan</h1>
+        <div class="sub">Deadlines, reminders &amp; today’s journal</div>
+      </div>
+    </header>
+
+    <section class="card plan-add-card">
+      <div class="card-head"><span class="tip-tag" style="margin:0">New task</span></div>
+      <input id="taskTitle" class="plan-input" type="text" placeholder="What needs to get done?" maxlength="200" autocomplete="off" />
+      <div class="plan-add-row">
+        <input id="taskDue" class="plan-input plan-due" type="datetime-local" value="${esc(defaultTaskDue())}" aria-label="Task deadline" />
+        <button class="btn plan-add-btn" data-act="task-add">Add</button>
+      </div>
+      <label class="plan-remind" for="taskRemind">
+        <input type="checkbox" id="taskRemind" checked />
+        <span>Notify me when it’s due</span>
+      </label>
+    </section>
+
+    <div class="card-head plan-list-head">
+      <span class="section-title" style="margin:0">Tasks</span>
+      <span class="reminder-state">${open.length} open${overdue ? ` · ${overdue} overdue` : ''}</span>
+    </div>
+    ${tasks.length
+      ? `<div class="plan-tasks">${tasks.map(taskRow).join('')}</div>`
+      : `<div class="card empty-note">No tasks yet. Add a deadline above and Arc90 will nudge you the moment it’s due.</div>`}
+
+    ${S.habits.length ? (() => {
+      const dueToday = actionable(jKey);
+      const doneHabits = S.habits.filter((h) => isCompleted(h.id, jKey));
+      return `
+        <div class="card-head plan-list-head">
+          <span class="section-title" style="margin:0">Habits done today</span>
+          <span class="reminder-state">${doneHabits.length}/${dueToday.length || S.habits.length}</span>
+        </div>
+        ${doneHabits.length ? `
+          <div class="plan-tasks">
+            ${doneHabits.map((h) => `
+              <div class="plan-task done habit-row">
+                <span class="plan-task-check on" aria-hidden="true">${ICONS.check}</span>
+                <div class="plan-task-body">
+                  <div class="plan-task-title">${h.emoji ? esc(h.emoji) + ' ' : ''}${esc(h.name)}</div>
+                  <div class="plan-task-due">${statusOf(h.id, jKey) === 'min' ? 'Minimum version · habit' : 'Completed · habit'}</div>
+                </div>
+              </div>`).join('')}
+          </div>`
+        : `<div class="card empty-note">Nothing logged yet today. <button class="inline-link" data-act="tab" data-id="today">Knock one out →</button></div>`}
+      `;
+    })() : ''}
+
+    <section class="card plan-journal-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Today’s journal</span>
+        <span class="reminder-state">${jStreak ? `${jStreak}-day streak` : 'New'}</span>
+      </div>
+      <div class="plan-journal-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <textarea id="journalText" class="plan-journal-ta" rows="7" placeholder="How did today go? What did you learn, feel, or want to remember?">${esc(jText)}</textarea>
+      <div class="seg-hint">Saves automatically on this device · ${jCount} ${jCount === 1 ? 'entry' : 'entries'} logged.</div>
+    </section>
+
+    <div class="empty-note" style="padding-top:8px">Reminders fire while Arc90 is open or in the background. Add Arc90 to your home screen for the most reliable notifications.</div>
+  `;
+}
+
+/* ============================================================
    PROGRESS
    ============================================================ */
 
@@ -3309,6 +3767,7 @@ function viewProgress() {
 
     ${commandCenterCard()}
     ${progressArcMapCard()}
+    ${proofCard(true)}
     <section class="card">
       <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
       ${chart(7)}
@@ -3316,7 +3775,6 @@ function viewProgress() {
     ${progressAnalyticsCard()}
     ${moodGraphPanel()}
     ${progressPulseCard()}
-    ${proofCard()}
   `;
 }
 
@@ -4023,6 +4481,623 @@ function grid90() {
    COACH
    ============================================================ */
 
+/* ============================================================
+   SLEEP — recovery optimizer + log + health shortcuts
+   ============================================================ */
+function fmtTime12(totalMin) {
+  const h = Math.floor(totalMin / 60) % 24;
+  const m = totalMin % 60;
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+function fmtTimerLeft(ms) {
+  if (!ms || ms <= 0) return '0:00';
+  const total = Math.ceil(ms / 1000);
+  const m = Math.floor(total / 60), s = total % 60;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function sleepBedtimes() {
+  const set = S.health.settings;
+  const wake = set.wakeTarget || '07:00';
+  const onset = Number(set.sleepOnset) || 14;
+  const [wh, wm] = wake.split(':').map(Number);
+  const wakeMin = wh * 60 + wm;
+  return [
+    { cycles: 6, hours: 9,   label: '9h', note: 'Full recovery' },
+    { cycles: 5, hours: 7.5, label: '7½h', note: 'Optimal', best: true },
+    { cycles: 4, hours: 6,   label: '6h', note: 'Minimum' },
+    { cycles: 3, hours: 4.5, label: '4½h', note: 'Emergency', warn: true },
+  ].map(s => {
+    const totalMin = s.hours * 60 + onset;
+    const bedMin = ((wakeMin - totalMin) % (24 * 60) + 24 * 60) % (24 * 60);
+    return { ...s, fmt: fmtTime12(bedMin) };
+  });
+}
+
+// ── SPATIAL SOUND ENGINE ─────────────────────────────────────────────────────
+// Sounds are procedurally synthesized (no streaming, no files), rendered offline
+// into seamless looping WAV blobs, then played through an <audio> element. Routing
+// through the media pipeline (not raw Web Audio) is what makes them survive the iOS
+// mute switch, keep playing when the screen locks, and appear in Control Center.
+const SOUND_ENGINE = (() => {
+  const SR = 32000;
+  let active = null;          // currently-playing sound id (set optimistically)
+  let audioEl = null;         // shared <audio> element, lives on <body>, survives re-renders
+  let fadeTimer = null;
+  let timerMin = 15;          // sleep timer: minutes before auto-off (0 = continuous)
+  let stopTimeout = null;     // pending auto-off timeout
+  let endAt = 0;              // epoch ms when the current timer fires (0 = none)
+  const cache = {};           // id -> playable URL (object URL for synth, file path for recordings)
+  const FILE_BASE = './assets/sounds/';
+  // Nature sounds are real CC0 / CC-BY / public-domain field recordings (credits in the
+  // Sleep tab). Noise + tones stay synthesized — pure noise/tones have no audible loop.
+  const SOUNDS = {
+    rain:     { label: 'Rain',       emoji: '🌧', file: 'rain'   },
+    ocean:    { label: 'Ocean',      emoji: '🌊', file: 'ocean'  },
+    stream:   { label: 'Stream',     emoji: '🏞', file: 'stream' },
+    storm:    { label: 'Storm',      emoji: '⛈', file: 'storm'  },
+    fire:     { label: 'Fire',       emoji: '🔥', file: 'fire'   },
+    wind:     { label: 'Wind',       emoji: '🍃', file: 'wind'   },
+    forest:   { label: 'Forest',     emoji: '🐦', file: 'forest' },
+    night:    { label: 'Night',      emoji: '🦗', file: 'night'  },
+    brown:    { label: 'Deep Sleep', emoji: '🟤', noise: 'brown', filter: { type: 'lowpass',  freq: 700        } },
+    white:    { label: 'White',      emoji: '⬜', noise: 'white' },
+    fan:      { label: 'Fan',        emoji: '💨', noise: 'white', filter: { type: 'bandpass', freq: 700, Q: 0.8 } },
+    binaural: { label: 'Delta',      emoji: '⚡', special: 'binaural', base: 200, beat: 2 },
+    theta:    { label: 'Theta',      emoji: '🌀', special: 'binaural', base: 200, beat: 6 },
+    hz432:    { label: '432 Hz',     emoji: '✨', special: 'tone', freq: 432 },
+    hz528:    { label: '528 Hz',     emoji: '💚', special: 'tone', freq: 528 },
+  };
+  // Recordings are play-ready URLs from the start, so a tap plays instantly inside the
+  // gesture (iOS) and the file streams + caches on demand.
+  for (const [id, def] of Object.entries(SOUNDS)) {
+    if (def.file) cache[id] = FILE_BASE + def.file + '.mp3';
+  }
+
+  function getEl() {
+    if (!audioEl) {
+      audioEl = document.createElement('audio');
+      audioEl.id = 'arc90-audio';
+      audioEl.loop = true;
+      audioEl.preload = 'auto';
+      audioEl.setAttribute('playsinline', '');
+      audioEl.setAttribute('webkit-playsinline', '');
+      // Lock-screen failsafe: iOS suspends setTimeout while the screen is off, but media
+      // 'timeupdate' events keep firing — so the sleep timer still stops on schedule.
+      audioEl.addEventListener('timeupdate', () => {
+        if (endAt && active && Date.now() >= endAt) fadeOutStop();
+      });
+      document.body.appendChild(audioEl);
+    }
+    return audioEl;
+  }
+
+  function fillNoise(d, type, n) {
+    if (type === 'white') {
+      for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    } else if (type === 'brown') {
+      let last = 0;
+      for (let i = 0; i < n; i++) {
+        const w = Math.random() * 2 - 1;
+        d[i] = (last + 0.02 * w) / 1.02; last = d[i]; d[i] *= 3.5;
+      }
+    } else { // pink
+      let b0=0,b1=0,b2=0,b3=0,b4=0,b5=0,b6=0;
+      for (let i = 0; i < n; i++) {
+        const w = Math.random() * 2 - 1;
+        b0=0.99886*b0+w*0.0555179; b1=0.99332*b1+w*0.0750759;
+        b2=0.96900*b2+w*0.1538520; b3=0.86650*b3+w*0.3104856;
+        b4=0.55000*b4+w*0.5329522; b5=-0.7616*b5-w*0.0168980;
+        d[i]=(b0+b1+b2+b3+b4+b5+b6+w*0.5362)*0.11; b6=w*0.115926;
+      }
+    }
+  }
+
+  // crossfade the rendered tail back over the head so the loop has no click
+  function seamLoop(rendered, lenSamp, seamSamp) {
+    const nCh = rendered.numberOfChannels;
+    const helper = new OfflineAudioContext(nCh, lenSamp, rendered.sampleRate);
+    const out = helper.createBuffer(nCh, lenSamp, rendered.sampleRate);
+    for (let c = 0; c < nCh; c++) {
+      const r = rendered.getChannelData(c), o = out.getChannelData(c);
+      for (let i = 0; i < lenSamp; i++) o[i] = r[i];
+      for (let i = 0; i < seamSamp; i++) {
+        const w = i / seamSamp;
+        o[i] = r[i] * w + r[lenSamp + i] * (1 - w);
+      }
+    }
+    return out;
+  }
+
+  function normalize(buf, peak) {
+    let max = 0;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) { const a = Math.abs(d[i]); if (a > max) max = a; }
+    }
+    if (max < 1e-5) return buf;
+    const g = peak / max;
+    for (let c = 0; c < buf.numberOfChannels; c++) {
+      const d = buf.getChannelData(c);
+      for (let i = 0; i < d.length; i++) d[i] *= g;
+    }
+    return buf;
+  }
+
+  async function renderBuffer(name) {
+    const def = SOUNDS[name];
+    // Tones/binaural: render a long (45s) loop so the <audio> element's loop-point gap —
+    // barely noticeable on noise but a glaring click on a pure tone — recurs rarely instead
+    // of every 2s. 16kHz is ample for these low frequencies and halves memory. Every
+    // frequency completes whole cycles in 45s (freq×45 is integer), so content stays seamless.
+    if (def.special === 'binaural') {
+      const base = def.base || 200, beat = def.beat || 2;
+      const TSR = 16000, len = TSR * 45;
+      const oc = new OfflineAudioContext(2, len, TSR);
+      const merger = oc.createChannelMerger(2);
+      const o1 = oc.createOscillator(), o2 = oc.createOscillator();
+      const g1 = oc.createGain(), g2 = oc.createGain();
+      o1.frequency.value = base; o2.frequency.value = base + beat; g1.gain.value = 0.5; g2.gain.value = 0.5;
+      o1.connect(g1); g1.connect(merger, 0, 0); o2.connect(g2); g2.connect(merger, 0, 1);
+      merger.connect(oc.destination); o1.start(); o2.start();
+      return normalize(await oc.startRendering(), 0.6);
+    }
+    if (def.special === 'tone') {
+      const TSR = 16000, len = TSR * 45;
+      const oc = new OfflineAudioContext(2, len, TSR);
+      const osc = oc.createOscillator(), g = oc.createGain();
+      osc.frequency.value = def.freq; osc.type = 'sine'; g.gain.value = 0.5;
+      osc.connect(g); g.connect(oc.destination); osc.start();
+      return normalize(await oc.startRendering(), 0.5);
+    }
+    // noise-based: render lenSec + a short seam tail, then crossfade for a clean loop
+    let lenSec = 8;
+    if (def.mod) { const period = 1 / def.mod.rate; lenSec = Math.max(8, Math.ceil(8 / period) * period); }
+    const seam = 0.08;
+    const lenSamp = Math.round(SR * lenSec);
+    const total = lenSamp + Math.round(SR * seam);
+    const oc = new OfflineAudioContext(2, total, SR);
+    const src = oc.createBufferSource();
+    const nb = oc.createBuffer(2, total, SR);
+    fillNoise(nb.getChannelData(0), def.noise, total);
+    fillNoise(nb.getChannelData(1), def.noise, total);
+    src.buffer = nb;
+    let chain = src;
+    if (def.filter) {
+      const f = oc.createBiquadFilter();
+      f.type = def.filter.type; f.frequency.value = def.filter.freq;
+      if (def.filter.Q) f.Q.value = def.filter.Q;
+      src.connect(f); chain = f;
+    }
+    if (def.mod) {
+      const lfo = oc.createOscillator(), lfoGain = oc.createGain(), amp = oc.createGain();
+      lfo.frequency.value = def.mod.rate; lfoGain.gain.value = def.mod.depth; amp.gain.value = 0.7;
+      lfo.connect(lfoGain); lfoGain.connect(amp.gain); chain.connect(amp); amp.connect(oc.destination); lfo.start();
+    } else {
+      chain.connect(oc.destination);
+    }
+    src.start();
+    const rendered = await oc.startRendering();
+    return normalize(seamLoop(rendered, lenSamp, Math.round(SR * seam)), 0.55);
+  }
+
+  function bufferToWav(buf) {
+    const nCh = buf.numberOfChannels, len = buf.length, sr = buf.sampleRate;
+    const total = 44 + len * nCh * 2;
+    const ab = new ArrayBuffer(total); const dv = new DataView(ab); let p = 0;
+    const ws = (s) => { for (let i = 0; i < s.length; i++) dv.setUint8(p++, s.charCodeAt(i)); };
+    const w32 = (v) => { dv.setUint32(p, v, true); p += 4; };
+    const w16 = (v) => { dv.setUint16(p, v, true); p += 2; };
+    ws('RIFF'); w32(total - 8); ws('WAVE'); ws('fmt '); w32(16); w16(1); w16(nCh);
+    w32(sr); w32(sr * nCh * 2); w16(nCh * 2); w16(16); ws('data'); w32(len * nCh * 2);
+    const ch = []; for (let c = 0; c < nCh; c++) ch.push(buf.getChannelData(c));
+    for (let i = 0; i < len; i++) {
+      for (let c = 0; c < nCh; c++) {
+        let s = Math.max(-1, Math.min(1, ch[c][i]));
+        dv.setInt16(p, s < 0 ? s * 0x8000 : s * 0x7FFF, true); p += 2;
+      }
+    }
+    return new Blob([ab], { type: 'audio/wav' });
+  }
+
+  function fadeIn(el) {
+    clearInterval(fadeTimer);
+    let v = 0; el.volume = 0;            // note: iOS ignores el.volume (hardware-only) — harmless no-op there
+    fadeTimer = setInterval(() => {
+      v = Math.min(0.9, v + 0.05);
+      try { el.volume = v; } catch (e) {}
+      if (v >= 0.9) clearInterval(fadeTimer);
+    }, 90);
+  }
+
+  function setMeta(name) {
+    if ('mediaSession' in navigator) {
+      try {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: SOUNDS[name].label, artist: 'Arc90 · Sleep sounds' });
+        navigator.mediaSession.setActionHandler('pause', () => stopAll());
+        navigator.mediaSession.setActionHandler('stop', () => stopAll());
+      } catch (e) {}
+    }
+  }
+
+  async function ensureCached(name) {
+    if (cache[name]) return cache[name];
+    if (SOUNDS[name] && SOUNDS[name].file) { cache[name] = FILE_BASE + SOUNDS[name].file + '.mp3'; return cache[name]; }
+    const buf = await renderBuffer(name);
+    cache[name] = URL.createObjectURL(bufferToWav(buf));
+    return cache[name];
+  }
+
+  function clearTimer() {
+    if (stopTimeout) { clearTimeout(stopTimeout); stopTimeout = null; }
+    endAt = 0;
+  }
+
+  // Gently fade the volume out, then stop. (iOS ignores el.volume, so there it just
+  // stops cleanly at the deadline — still does what the timer promises.)
+  function fadeOutStop() {
+    clearTimer(); // guard: timeupdate failsafe must not re-enter mid-fade
+    clearInterval(fadeTimer);
+    const el = audioEl;
+    if (!el) { stopAll(); return; }
+    // Screen locked / backgrounded: intervals are suspended, so stop immediately.
+    if (document.hidden) { stopAll(); render(); return; }
+    let v = el.volume || 0.9;
+    fadeTimer = setInterval(() => {
+      v = Math.max(0, v - 0.06);
+      try { el.volume = v; } catch (e) {}
+      if (v <= 0) { clearInterval(fadeTimer); stopAll(); render(); }
+    }, 140);
+  }
+
+  function scheduleStop() {
+    clearTimer();
+    if (!timerMin) return;                 // 0 = continuous, never auto-off
+    endAt = Date.now() + timerMin * 60000;
+    stopTimeout = setTimeout(fadeOutStop, timerMin * 60000);
+  }
+
+  // Change the timer. If a sound is playing, restart the countdown from now.
+  function setTimer(min) {
+    timerMin = Math.max(0, Number(min) || 0);
+    if (active) scheduleStop();
+  }
+
+  function stopAll() {
+    clearInterval(fadeTimer);
+    clearTimer();
+    if (audioEl) { try { audioEl.pause(); } catch (e) {} }
+    active = null;
+  }
+
+  // Returns 'started' | 'stopped' | 'retry'. Async, but sets `active` synchronously
+  // so the UI can show the live state immediately on the same tap.
+  async function play(name) {
+    if (!SOUNDS[name]) return 'stopped';
+    if (active === name) { stopAll(); return 'stopped'; }
+    stopAll();
+    active = name;
+    const el = getEl();
+    // Fast path: already rendered — play synchronously inside the tap gesture (iOS unlock).
+    if (cache[name]) {
+      el.src = cache[name]; el.loop = true;
+      try { await el.play(); fadeIn(el); setMeta(name); scheduleStop(); return 'started'; }
+      catch (e) { active = null; return 'retry'; }
+    }
+    // Cold path: render first. The await can break the iOS gesture chain, so if the
+    // first play() is blocked we report 'retry' and the next tap (now cached) works.
+    try { await ensureCached(name); }
+    catch (e) { active = null; return 'retry'; }
+    if (active !== name) return 'stopped';   // user changed selection mid-render
+    el.src = cache[name]; el.loop = true;
+    try { await el.play(); fadeIn(el); setMeta(name); return 'started'; }
+    catch (e) { active = null; return 'retry'; }
+  }
+
+  // Pre-render every sound in the background so the first tap is instant (and keeps
+  // the tap inside the user-gesture window on iOS).
+  async function warm() {
+    for (const name of Object.keys(SOUNDS)) {
+      if (cache[name]) continue;
+      try { await ensureCached(name); } catch (e) { /* ignore, will render on demand */ }
+    }
+  }
+
+  return {
+    play, stopAll, warm, setTimer,
+    getActive: () => active,
+    getTimerMin: () => timerMin,
+    getRemaining: () => (endAt ? Math.max(0, endAt - Date.now()) : 0),
+    SOUNDS,
+  };
+})();
+
+// ── MEDITATION ENGINE ─────────────────────────────────────────────────────────
+const MEDITATION_DEFS = {
+  '478':      { name: '4-7-8 Breathing', cycles: 8, steps: [
+    { phase: 'in',    duration: 4, label: 'Breathe in'  },
+    { phase: 'hold',  duration: 7, label: 'Hold'         },
+    { phase: 'out',   duration: 8, label: 'Breathe out'  },
+  ]},
+  'box':      { name: 'Box Breathing', cycles: 6, steps: [
+    { phase: 'in',    duration: 4, label: 'Breathe in'   },
+    { phase: 'hold',  duration: 4, label: 'Hold full'    },
+    { phase: 'out',   duration: 4, label: 'Breathe out'  },
+    { phase: 'empty', duration: 4, label: 'Hold empty'   },
+  ]},
+  'bodyscan': { name: 'Body Scan', cycles: 1, steps: [
+    { phase: 'focus', duration: 15, label: 'Eyes closed. Breathe naturally.'  },
+    { phase: 'focus', duration: 20, label: 'Feel your feet. Release tension.' },
+    { phase: 'focus', duration: 20, label: 'Relax your legs and hips.'        },
+    { phase: 'focus', duration: 20, label: 'Soften your belly. Let it rise.'  },
+    { phase: 'focus', duration: 20, label: 'Release your shoulders down.'     },
+    { phase: 'focus', duration: 20, label: 'Soften your jaw and forehead.'    },
+    { phase: 'out',   duration: 15, label: 'Breathe out remaining tension.'   },
+    { phase: 'focus', duration: 10, label: 'You are ready for sleep.'         },
+  ]},
+  'sigh':     { name: 'Physiological Sigh', cycles: 6, steps: [   // ~60s — fastest calm-down
+    { phase: 'in',   duration: 3, label: 'Inhale through your nose'   },
+    { phase: 'in',   duration: 1, label: 'Second short sip of air'   },
+    { phase: 'out',  duration: 6, label: 'Long exhale through mouth'  },
+  ]},
+  'coherent': { name: 'Coherent Breathing', cycles: 12, steps: [   // ~2 min — steady calm
+    { phase: 'in',   duration: 5, label: 'Breathe in'  },
+    { phase: 'out',  duration: 5, label: 'Breathe out' },
+  ]},
+};
+let sleepMed = { session: null, stepIdx: 0, countdown: 0, cycle: 0, interval: null };
+
+function sleepMedStart(id) {
+  const def = MEDITATION_DEFS[id]; if (!def) return;
+  if (sleepMed.interval) clearInterval(sleepMed.interval);
+  const step0 = def.steps[0];
+  sleepMed = { session: id, stepIdx: 0, countdown: step0.duration, cycle: 0, interval: null };
+  sleepMed.interval = setInterval(() => {
+    sleepMed.countdown--;
+    if (sleepMed.countdown <= 0) {
+      const d = MEDITATION_DEFS[sleepMed.session]; if (!d) { sleepMedStop(); return; }
+      sleepMed.stepIdx++;
+      if (sleepMed.stepIdx >= d.steps.length * d.cycles) {
+        sleepMedStop(); showNudge('Meditation complete. Sleep well. 🌙'); return;
+      }
+      const step = d.steps[sleepMed.stepIdx % d.steps.length];
+      sleepMed.countdown = step.duration;
+      sleepMed.cycle = Math.floor(sleepMed.stepIdx / d.steps.length);
+    }
+    const countEl = document.getElementById('medCountdown');
+    const labelEl = document.getElementById('medPhaseLabel');
+    const circleEl = document.getElementById('medCircle');
+    if (countEl) countEl.textContent = sleepMed.countdown;
+    if (labelEl) {
+      const d = MEDITATION_DEFS[sleepMed.session];
+      if (d) {
+        const step = d.steps[sleepMed.stepIdx % d.steps.length];
+        labelEl.textContent = step.label;
+        if (circleEl) circleEl.className = `med-ring med-${step.phase}`;
+      }
+    }
+  }, 1000);
+  render();
+}
+
+function sleepMedStop() {
+  if (sleepMed.interval) clearInterval(sleepMed.interval);
+  sleepMed = { session: null, stepIdx: 0, countdown: 0, cycle: 0, interval: null };
+  render();
+}
+
+function playAlarmChime() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    [528, 660, 784, 880].forEach((freq, i) => {
+      const osc = ac.createOscillator(), g = ac.createGain();
+      osc.connect(g); g.connect(ac.destination);
+      osc.frequency.value = freq; osc.type = 'sine';
+      const t = ac.currentTime + i * 0.6;
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.22, t + 0.35);
+      g.gain.linearRampToValueAtTime(0, t + 2.2);
+      osc.start(t); osc.stop(t + 2.5);
+    });
+  } catch(e) {}
+}
+
+function meditationRunningView() {
+  const def = MEDITATION_DEFS[sleepMed.session]; if (!def) return '';
+  const step = def.steps[sleepMed.stepIdx % def.steps.length];
+  const colors = { in: 'var(--accent)', hold: '#60a5fa', out: '#34d399', empty: '#94a3b8', focus: 'var(--accent)' };
+  return `
+    <div class="med-running">
+      <div class="med-circle-outer" style="--med-color:${colors[step.phase] || 'var(--accent)'}">
+        <div id="medCircle" class="med-ring med-${step.phase}">
+          <div class="med-ring-inner">
+            <span id="medCountdown" class="med-count">${sleepMed.countdown}</span>
+            <span id="medPhaseLabel" class="med-label">${step.label}</span>
+          </div>
+        </div>
+      </div>
+      <div class="med-meta">
+        <span class="med-sname">${def.name}</span>
+        <span class="med-cycle-info">Cycle ${sleepMed.cycle + 1} of ${def.cycles}</span>
+      </div>
+    </div>`;
+}
+
+function viewSleep() {
+  const set = S.health.settings;
+  const wake = set.wakeTarget || '07:00';
+  const alarm = set.alarmTime || '';
+  const stats = sleepStats(7);
+  const bedtimes = sleepBedtimes();
+  const optimal = bedtimes.find(b => b.best);
+  const activeSound = SOUND_ENGINE.getActive();
+  const soundTimer = S.health.settings.soundTimerMin ?? 15;
+  const protoCount = S.protocols.length;
+  const latestSleep = vitalLatest('sleep');
+  const lastNight = latestSleep ? `${latestSleep.v}h last logged` : 'not yet logged';
+  const hr = new Date().getHours();
+  const firstName = (S.profile.name || '').trim().split(' ')[0];
+  const greetWord = hr >= 21 || hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : 'Good evening';
+  const moonPhase = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'][Math.floor(((Date.now() / 86400000) + 14.765) % 29.53 / 29.53 * 8) % 8];
+  const dateStr = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
+  const heroStat = stats.avg ? `${stats.avg.toFixed(1)}h avg · ${stats.consistency}` : lastNight;
+  const wakeMood = sleepDay().wakeMood;
+
+  let alarmCountdown = '';
+  if (alarm) {
+    const now = new Date(), [ah, am] = alarm.split(':').map(Number);
+    const ad = new Date(now); ad.setHours(ah, am, 0, 0);
+    if (ad <= now) ad.setDate(ad.getDate() + 1);
+    const diff = Math.round((ad - now) / 60000);
+    alarmCountdown = `${Math.floor(diff / 60)}h ${diff % 60}m until alarm`;
+  }
+
+  return `
+    ${brandbar()}
+    <div class="slhero">
+      <div class="slhero-aurora"></div>
+      <div class="slhero-inner">
+        <div class="slhero-date">${dateStr}</div>
+        <h1 class="slhero-greeting">${greetWord}${firstName ? `,&nbsp;<span class="slhero-name">${esc(firstName)}</span>` : ''}<span class="slhero-moon">${moonPhase}</span></h1>
+        <div class="slhero-sub">${esc(heroStat)}</div>
+      </div>
+    </div>
+
+    <section class="card sleep-opt-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Bedtime optimizer</span>
+        <span class="reminder-state">90-min cycles</span>
+      </div>
+      ${optimal ? `
+      <div class="sleep-hero-bed">
+        <div class="shb-time">${optimal.fmt}</div>
+        <div class="shb-label">Optimal bedtime · ${optimal.label} · ${optimal.cycles} cycles</div>
+      </div>` : ''}
+      <div class="bedtime-slots-v2">
+        ${bedtimes.map(b => `
+          <div class="bsv2-slot${b.best ? ' bsv2-best' : b.warn ? ' bsv2-warn' : ''}">
+            <div class="bsv2-time">${b.fmt}</div>
+            <div class="bsv2-hrs">${b.label}</div>
+            <div class="bsv2-note">${b.note}</div>
+          </div>`).join('')}
+      </div>
+      <div class="sleep-wake-row">
+        <span class="swr-label">Wake at</span>
+        <input type="time" id="sleepWakeInput" value="${esc(wake)}" class="sleep-wake-input" />
+        <button class="mini-act" data-act="sleep-wake-save">Set</button>
+      </div>
+    </section>
+
+    <section class="card sleep-wakemood-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Morning check-in</span>
+        ${wakeMood ? `<span class="reminder-state">${esc(moodLabel(wakeMood))}</span>` : ''}
+      </div>
+      <div class="wakemood-q">How did you feel when you woke up today?</div>
+      ${wakeMoodChips(wakeMood)}
+      <div class="seg-hint" style="margin-top:10px">Logged against today’s sleep — Arc90 will surface how bedtime affects your mornings.</div>
+    </section>
+
+    <section class="card sleep-alarm-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Smart alarm</span>
+        ${alarm ? `<button class="mini-act sac-clear" data-act="alarm-clear">Clear</button>` : ''}
+      </div>
+      ${alarm ? `
+        <div class="alarm-active">
+          <div class="alarm-big-time">${fmtTime12(Number(alarm.split(':')[0])*60+Number(alarm.split(':')[1]))}</div>
+          <div class="alarm-countdown">${alarmCountdown}</div>
+          <div class="alarm-note">Gentle rising chime · starts softly, builds over 30s</div>
+        </div>` : `
+        <div class="alarm-setup">
+          <div class="alarm-setup-row">
+            <input type="time" id="alarmInput" value="${esc(wake)}" class="sleep-wake-input alarm-time-input" />
+            <button class="btn alarm-set-btn" data-act="alarm-save">Set alarm</button>
+          </div>
+          <div class="seg-hint" style="margin-top:10px">Plays an ascending chime when time arrives. Keep app in foreground or add to home screen.</div>
+        </div>`}
+    </section>
+
+    <section class="card sleep-sounds-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Spatial sounds</span>
+        ${activeSound ? `<span class="sounds-live">● Live</span>` : ''}
+      </div>
+      <div class="sounds-grid">
+        ${Object.entries(SOUND_ENGINE.SOUNDS).map(([id, def]) => `
+          <button class="sound-chip${activeSound === id ? ' sound-active' : ''}" data-act="sound-play" data-id="${id}">
+            <span class="sc-emoji">${def.emoji}</span>
+            ${activeSound === id ? `<span class="sc-bars"><i></i><i></i><i></i><i></i></span>` : ''}
+            <span class="sc-label">${def.label}</span>
+          </button>`).join('')}
+      </div>
+      <div class="sound-timer-row">
+        <span class="stm-label">Sleep timer</span>
+        <div class="stm-chips">
+          ${[[15,'15m'],[30,'30m'],[60,'1h'],[0,'∞']].map(([m,l]) => `
+            <button class="stm-chip${soundTimer === m ? ' on' : ''}" data-act="sound-timer" data-id="${m}">${l}</button>`).join('')}
+        </div>
+      </div>
+      ${activeSound ? `
+        <button class="sounds-stop" data-act="sound-stop">■ Stop · ${SOUND_ENGINE.SOUNDS[activeSound]?.label || ''}</button>
+        <div class="sound-timer-left">${soundTimer ? `Auto-off in <b id="soundTimerLeft">${fmtTimerLeft(SOUND_ENGINE.getRemaining())}</b>` : 'Playing continuously — tap a time to set a sleep timer'}</div>` : ''}
+      <div class="seg-hint" style="margin-top:10px">Nature sounds are real field recordings; noise &amp; tones are generated. Use earbuds for binaural beats. The sleep timer fades the sound out and stops.</div>
+      <div class="sound-credits">Recordings via Freesound — Rain by alex36917, Ocean by Luftrum, Storm by digifishmusic (CC BY); Stream, Wind, Forest, Night &amp; Fire are CC0 / public domain.</div>
+    </section>
+
+    <section class="card sleep-med-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Sleep meditations</span>
+        ${sleepMed.session ? `<button class="mini-act sac-clear" data-act="med-stop">Stop</button>` : ''}
+      </div>
+      ${sleepMed.session ? meditationRunningView() : `
+        <div class="med-list">
+          ${[
+            {id:'sigh',    icon:'😮‍💨',name:'Physiological Sigh',dur:'1 min',desc:'Fastest way to calm down'},
+            {id:'coherent',icon:'🫁',name:'Coherent Breathing', dur:'2 min',desc:'5 in · 5 out, steady calm'},
+            {id:'478',     icon:'🌬',name:'4-7-8 Breathing',    dur:'5 min',desc:'Military sleep technique'},
+            {id:'box',     icon:'⬛',name:'Box Breathing',      dur:'4 min',desc:'SEAL stress reset'},
+            {id:'bodyscan',icon:'🌊',name:'Body Scan',          dur:'8 min',desc:'Progressive muscle release'},
+          ].map(m=>`
+            <button class="med-item" data-act="med-start" data-id="${m.id}">
+              <span class="med-icon">${m.icon}</span>
+              <div class="med-info">
+                <span class="med-name">${m.name}</span>
+                <span class="med-meta">${m.dur} · ${m.desc}</span>
+              </div>
+              <span class="med-go">›</span>
+            </button>`).join('')}
+        </div>`}
+    </section>
+
+    ${sleepAnalysisCard()}
+
+    <div class="sleep-health-nav">
+      <button class="shn-chip" data-act="tab" data-id="protocol">
+        ${ICONS.protocol}
+        <div class="shn-text">
+          <span>Supplement Protocol</span>
+          <small>${protoCount ? `${protoCount} tracked` : 'Log your stack'}</small>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="shn-arr"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+      <button class="shn-chip" data-act="tab" data-id="vitals">
+        ${ICONS.vitals}
+        <div class="shn-text">
+          <span>Vitals &amp; Metrics</span>
+          <small>${esc(lastNight)} · HR · HRV · VO2</small>
+        </div>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="shn-arr"><path d="M9 18l6-6-6-6"/></svg>
+      </button>
+    </div>
+
+    <div class="empty-note" style="padding-top:8px">Arc90 is not a medical device. Sounds and meditations are for relaxation only.</div>
+  `;
+}
+
 function viewProtocol() {
   return `
     ${brandbar()}
@@ -4144,16 +5219,71 @@ function viewVitals() {
   `;
 }
 
+function coachOverviewCard() {
+  const mom = momentum();
+  const stk = dayStreak();
+  const day = dayNumber();
+  const st = strongestHabit();
+  const wk = weakestHabit();
+  const grade = mom >= 75 ? 'Strong' : mom >= 50 ? 'Steady' : mom >= 30 ? 'Wobbling' : 'At risk';
+  const gcls = mom >= 50 ? 'good' : mom >= 30 ? 'mid' : 'low';
+  const read = mom >= 75
+    ? `You’re in the top gear of your arc. The system is running — now protect it and don’t get cocky on the easy days.`
+    : mom >= 50
+      ? `You’re holding the line. The pattern is real but fragile — one or two habits are carrying you more than the rest.`
+      : mom >= 30
+        ? `Momentum is slipping. This is the exact moment most people quit — you don’t have to be perfect, you have to be present.`
+        : `You’re running on willpower, not system. Let’s shrink everything to the minimum and win one day back first.`;
+  const roadmap = [
+    st ? `Keep <b>${esc(st.habit.name)}</b> as your anchor — it’s your most reliable rep. Stack the shaky ones right after it.` : `Pick one habit to be your daily anchor — the one you never skip.`,
+    wk ? `<b>${esc(wk.habit.name)}</b> is your weak point. Drop it to its minimum (${esc(wk.habit.min || '2-minute version')}) for 7 days — consistency beats size.` : `Shrink your hardest habit to a 2-minute version until it sticks.`,
+    stk >= 3 ? `Your ${stk}-day streak is real leverage — protect it tonight before anything else.` : `Log one rep today to start a streak. Loss aversion will do the rest.`,
+  ];
+  return `
+    <section class="card coach-overview-card">
+      <div class="coach-ov-head">
+        <div>
+          <span class="eyebrow">Your read · Day ${day} of 90</span>
+          <div class="coach-ov-grade ${gcls}">${grade}<span> · ${mom}% momentum</span></div>
+        </div>
+        <div class="coach-ov-streak"><b>${stk}</b><small>day streak</small></div>
+      </div>
+      <p class="coach-ov-read">${read}</p>
+      <div class="coach-roadmap">
+        <span class="coach-roadmap-title">Your 7-day roadmap</span>
+        <ol>${roadmap.map((r) => `<li>${r}</li>`).join('')}</ol>
+      </div>
+    </section>`;
+}
+
+function coachPrompts() {
+  const wk = weakestHabit();
+  const chips = [
+    wk ? `Why do I keep missing ${wk.habit.name}?` : 'What habit should I focus on first?',
+    'What should I fix this week?',
+    'Design a morning routine for my goal',
+    'I feel like quitting — what now?',
+  ];
+  return `
+    <div class="coach-prompts">
+      ${chips.map((q) => `<button class="coach-prompt-chip" data-act="coach-ask" data-q="${esc(q)}">${esc(q)}</button>`).join('')}
+    </div>`;
+}
+
 function viewCoach() {
   return `
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Guidance</h1>
-        <div class="sub">AI Guidance for habits, momentum, and next moves</div>
+        <h1>Coach</h1>
+        <div class="sub">Your data, read back to you — with a plan and a place to ask</div>
       </div>
     </header>
 
+    ${coachOverviewCard()}
+
+    <div class="section-gap section-title">Ask your coach</div>
+    ${coachPrompts()}
     ${aiPanel()}
     ${weeklyAiReviewCard()}
     ${guidanceSignalCard()}
@@ -4714,28 +5844,38 @@ function viewProfile() {
     <section class="card reminder-card">
       <div class="reminder-head">
         <span class="eyebrow">Nudge rhythm</span>
-        <span class="reminder-state">${r.mode === 'off' ? 'Paused' : r.mode === '4h' ? 'Every 4h' : formatClockTime(r.time || '08:00')}</span>
+        <span class="reminder-state">${r.mode === 'off' ? 'Paused' : r.mode === '2h' ? 'Every 2h' : r.mode === '4h' ? 'Every 4h' : formatClockTime(r.time || '08:00')}</span>
       </div>
       <div class="reminder-modes">
         <button class="rem-mode ${r.mode === 'daily' ? 'on' : ''}" data-act="rem-mode" data-id="daily"><b>Once daily</b><small>one cue</small></button>
-        <button class="rem-mode ${r.mode === '4h' ? 'on' : ''}" data-act="rem-mode" data-id="4h"><b>Pulse</b><small>every 4h · free</small></button>
+        <button class="rem-mode ${r.mode === '4h' ? 'on' : ''}" data-act="rem-mode" data-id="4h"><b>Pulse</b><small>every 4h</small></button>
+        <button class="rem-mode hardcore ${r.mode === '2h' ? 'on' : ''}" data-act="rem-mode" data-id="2h"><b>Hardcore</b><small>every 2h</small></button>
         <button class="rem-mode ${r.mode === 'off' ? 'on' : ''}" data-act="rem-mode" data-id="off"><b>Off</b><small>quiet</small></button>
       </div>
-      ${r.mode === 'daily' || r.mode === '4h' ? `
+      ${r.mode === 'daily' || r.mode === '4h' || r.mode === '2h' ? `
         <label class="rem-time-row" for="setTime">
-          <span><b>Reminder time</b><small>Pick the moment you usually drift.</small></span>
+          <span><b>${r.mode === 'daily' ? 'Reminder time' : 'Start time'}</b><small>${r.mode === 'daily' ? 'Pick the moment you usually drift.' : 'Pulses run from here until ~10pm.'}</small></span>
           <input id="setTime" type="time" value="${esc(r.time)}" data-act-input="rem-time"/>
         </label>` : ''}
-      <div class="reminder-note">${r.mode === '4h' ? `Free pulse reminders every 4 hours starting near ${formatClockTime(r.time || '08:00')}, while the app is reachable.` : r.mode === 'daily' ? 'A single clean nudge keeps this calm, not noisy.' : 'No reminders. Your reps and progress still track normally.'}</div>
+      <div class="reminder-note">${r.mode === '2h' ? `Hardcore mode — a relentless nudge every 2 hours from ${formatClockTime(r.time || '08:00')} until night, while Arc90 is open or on your home screen. For the days you refuse to slip.` : r.mode === '4h' ? `Pulse reminders every 4 hours starting near ${formatClockTime(r.time || '08:00')}, while the app is reachable.` : r.mode === 'daily' ? 'A single clean nudge keeps this calm, not noisy.' : 'No reminders. Your reps and progress still track normally.'}</div>
     </section>
 
     <div class="section-title">Appearance</div>
     <section class="card">
-      <div class="seg">
-        <button class="${S.theme === 'dark' ? 'on' : ''}" data-act="theme" data-id="dark">Dark</button>
-        <button class="${S.theme === 'light' ? 'on' : ''}" data-act="theme" data-id="light">Light</button>
-        <button class="${S.theme === 'mono' ? 'on' : ''}" data-act="theme" data-id="mono">White/Black</button>
+      <div class="theme-swatches">
+        ${[
+          ['mono',  'Mono',  '#0a0a0a', '#f2f2f2'],
+          ['dark',  'Dark',  '#0a0b18', '#b69cff'],
+          ['light', 'Light', '#f2f2f2', '#111111'],
+          ['green', 'Green', '#050b08', '#34d399'],
+          ['red',   'Red',   '#0a0405', '#ff5d6c'],
+        ].map(([id, name, bg, ac]) => `
+          <button class="theme-swatch${S.theme === id ? ' on' : ''}" data-act="theme" data-id="${id}" aria-pressed="${S.theme === id}" aria-label="${name} appearance">
+            <span class="ts-chip" style="--sw-bg:${bg};--sw-ac:${ac}"><span class="ts-ring"></span></span>
+            <span class="ts-name">${name}</span>
+          </button>`).join('')}
       </div>
+      <div class="seg-hint">Five looks — same instrument. Pick the one you’ll want to open at night.</div>
     </section>
 
     ${isDevHost() ? productReadinessCard() : ''}
@@ -4822,7 +5962,11 @@ function viewSheet() {
   return `
     <div class="sheet-wrap">
       <div class="sheet-bg" data-act="close-sheet"></div>
-      <div class="sheet"><div class="sheet-grab"></div>${inner}</div>
+      <div class="sheet">
+        <button class="sheet-grab-zone" data-act="close-sheet" aria-label="Close"><span class="sheet-grab"></span></button>
+        <button class="sheet-close" data-act="close-sheet" aria-label="Close">✕</button>
+        ${inner}
+      </div>
     </div>`;
 }
 
@@ -4870,6 +6014,7 @@ function sheetPaywall() {
 
     <button class="btn pay-cta" data-act="stripe-checkout">${PREMIUM_OFFER.cta} · ${PREMIUM_OFFER.price}${PREMIUM_OFFER.interval}</button>
     <button class="btn btn-ghost" data-act="close-sheet" style="margin-top:9px">Maybe later — continue Free</button>
+    <button class="inline-link" data-act="restore-premium" style="display:block;margin:12px auto 0;font-size:13px">Already purchased? Restore Premium</button>
     <div class="pay-trust"><span>✓ Cancel anytime</span><span>✓ Private &amp; local-first</span><span>✓ Secure Stripe</span></div>
   `;
 }
@@ -5069,7 +6214,7 @@ const OCCUPATIONS = [
 
 function renderOnboarding() {
   if (!ob) ob = freshOb();
-  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, obContract];
+  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, obContract, obUpgrade];
   const dots = ob.step === 0 ? '' :
     `<div class="ob-dots">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
   app.innerHTML = `
@@ -5197,12 +6342,13 @@ function obReminders() {
       <div class="ob-title">When should I <em>nudge</em> you?</div>
       <div class="ob-sub">A cue at the right moment is half the habit. Pick your rhythm.</div>
       <div class="seg" style="margin-bottom:14px">
-        <button class="${ob.remMode === 'daily' ? 'on' : ''}" data-act="ob-rem" data-id="daily">Once a day</button>
-        <button class="${ob.remMode === '4h' ? 'on' : ''}" data-act="ob-rem" data-id="4h">Every 4 hours</button>
+        <button class="${ob.remMode === 'daily' ? 'on' : ''}" data-act="ob-rem" data-id="daily">Daily</button>
+        <button class="${ob.remMode === '4h' ? 'on' : ''}" data-act="ob-rem" data-id="4h">Every 4h</button>
+        <button class="${ob.remMode === '2h' ? 'on' : ''}" data-act="ob-rem" data-id="2h">Hardcore</button>
         <button class="${ob.remMode === 'off' ? 'on' : ''}" data-act="ob-rem" data-id="off">Off</button>
       </div>
-      ${ob.remMode === 'daily' || ob.remMode === '4h' ? `<div class="field"><label>${ob.remMode === '4h' ? 'Start at what time?' : 'At what time?'}</label><input id="obTime" type="time" value="${esc(ob.remTime)}"/></div>` : ''}
-      <div class="seg-hint">${ob.remMode === 'daily' ? 'Pick the hour you usually drift. That’s where habits go to die.' : ob.remMode === '4h' ? 'A gentle free pulse through the day, starting from your chosen time.' : 'Quiet mode. The 90-day grid will still tell the truth.'}</div>
+      ${ob.remMode === 'daily' || ob.remMode === '4h' || ob.remMode === '2h' ? `<div class="field"><label>${ob.remMode === 'daily' ? 'At what time?' : 'Start at what time?'}</label><input id="obTime" type="time" value="${esc(ob.remTime)}"/></div>` : ''}
+      <div class="seg-hint">${ob.remMode === 'daily' ? 'Pick the hour you usually drift. That’s where habits go to die.' : ob.remMode === '2h' ? 'Hardcore: a relentless nudge every 2 hours. For when slipping is not an option.' : ob.remMode === '4h' ? 'A steady pulse through the day, starting from your chosen time.' : 'Quiet mode. The 90-day grid will still tell the truth.'}</div>
       <button class="btn ob-cta" data-act="ob-next">Continue</button>
     </div>`;
 }
@@ -5230,7 +6376,40 @@ function obContract() {
         <div class="line">“I, <b>${esc(ob.name || 'me')}</b> — ${esc(occ)} by day, <b>${esc(identity)}</b> by choice — will show up for <b>${n} small habit${n === 1 ? '' : 's'}</b>, every day, for <b>90 days</b>, until: <b>${esc(ob.goal)}</b>.”</div>
         <div class="dates">${fmtDate(new Date())} → ${fmtDate(end)}, ${end.getFullYear()}</div>
       </div>
-      <button class="btn ob-cta" data-act="ob-finish">Start Day 1</button>
+      <button class="btn ob-cta" data-act="ob-next">Start Day 1</button>
+    </div>`;
+}
+
+function obUpgrade() {
+  const benefits = [
+    ['♾️', 'Unlimited habits & custom routines', 'Go past the free 5-habit limit and build the whole system.'],
+    ['🧠', 'Coach AI + weekly reviews', 'Personal reads on your data and what to fix next.'],
+    ['🔥', 'Forge recovery mode', 'A 7-day comeback plan for when you slip — before it becomes a lost week.'],
+    ['📊', 'Axis dashboard & exports', 'Deeper analytics and a 90-day export you keep forever.'],
+    ['🎨', 'Every theme, sound & spatial audio', 'The full premium sleep and focus toolkit.'],
+  ];
+  return `
+    <div class="ob-pay">
+      <button class="ob-pay-x" data-act="ob-finish" aria-label="Continue with the free version">✕</button>
+      <div class="ob-pay-kicker">${esc(PREMIUM_OFFER.name)} · Launch offer</div>
+      <h2 class="ob-pay-title">Go all-in on your <em>90 days</em></h2>
+      <p class="ob-pay-sub">You’ve set the goal and signed the contract. Premium gives you the full system built to actually get you there.</p>
+      <div class="ob-pay-benefits">
+        ${benefits.map(([i, t, d]) => `
+          <div class="ob-pay-benefit">
+            <span class="obb-ico">${i}</span>
+            <span class="obb-txt"><b>${esc(t)}</b><small>${esc(d)}</small></span>
+            <span class="obb-check">${ICONS.check}</span>
+          </div>`).join('')}
+      </div>
+      <div class="ob-pay-price">
+        <div class="obp-amt">${PREMIUM_OFFER.price}<span>${PREMIUM_OFFER.interval}</span></div>
+        <div class="obp-week">${esc(PREMIUM_OFFER.perWeek)} · ${esc(PREMIUM_OFFER.cadence)}</div>
+        <div class="obp-anchor">${esc(PREMIUM_OFFER.anchor)}</div>
+      </div>
+      <button class="btn ob-pay-cta" data-act="ob-premium">${esc(PREMIUM_OFFER.cta)}</button>
+      <div class="ob-pay-fine">${esc(PREMIUM_OFFER.note)} · No commitment — you can start Free and upgrade anytime.</div>
+      <button class="ob-pay-skip" data-act="ob-finish">Continue with the free version</button>
     </div>`;
 }
 
@@ -5329,8 +6508,33 @@ document.addEventListener('click', (e) => {
     case 'subscribe': submitSubscribe(); break;
     case 'share-send': sendShare(); break;
     case 'share-save': saveShare(); break;
+    case 'card-style': {
+      S.cardStyle = el.dataset.id; save();
+      rebuildShareCard();
+      render();
+      track('card_style', { style: S.cardStyle });
+      break;
+    }
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
     case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
+    case 'restore-premium': {
+      const email = window.prompt('Enter the email you used at checkout:');
+      if (!email || !email.trim()) break;
+      showNudge('Checking your purchase…');
+      fetch('/api/entitlement?email=' + encodeURIComponent(email.trim()))
+        .then((r) => r.json())
+        .then((d) => {
+          if (d && d.premium) {
+            S.premium = true; save(); sheet = null; render(); confetti();
+            showNudge('Premium restored. Welcome back. ✨');
+            track('premium_restored');
+          } else {
+            showNudge('No active purchase found for that email.');
+          }
+        })
+        .catch(() => showNudge('Could not reach the server — try again when online.'));
+      break;
+    }
     case 'library-toggle': libraryOpen = !libraryOpen; render(); break;
     case 'proto-template-toggle': protocolTemplatesOpen = !protocolTemplatesOpen; render(); break;
     case 'cat': libCat = id; libraryOpen = true; render(); break;
@@ -5404,6 +6608,42 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'mood-quick': setQuickMood(id); break;
+    case 'energy-quick': setQuickEnergy(id); break;
+    case 'task-add': {
+      const ti = document.getElementById('taskTitle');
+      const du = document.getElementById('taskDue');
+      const rm = document.getElementById('taskRemind');
+      const title = ti ? ti.value.trim() : '';
+      if (!title) { showNudge('Add a task name first.'); if (ti) ti.focus(); break; }
+      S.taskSeq = (S.taskSeq || 0) + 1;
+      S.tasks.push({
+        id: 't' + Date.now() + '-' + S.taskSeq,
+        title,
+        due: du && du.value ? du.value : '',
+        remind: rm ? rm.checked : true,
+        done: false,
+        notified: false,
+        created: Date.now(),
+      });
+      save();
+      render();
+      showNudge('Task added.');
+      if (du && du.value && rm && rm.checked && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+      break;
+    }
+    case 'task-toggle': {
+      const t = S.tasks.find((x) => x.id === id);
+      if (t) { t.done = !t.done; if (t.done) t.notified = true; save(); render(); }
+      break;
+    }
+    case 'task-del': {
+      S.tasks = S.tasks.filter((x) => x.id !== id);
+      save();
+      render();
+      break;
+    }
     case 'feel-set': recordFeel(el.dataset.hid, id); break;
     case 'review': sheet = { type: 'review', date: todayKey() }; render(); break;
     case 'intention-save': {
@@ -5518,6 +6758,13 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'ai-disconnect': S.ai.key = ''; S.aiChat = []; save(); render(); break;
+    case 'coach-ask': {
+      const q = el.dataset.q || '';
+      if (!S.ai || !S.ai.key) { showNudge('Connect an AI provider below and your coach can answer this live.'); break; }
+      const inp = document.getElementById('aiInput');
+      if (inp) { inp.value = q; sendAI(); }
+      break;
+    }
     case 'ai-clear': S.aiChat = []; save(); render(); break;
     case 'ai-send': sendAI(); break;
     case 'weekly-ai-refresh': {
@@ -5530,7 +6777,11 @@ document.addEventListener('click', (e) => {
     case 'rem-mode': {
       S.reminders.mode = id === '5h' ? '4h' : id;
       save();
-      if (id !== 'off' && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+      if (id !== 'off' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().then(() => syncPushSubscription()).catch(() => {});
+      } else {
+        syncPushSubscription(); // updates or removes the server-side registration
+      }
       render(); break;
     }
     case 'theme': S.theme = id; save(); render(); break;
@@ -5628,6 +6879,68 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'proto-export': exportProtocolReport(); break;
+    case 'sleep-wake-save': {
+      const inp = document.getElementById('sleepWakeInput');
+      if (inp && inp.value) {
+        S.health.settings.wakeTarget = inp.value;
+        save();
+        render();
+        showNudge('Wake target saved.');
+      }
+      break;
+    }
+    case 'wake-mood': {
+      const cur = sleepDay().wakeMood;
+      setSleepDay(todayKey(), { wakeMood: cur === id ? '' : id });
+      render();
+      if (cur !== id) showNudge(`Logged your morning as “${moodLabel(id)}.”`);
+      break;
+    }
+    case 'alarm-save': {
+      const inp = document.getElementById('alarmInput');
+      if (inp && inp.value) {
+        S.health.settings.alarmTime = inp.value;
+        save(); render();
+        showNudge(`Alarm set for ${fmtTime12(Number(inp.value.split(':')[0])*60+Number(inp.value.split(':')[1]))}.`);
+      }
+      break;
+    }
+    case 'alarm-clear': {
+      S.health.settings.alarmTime = '';
+      if (window.__arc90AlarmCheck) { clearInterval(window.__arc90AlarmCheck); window.__arc90AlarmCheck = null; }
+      save(); render();
+      showNudge('Alarm cleared.');
+      break;
+    }
+    case 'sound-play': {
+      const sid = el.dataset.id;
+      SOUND_ENGINE.setTimer(S.health.settings.soundTimerMin ?? 15); // apply current sleep timer
+      SOUND_ENGINE.play(sid).then((res) => {
+        render();
+        if (res === 'retry') showNudge('Tap the sound once more to start audio.');
+      });
+      render(); // optimistic — active is set synchronously
+      break;
+    }
+    case 'sound-stop':
+      SOUND_ENGINE.stopAll();
+      render();
+      break;
+    case 'sound-timer': {
+      const min = Number(el.dataset.id) || 0;
+      S.health.settings.soundTimerMin = min;
+      save();
+      SOUND_ENGINE.setTimer(min); // reschedules from now if a sound is playing
+      render();
+      showNudge(min ? `Sleep timer set — sound stops in ${min < 60 ? `${min} min` : '1 hour'}.` : 'Sounds will play continuously.');
+      break;
+    }
+    case 'med-start':
+      sleepMedStart(el.dataset.id);
+      break;
+    case 'med-stop':
+      sleepMedStop();
+      break;
     case 'sleep-day': {
       const key = el.dataset.key || todayKey();
       sleepEditKey = key === todayKey() ? null : key;
@@ -5739,11 +7052,23 @@ document.addEventListener('click', (e) => {
       ob.remMode = id === '5h' ? '4h' : id; renderOnboarding(); break;
     }
     case 'ob-finish': finishOnboarding(); break;
+    case 'ob-premium': {
+      track('ob_premium_clicked');
+      finishOnboarding();        // save their setup + enter the app first
+      safeStripeCheckout();      // then open checkout (falls back gracefully if not live)
+      break;
+    }
   }
 });
 
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && sheet) {
+    sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false;
+    render();
+  }
+});
 document.addEventListener('change', (e) => {
-  if (e.target.id === 'setTime') { S.reminders.time = e.target.value || '08:00'; save(); }
+  if (e.target.id === 'setTime') { S.reminders.time = e.target.value || '08:00'; save(); syncPushSubscription(); }
   if (e.target.id === 'importFile' && e.target.files && e.target.files[0]) {
     importDataFile(e.target.files[0]);
     e.target.value = '';
@@ -5753,9 +7078,94 @@ document.addEventListener('change', (e) => {
   }
 });
 
+function closeSheet() {
+  sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false;
+  render();
+}
+
 function wireAfterRender() {
+  // Swipe the bottom sheet down to dismiss it back to the app (any sheet: share, paywall, proof…)
+  const sheetEl = document.querySelector('.sheet');
+  if (sheetEl && !sheetEl.dataset.swipe) {
+    sheetEl.dataset.swipe = '1';
+    let startY = 0, cur = 0, dragging = false;
+    sheetEl.addEventListener('touchstart', (e) => {
+      if (sheetEl.scrollTop > 0) return;       // let inner content scroll first
+      startY = e.touches[0].clientY; cur = 0; dragging = true;
+      sheetEl.style.transition = 'none';
+    }, { passive: true });
+    sheetEl.addEventListener('touchmove', (e) => {
+      if (!dragging) return;
+      cur = e.touches[0].clientY - startY;
+      if (cur < 0) { cur = 0; return; }
+      sheetEl.style.transform = `translateY(${cur}px)`;
+      sheetEl.style.opacity = String(Math.max(0.4, 1 - cur / 600));
+    }, { passive: true });
+    const end = () => {
+      if (!dragging) return;
+      dragging = false;
+      sheetEl.style.transition = '';
+      if (cur > 130) { closeSheet(); }
+      else { sheetEl.style.transform = ''; sheetEl.style.opacity = ''; }
+    };
+    sheetEl.addEventListener('touchend', end, { passive: true });
+    sheetEl.addEventListener('touchcancel', end, { passive: true });
+  }
+  // Pre-render sleep sounds so the first tap is instant and stays inside the gesture (iOS)
+  if (tab === 'sleep' && SOUND_ENGINE.warm && !window.__arc90SoundsWarmed) {
+    window.__arc90SoundsWarmed = true;
+    setTimeout(() => SOUND_ENGINE.warm(), 400);
+  }
+  // If iOS pauses the audio element on an interruption, resume it when we come back
+  if (!window.__arc90SoundResume) {
+    window.__arc90SoundResume = true;
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState !== 'visible') return;
+      const el = document.getElementById('arc90-audio');
+      if (el && el.paused && el.src && SOUND_ENGINE.getActive()) el.play().catch(() => {});
+    });
+  }
+  // Live sleep-timer countdown — updates the on-screen "Auto-off in m:ss" each second
+  if (!window.__arc90SoundTimerTick) {
+    window.__arc90SoundTimerTick = setInterval(() => {
+      const lbl = document.getElementById('soundTimerLeft');
+      if (!lbl) return;
+      const rem = SOUND_ENGINE.getRemaining();
+      if (rem > 0) lbl.textContent = fmtTimerLeft(rem);
+    }, 1000);
+  }
+  // Alarm polling — starts when alarm is set, self-clears when it fires
+  if (S.health.settings.alarmTime && !window.__arc90AlarmCheck) {
+    window.__arc90AlarmCheck = setInterval(() => {
+      const alarm = S.health.settings.alarmTime;
+      if (!alarm) { clearInterval(window.__arc90AlarmCheck); window.__arc90AlarmCheck = null; return; }
+      const now = new Date(), [ah, am] = alarm.split(':').map(Number);
+      if (now.getHours() === ah && now.getMinutes() === am && now.getSeconds() < 30) {
+        playAlarmChime();
+        showNudge('⏰ Rise and shine! Your alarm is going off.');
+        S.health.settings.alarmTime = '';
+        clearInterval(window.__arc90AlarmCheck); window.__arc90AlarmCheck = null;
+        save(); render();
+      }
+    }, 20000);
+  }
   const proofTa = document.getElementById('proofNote');
   if (proofTa && document.activeElement !== proofTa) proofTa.focus({ preventScroll: true });
+  // Daily journal — autosave on input without re-rendering (keeps caret + focus)
+  const journalTa = document.getElementById('journalText');
+  if (journalTa && !journalTa.dataset.wired) {
+    journalTa.dataset.wired = '1';
+    let jt;
+    journalTa.addEventListener('input', () => {
+      clearTimeout(jt);
+      jt = setTimeout(() => {
+        const k = todayKey();
+        if (journalTa.value.trim()) S.journal[k] = journalTa.value;
+        else delete S.journal[k];
+        save();
+      }, 400);
+    });
+  }
   const libSearch = document.getElementById('libSearch');
   if (libSearch) libSearch.addEventListener('input', () => {
     libQuery = libSearch.value;
@@ -5819,6 +7229,7 @@ function download(filename, text, mime) {
 
 function exportData() {
   download(`arc90-data-${todayKey()}.json`, JSON.stringify(S, null, 2), 'application/json');
+  showNudge('Data exported. Note: proof photos export separately from the Proof Wall.');
 }
 
 function compactText(s, max) {
@@ -6022,11 +7433,72 @@ function track(name, data) {
   try { if (typeof window !== 'undefined' && typeof window.va === 'function') window.va('event', { name: name, data: data || {} }); } catch (e) { /* analytics optional */ }
 }
 
+/* ---------------- Web Push: background reminders with the app closed ---------------- */
+const VAPID_PUBLIC_KEY = 'BJSj7dlUllw8GRQLpIB8HRh4-N1uAU1OaM-XziGF2vqsOXUpwBsxLFSR0jqZFglIIuk74_OzDcWpaNQY_Tnvil0';
+
+function urlB64ToU8(base64) {
+  const pad = '='.repeat((4 - (base64.length % 4)) % 4);
+  const b64 = (base64 + pad).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(b64);
+  const out = new Uint8Array(raw.length);
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
+}
+
+/* Keep the server-side push registration in sync with local reminder settings.
+   Privacy: only the push endpoint + mode/time/timezone leave the device — never content. */
+async function syncPushSubscription() {
+  try {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+    if (!S.pushClientId) { S.pushClientId = 'c' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); save(); }
+    const reg = await navigator.serviceWorker.ready;
+    const mode = S.reminders.mode;
+    if (mode === 'off') {
+      const existing = await reg.pushManager.getSubscription();
+      if (existing) await existing.unsubscribe().catch(() => {});
+      fetch('/api/push-subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientId: S.pushClientId, subscription: null, mode: 'off' }),
+      }).catch(() => {});
+      return;
+    }
+    const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlB64ToU8(VAPID_PUBLIC_KEY) });
+    fetch('/api/push-subscribe', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        clientId: S.pushClientId,
+        subscription: sub.toJSON(),
+        mode,
+        time: S.reminders.time || '08:00',
+        tzOffsetMin: -new Date().getTimezoneOffset(),
+      }),
+    }).catch(() => {});
+  } catch (e) { /* push is progressive enhancement — in-app nudges still work */ }
+}
+
+/* System notification that actually works on iOS home-screen PWAs: the Notification
+   constructor is unsupported there, but ServiceWorkerRegistration.showNotification is.
+   Falls back to the constructor for browsers without a ready service worker. */
+function systemNotify(title, body) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return;
+  const opts = { body, icon: 'icons/icon-180.png', badge: 'icons/icon-180.png' };
+  if (navigator.serviceWorker) {
+    navigator.serviceWorker.ready
+      .then((reg) => reg.showNotification(title, opts))
+      .catch(() => { try { new Notification(title, opts); } catch (e) { /* in-app nudge only */ } });
+  } else {
+    try { new Notification(title, opts); } catch (e) { /* in-app nudge only */ }
+  }
+}
+
 function showNudge(text) {
   document.querySelector('.nudge')?.remove();
   const div = document.createElement('div');
   div.className = 'nudge';
-  div.innerHTML = `<span class="ne">◔</span><span class="nt">${esc(text)}</span><button class="nx" data-act="nudge-x">✕</button>`;
+  div.setAttribute('role', 'status');
+  div.setAttribute('aria-live', 'polite');
+  div.innerHTML = `<span class="ne" aria-hidden="true">◔</span><span class="nt">${esc(text)}</span><button class="nx" data-act="nudge-x" aria-label="Dismiss">✕</button>`;
   document.body.appendChild(div);
   setTimeout(() => div.remove(), 9000);
 }
@@ -6079,11 +7551,12 @@ function nudgeText() {
 
 function reminderSlots() {
   if (S.reminders.mode === 'daily') return [S.reminders.time || '08:00'];
-  if (S.reminders.mode === '4h' || S.reminders.mode === '5h') {
+  if (S.reminders.mode === '2h' || S.reminders.mode === '4h' || S.reminders.mode === '5h') {
+    const step = S.reminders.mode === '2h' ? 120 : 240;
     const [hh, mm] = String(S.reminders.time || '08:00').split(':').map((n) => Number(n) || 0);
     const start = Math.max(0, Math.min(23 * 60 + 59, hh * 60 + mm));
     const slots = [];
-    for (let mins = start; mins <= 22 * 60; mins += 240) {
+    for (let mins = start; mins <= 22 * 60; mins += step) {
       const h = String(Math.floor(mins / 60)).padStart(2, '0');
       const m = String(mins % 60).padStart(2, '0');
       slots.push(`${h}:${m}`);
@@ -6104,23 +7577,39 @@ function checkReminders() {
       S.firedSlots = { [k]: fired };
       save();
       const text = nudgeText();
-      if ('Notification' in window && Notification.permission === 'granted') {
-        try { new Notification('Arc90', { body: text, icon: 'icons/icon-180.png' }); } catch (e) { /* in-app only */ }
-      }
+      systemNotify('Arc90', text);
       showNudge(text);
       break;
     }
   }
 }
 
+function checkTaskReminders() {
+  if (!S.onboarded || !S.tasks || !S.tasks.length) return;
+  const now = Date.now();
+  let changed = false;
+  let firedTab = false;
+  for (const t of S.tasks) {
+    if (t.done || t.notified || !t.remind || !t.due) continue;
+    if (new Date(t.due).getTime() <= now) {
+      t.notified = true; changed = true; firedTab = true;
+      systemNotify('Arc90 · Task due', t.title);
+      showNudge(`⏰ Task due: ${t.title}`);
+    }
+  }
+  if (changed) save();
+  if (firedTab && tab === 'plan') render();
+}
+
 setInterval(() => {
   checkReminders();
+  checkTaskReminders();
   if (S.onboarded && S.focus && S.focus.active) {
     const changed = syncFocusState();
     if (changed || tab === 'focus') render();
   }
 }, 30000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncFocusState(); render(); checkReminders(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncFocusState(); render(); checkReminders(); checkTaskReminders(); } });
 
 /* sticky glass header: gains blur + hairline once the page scrolls */
 window.addEventListener('scroll', () => {

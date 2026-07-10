@@ -4,6 +4,9 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "trailingSlash": false,
+  "crons": [
+    { "path": "/api/push-cron", "schedule": "0 14 * * *" }
+  ],
   "headers": [
     {
       "source": "/sw.js",

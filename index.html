@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Arc90 — Build your next 90 days</title>
   <meta name="description" content="Turn one meaningful goal into a realistic daily system. Track the habits that matter, see where you're falling behind, and build momentum for the next 90 days." />
 
@@ -16,7 +16,7 @@
   <link rel="icon" href="icons/icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=59" />
+  <link rel="stylesheet" href="css/styles.css?v=74" />
   <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
@@ -29,7 +29,12 @@
       </svg>
       <div class="splash-mark">ARC<b>90</b></div>
     </div>
-    <p id="splash-phrase" class="splash-phrase">Build your next 90 days.</p>
+    <div class="splash-reflect">
+      <span class="splash-reflect-label">Daily reflection</span>
+      <blockquote id="splash-quote" class="splash-quote">Build your next 90 days.</blockquote>
+      <div id="splash-source" class="splash-source"></div>
+    </div>
+    <span class="splash-skip">tap to continue</span>
   </div>
 
   <div id="app"></div>
@@ -68,22 +73,29 @@
     </defs>
   </svg>
 
-  <script src="js/data.js?v=59"></script>
-  <script src="js/app.js?v=59"></script>
+  <script src="js/data.js?v=74"></script>
+  <script src="js/app.js?v=74"></script>
   <script>
     (function () {
       var sp = document.getElementById('splash');
       if (!sp) return;
       try {
-        var ph = document.getElementById('splash-phrase');
-        if (ph && typeof SPLASH_PHRASES !== 'undefined' && SPLASH_PHRASES.length) {
-          ph.textContent = SPLASH_PHRASES[Math.floor(Date.now() / 864e5) % SPLASH_PHRASES.length];
+        var q = (typeof reflectionQuote === 'function') ? reflectionQuote() : null;
+        if (q && q.quote) {
+          var qe = document.getElementById('splash-quote');
+          var se = document.getElementById('splash-source');
+          if (qe) qe.textContent = '“' + q.quote + '”';
+          if (se && q.source) se.textContent = '— ' + q.source;
         }
-      } catch (e) { /* keep default phrase */ }
-      setTimeout(function () {
+      } catch (e) { /* keep default copy */ }
+      var done = false;
+      function hide() {
+        if (done) return; done = true;
         sp.classList.add('hide');
-        setTimeout(function () { if (sp.parentNode) sp.remove(); }, 380);
-      }, 1500);
+        setTimeout(function () { if (sp.parentNode) sp.remove(); }, 400);
+      }
+      sp.addEventListener('click', hide);   // tap to continue early
+      setTimeout(hide, 4000);               // otherwise auto-dismiss at 4s
     })();
   </script>
 </body>

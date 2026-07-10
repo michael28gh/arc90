@@ -210,47 +210,47 @@
       .chip-streak{left:0;top:8%}.chip-ready{right:0;bottom:8%}
     }
 
-    /* waitlist section */
-    .waitlist{padding:80px 0;position:relative}
-    .waitlist::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
-      background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(143,107,255,.12),transparent 70%)}
-    .waitlist-inner{position:relative;z-index:1;max-width:560px;margin:0 auto;text-align:center;
-      background:linear-gradient(180deg,rgba(143,107,255,.09),rgba(143,107,255,.03));
-      border:1px solid rgba(143,107,255,.3);border-radius:32px;padding:54px 40px;
-      -webkit-backdrop-filter:blur(18px);backdrop-filter:blur(18px);
-      box-shadow:0 40px 100px -60px var(--glow)}
-    .waitlist-badge{display:inline-block;font-size:10.5px;font-weight:800;letter-spacing:.16em;
-      text-transform:uppercase;color:var(--accent-2);
-      background:rgba(143,107,255,.14);border:1px solid rgba(143,107,255,.35);
-      padding:5px 13px;border-radius:999px;margin-bottom:18px}
-    .waitlist-h{font-size:clamp(30px,5vw,42px);font-weight:900;letter-spacing:-.025em;
-      background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
-      margin-bottom:10px}
-    .waitlist-sub{font-size:15px;color:var(--tx-2);max-width:40ch;margin:0 auto 32px;line-height:1.6}
-    .waitlist-form{width:100%}
-    .wf-row{display:flex;gap:10px;flex-direction:column}
-    .wf-input{width:100%;padding:16px 18px;border-radius:14px;border:1px solid var(--line-2);
-      background:rgba(255,255,255,.05);color:var(--tx);font-size:16px;font-family:inherit;
+    /* hero inline waitlist form */
+    .hero-form{margin-top:28px;max-width:420px}
+    .hero-form-label{font-size:12px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;
+      color:var(--accent-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+    .hero-form-label::before{content:'';display:inline-block;width:6px;height:6px;border-radius:50%;
+      background:var(--accent-2);box-shadow:0 0 8px var(--accent-2)}
+    .wf-row{display:flex;gap:8px}
+    .wf-input{flex:1;padding:14px 16px;border-radius:14px;border:1px solid var(--line-2);
+      background:rgba(255,255,255,.05);color:var(--tx);font-size:15px;font-family:inherit;
       outline:none;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
-      transition:border-color .2s ease,box-shadow .2s ease}
+      min-width:0;transition:border-color .2s ease,box-shadow .2s ease}
     .wf-input::placeholder{color:var(--tx-3)}
     .wf-input:focus{border-color:rgba(143,107,255,.6);box-shadow:0 0 0 3px rgba(143,107,255,.14)}
-    .wf-btn{width:100%;padding:16px 28px;border-radius:14px;border:0;cursor:pointer;font-weight:800;
-      font-size:16px;font-family:inherit;background:var(--grad);color:#07080c;
+    .wf-btn{flex:none;padding:14px 20px;border-radius:14px;border:0;cursor:pointer;font-weight:800;
+      font-size:14px;font-family:inherit;background:var(--grad);color:#07080c;white-space:nowrap;
       box-shadow:0 14px 36px -14px var(--glow);transition:filter .18s ease,transform .15s ease,box-shadow .18s ease}
-    .wf-btn:hover{filter:brightness(1.07);transform:translateY(-2px);box-shadow:0 20px 48px -16px var(--glow)}
+    .wf-btn:hover{filter:brightness(1.07);transform:translateY(-1px);box-shadow:0 20px 48px -16px var(--glow)}
     .wf-btn:active{transform:scale(.98)}
-    .wf-trust{font-size:12px;color:var(--tx-3);margin-top:14px}
-    .wf-success{display:flex;align-items:center;justify-content:center;gap:12px;
-      color:var(--mint);font-weight:700;font-size:16px;padding:18px;
+    .wf-trust{font-size:12px;color:var(--tx-3);margin-top:10px;display:flex;gap:12px;flex-wrap:wrap}
+    .wf-trust span{display:inline-flex;align-items:center;gap:5px}
+    .wf-success{display:flex;align-items:center;gap:12px;
+      color:var(--mint);font-weight:700;font-size:15px;padding:14px 16px;
       background:rgba(94,228,194,.08);border:1px solid rgba(94,228,194,.24);border-radius:14px}
-    .wf-check{width:32px;height:32px;border-radius:50%;background:rgba(94,228,194,.16);
-      display:flex;align-items:center;justify-content:center;font-size:16px;flex:none}
-    .waitlist-proof{margin-top:28px;display:flex;flex-wrap:wrap;justify-content:center;gap:16px;font-size:13px;color:var(--tx-3)}
-    .waitlist-proof span{display:inline-flex;align-items:center;gap:7px}
-    @media(max-width:520px){
-      .waitlist-inner{padding:38px 22px}
+    .wf-check{width:28px;height:28px;border-radius:50%;background:rgba(94,228,194,.16);
+      display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
+    @media(max-width:860px){
+      .wf-row{flex-direction:column}
+      .wf-btn{width:100%;padding:15px}
+      .hero-form{max-width:none}
+      .wf-trust{justify-content:center}
     }
+
+    /* bottom waitlist (compact reminder) */
+    .waitlist{padding:72px 0;position:relative}
+    .waitlist::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+      background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(143,107,255,.10),transparent 70%)}
+    .waitlist-inner{position:relative;z-index:1;max-width:500px;margin:0 auto;text-align:center}
+    .waitlist-h{font-size:clamp(22px,4vw,30px);font-weight:900;letter-spacing:-.02em;
+      background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+      margin-bottom:6px}
+    .waitlist-sub{font-size:14px;color:var(--tx-3);margin-bottom:20px}
   </style>
   <script defer src="/_vercel/insights/script.js"></script>
 </head>
@@ -270,14 +270,26 @@
         <span class="eyebrow">The 90-day momentum system</span>
         <h1>Build your next <span class="grad-text">90 days.</span></h1>
         <p class="sub">One goal. 90 days. A daily system that outlasts motivation — track the reps that matter, see exactly where you're slipping, and recover before a bad day becomes a quit.</p>
-        <div class="cta-row">
-          <a class="btn btn-primary" href="/app">Start your 90 days — free</a>
-          <a class="btn btn-ghost" href="#pricing">See the Founding offer</a>
-        </div>
-        <div class="trust">
-          <span><i class="dot"></i> Local-first &amp; private</span>
-          <span><i class="dot"></i> No account needed</span>
-          <span><i class="dot"></i> Works offline</span>
+
+        <div class="hero-form" id="waitlist">
+          <p class="hero-form-label">App Store launch coming soon</p>
+          <form id="waitlistForm" novalidate>
+            <input type="text" name="hp" id="wfHp" style="position:absolute;left:-9999px;opacity:0;pointer-events:none" tabindex="-1" autocomplete="off" />
+            <div class="wf-success" id="waitlistSuccess" style="display:none">
+              <span class="wf-check">✓</span>
+              <span>You're on the list — founding price locked in.</span>
+            </div>
+            <div class="wf-row" id="wfFormRow">
+              <input type="email" id="waitlistEmail" class="wf-input" placeholder="your@email.com" autocomplete="email" required />
+              <button type="submit" class="wf-btn" id="waitlistBtn">Get early access</button>
+            </div>
+            <p id="wfError" style="display:none;color:#f25c75;font-size:13px;margin-top:8px"></p>
+            <div class="wf-trust">
+              <span><i class="dot"></i> No spam</span>
+              <span><i class="dot"></i> First to know when we launch</span>
+              <span><i class="dot"></i> Founding price locked for you</span>
+            </div>
+          </form>
         </div>
       </div>
 
@@ -409,32 +421,13 @@
     </div>
   </section>
 
-  <!-- WAITLIST / EMAIL CAPTURE -->
-  <section class="waitlist" id="waitlist">
+  <!-- BOTTOM WAITLIST — compact reminder for people who scroll past the hero -->
+  <section class="waitlist">
     <div class="wrap">
       <div class="waitlist-inner" data-reveal>
-        <div class="waitlist-badge">COMING SOON</div>
-        <h2 class="waitlist-h">Be first in line.</h2>
-        <p class="waitlist-sub">Arc90 is launching soon on the App Store. Drop your email — you'll be the first to know, get early access, and lock in the founding price before it's gone.</p>
-        <form class="waitlist-form" id="waitlistForm" novalidate>
-          <!-- honeypot: bots fill this, humans don't see it -->
-          <input type="text" name="hp" id="wfHp" style="position:absolute;left:-9999px;opacity:0;pointer-events:none" tabindex="-1" autocomplete="off" />
-          <div class="wf-row">
-            <input type="email" id="waitlistEmail" class="wf-input" placeholder="your@email.com" autocomplete="email" required />
-            <button type="submit" class="wf-btn" id="waitlistBtn">Notify me</button>
-          </div>
-          <p class="wf-error" id="wfError" style="display:none;color:#f25c75;font-size:13px;margin-top:10px;text-align:center"></p>
-          <p class="wf-trust">No spam. Unsubscribe any time. Your email stays private.</p>
-        </form>
-        <div class="wf-success" id="waitlistSuccess" style="display:none">
-          <span class="wf-check">✓</span>
-          <span>You're on the list. We'll reach out the moment Arc90 launches.</span>
-        </div>
-        <div class="waitlist-proof">
-          <span><i class="dot"></i> Early access guaranteed</span>
-          <span><i class="dot"></i> Founding price locked</span>
-          <span><i class="dot"></i> One email when we launch</span>
-        </div>
+        <h2 class="waitlist-h">Still on the fence? Lock in the founding price now.</h2>
+        <p class="waitlist-sub">$49/year goes up at launch. Drop your email and we'll hold your spot.</p>
+        <a class="btn btn-primary" href="#waitlist" onclick="document.getElementById('waitlistEmail').focus();return false;" style="padding:15px 28px;font-size:15px">Secure my founding price</a>
       </div>
     </div>
   </section>
@@ -477,6 +470,7 @@
       /* waitlist form → /api/subscribe → Supabase subscribers table */
       var form = document.getElementById('waitlistForm');
       var success = document.getElementById('waitlistSuccess');
+      var formRow = document.getElementById('wfFormRow');
       var errEl = document.getElementById('wfError');
       var submitBtn = document.getElementById('waitlistBtn');
       if (form) {
@@ -496,20 +490,20 @@
           .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
           .then(function(res) {
             if (res.ok) {
-              form.style.display = 'none';
+              formRow.style.display = 'none';
               success.style.display = 'flex';
             } else {
               errEl.textContent = res.data.error || 'Something went wrong. Try again.';
               errEl.style.display = 'block';
               submitBtn.disabled = false;
-              submitBtn.textContent = 'Notify me';
+              submitBtn.textContent = 'Get early access';
             }
           })
           .catch(function() {
             errEl.textContent = 'Network error. Please try again.';
             errEl.style.display = 'block';
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Notify me';
+            submitBtn.textContent = 'Get early access';
           });
         });
       }
