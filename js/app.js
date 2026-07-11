@@ -2724,6 +2724,7 @@ function viewToday() {
     ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
+    ${vitalityCard()}
     ${todayStopCard()}
 
     ${premiumLaunchCard()}
@@ -2770,6 +2771,110 @@ function habitCheckTile(h) {
 
 function shortHabitName(name) {
   return String(name || '').replace(/\s+—\s+.*/, '').replace(/\s+/g, ' ').trim();
+}
+
+/* ---------- Vitality: overall health from the day's self-reported signals ----------
+   Complement to Momentum (what you DO); Vitality is how RESOURCED you are (sleep,
+   energy, mood, water). Only logged signals count — weights re-normalize over them so
+   the number is honest, never fabricated from missing data. Behavioral, not medical. */
+function vitalitySignals(k = todayKey()) {
+  const l = dlog(k);
+  const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
+  const sleepGoal = Math.max(4, Number(S.health.settings.sleepGoal) || 7);
+  const waterGoal = Math.max(1, Number(S.health.settings.waterGoal) || 8);
+  const sleepH = sleepDay(k).hours;
+  const water = Number(S.health.water[k]) || 0;
+  const energy = Number(l.energy) || 0;
+  const moodOrd = l.mood ? ((MOOD_OPTIONS.find(([id]) => id === l.mood) || [])[2] || 0) : 0;
+
+  // Sleep — foundation. Full credit in the goal→goal+1.5h band; ramps below, gentle
+  // oversleep penalty above so "more" isn't scored as strictly better.
+  let sleepScore = null, sleepVal = '';
+  if (sleepH !== '' && sleepH != null) {
+    const hrs = Number(sleepH);
+    sleepScore = hrs >= sleepGoal
+      ? clamp(hrs <= sleepGoal + 1.5 ? 100 : 100 - (hrs - (sleepGoal + 1.5)) * 12)
+      : clamp((hrs / sleepGoal) * 100);
+    sleepVal = `${hrs % 1 ? hrs.toFixed(1) : hrs}h`;
+  }
+
+  return [
+    { key: 'sleep',  label: 'Sleep',  icon: '☾', weight: 0.34, logged: sleepScore !== null, score: sleepScore, value: sleepVal, act: 'data-act="tab" data-id="sleep"' },
+    { key: 'energy', label: 'Energy', icon: '⚡', weight: 0.28, logged: !!energy, score: energy ? clamp(energy * 20) : null, value: energy ? `${energy}/5` : '', act: 'data-act="review"' },
+    { key: 'mood',   label: 'Mood',   icon: '◕', weight: 0.22, logged: !!moodOrd, score: moodOrd ? clamp(moodOrd * 20) : null, value: moodOrd ? moodLabel(l.mood) : '', act: 'data-act="review"' },
+    { key: 'water',  label: 'Water',  icon: '💧', weight: 0.16, logged: water > 0, score: water > 0 ? clamp((water / waterGoal) * 100) : null, value: water > 0 ? `${water}/${waterGoal}` : '', act: 'data-act="water-add"' },
+  ];
+}
+
+function vitality(k = todayKey()) {
+  const parts = vitalitySignals(k);
+  const logged = parts.filter((p) => p.logged);
+  const wsum = logged.reduce((a, p) => a + p.weight, 0);
+  const score = wsum ? Math.round(logged.reduce((a, p) => a + p.score * p.weight, 0) / wsum) : null;
+  return { parts, logged, count: logged.length, total: parts.length, score };
+}
+
+function vitalityState(score) {
+  if (score === null) return { label: 'Log your signals', cls: 'none' };
+  if (score >= 80) return { label: 'Charged', cls: 'good' };
+  if (score >= 60) return { label: 'Steady', cls: 'mid' };
+  if (score >= 40) return { label: 'Running low', cls: 'warn' };
+  return { label: 'Depleted', cls: 'low' };
+}
+
+function vitalityInsight(v) {
+  if (v.score === null) return 'Log your sleep, energy, mood, and water to see today’s reserve — the fuel behind showing up.';
+  if (v.score >= 80) return 'Well-resourced. A strong day to push a hard rep while your reserve is high.';
+  const weakest = v.logged.slice().sort((a, b) => a.score - b.score)[0];
+  const tips = {
+    sleep: 'Sleep is running the show today — an earlier wind-down tonight pays back tomorrow.',
+    energy: 'Energy is low — protect the basics and take the minimum version of a hard rep.',
+    mood: 'Mood is dipping — a short walk or one small win tends to lift it.',
+    water: 'You’re behind on water — one full glass now is the easiest point to reclaim.',
+  };
+  if (weakest && weakest.score < 60) return tips[weakest.key];
+  return 'Steady reserve. Keep the basics topped up and show up as planned.';
+}
+
+function vitalityCard() {
+  const v = vitality();
+  const st = vitalityState(v.score);
+  const frac = v.score === null ? 0 : v.score / 100;
+  const C = 326.73; // 2·π·52
+  const sigs = v.parts.map((p) => {
+    const pct = p.logged ? p.score : 0;
+    return `
+      <button class="vsig ${p.logged ? 'on' : 'off'}" ${p.act}>
+        <span class="vsig-top"><i>${p.icon}</i><small>${p.label}</small></span>
+        <span class="vsig-val">${p.logged ? esc(p.value) : 'Log'}</span>
+        <span class="vsig-bar"><b style="width:${pct}%"></b></span>
+      </button>`;
+  }).join('');
+  return `
+    <section class="card vitality-card">
+      <div class="card-head">
+        <span class="eyebrow">Vitality · overall health</span>
+        <span class="vitality-count">${v.count}/${v.total} signals</span>
+      </div>
+      <div class="vitality-main">
+        <div class="ring-wrap vitality-ring">
+          <svg viewBox="0 0 120 120" width="104" height="104">
+            <circle class="ring-track" cx="60" cy="60" r="52" fill="none" stroke-width="11"/>
+            <circle class="ring-fill" cx="60" cy="60" r="52" fill="none" stroke-width="11"
+              stroke-dasharray="${C}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}"/>
+          </svg>
+          <div class="ring-center">
+            <div class="big-num">${v.score === null ? '<span class="of">--</span>' : `<span data-countup="${v.score}">0</span>`}</div>
+            <div class="of">Vitality</div>
+          </div>
+        </div>
+        <div class="vitality-head">
+          <span class="vitality-state ${st.cls}"><span class="dot"></span>${st.label}</span>
+          <p class="vitality-insight">${esc(vitalityInsight(v))}</p>
+        </div>
+      </div>
+      <div class="vitality-sigs">${sigs}</div>
+    </section>`;
 }
 
 function todayStopCard() {
