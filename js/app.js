@@ -762,6 +762,7 @@ function sheetProofWall() {
 }
 
 function blobToDataURL(blob) { return new Promise((res) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = () => res(null); r.readAsDataURL(blob); }); }
+function dataURLToBlob(dataURL) { return fetch(dataURL).then((r) => r.blob()).catch(() => null); }
 function arcExportProof() {
   const items = proofItems();
   if (!items.length) { showNudge('Add some proof first.'); return; }
@@ -7227,9 +7228,18 @@ function download(filename, text, mime) {
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
 }
 
-function exportData() {
-  download(`arc90-data-${todayKey()}.json`, JSON.stringify(S, null, 2), 'application/json');
-  showNudge('Data exported. Note: proof photos export separately from the Proof Wall.');
+async function exportData() {
+  // Embed proof photos (they live in IndexedDB, not S) so a backup is complete
+  // and can be fully restored on a new device.
+  const photos = {};
+  const shots = (S.proof || []).filter((p) => p.type === 'photo');
+  await Promise.all(shots.map((p) => idbGet(p.id)
+    .then((b) => b ? blobToDataURL(b).then((d) => { if (d) photos[p.id] = d; }) : null)
+    .catch(() => {})));
+  const payload = { ...S, _proofPhotos: photos, _exportedAt: todayKey() };
+  download(`arc90-data-${todayKey()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+  const n = Object.keys(photos).length;
+  showNudge(n ? `Data exported — ${n} proof photo${n === 1 ? '' : 's'} included.` : 'Data exported.');
 }
 
 function compactText(s, max) {
@@ -7324,6 +7334,9 @@ async function importDataFile(file) {
   try {
     const text = await file.text();
     const parsed = JSON.parse(text);
+    const proofPhotos = parsed._proofPhotos && typeof parsed._proofPhotos === 'object' ? parsed._proofPhotos : null;
+    delete parsed._proofPhotos; // keep base64 blobs out of persisted state
+    delete parsed._exportedAt;
     const next = normalizeState(parsed);
     if (!next.onboarded || !next.profile || !Array.isArray(next.habits) || typeof next.log !== 'object') {
       throw new Error('This backup is missing required Arc90 fields.');
@@ -7338,6 +7351,10 @@ async function importDataFile(file) {
     protoUrgent = false;
     tab = 'today';
     save();
+    if (proofPhotos) {
+      const ids = Object.keys(proofPhotos);
+      await Promise.all(ids.map((id) => dataURLToBlob(proofPhotos[id]).then((b) => b ? idbPut(id, b) : null).catch(() => {})));
+    }
     render();
     showNudge('Backup restored. Welcome back to your arc.');
   } catch (err) {
