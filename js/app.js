@@ -2659,10 +2659,6 @@ function viewToday() {
   const mdCls = md > 0 ? 'up' : md < 0 ? 'down' : 'flat';
   const mdTxt = md > 0 ? `▲ +${md} today` : md < 0 ? `▼ ${Math.abs(md)} today` : 'Even today';
 
-  const milestone = day === 30 ? ['Checkpoint · Day 30', 'One third of the arc. The routine is becoming who you are.']
-    : day === 60 ? ['Checkpoint · Day 60', 'Two thirds in. This is where most people quit — you didn’t.']
-    : day >= 90 ? ['Challenge complete · Day 90', 'The arc is full. Start your next 90 in Profile whenever you’re ready.'] : null;
-
   return `
     ${brandbar()}
     <header class="topbar">
@@ -2673,7 +2669,6 @@ function viewToday() {
       </div>
     </header>
 
-    ${milestone ? `<div class="milestone"><div class="t">🏁 ${milestone[0]}</div><div class="s">${milestone[1]}</div><button class="milestone-share" data-act="share">Share this milestone ↗</button></div>` : ''}
     ${forgeActive() ? `<div class="forge-banner"><div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
     <section class="card hero-card">
@@ -2751,6 +2746,9 @@ function viewToday() {
 
     </section>
 
+    ${vitalityCard()}
+    ${todayStopCard()}
+
     ${S.habits.length ? streakBannerCard() : ''}
 
     <button class="coach-entry" data-act="tab" data-id="coach">
@@ -2767,9 +2765,6 @@ function viewToday() {
     </div>
     ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
-
-    ${vitalityCard()}
-    ${todayStopCard()}
 
     ${premiumLaunchCard()}
 
