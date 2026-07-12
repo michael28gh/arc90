@@ -632,6 +632,11 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 [data-theme="light"] .vsig-bar { background: rgba(0,0,0,0.08); }
 @media (max-width: 360px) { .vitality-sigs { grid-template-columns: repeat(2, 1fr); } }
 
+/* Tappable Today's-arc ring + topline → jump to today's habit grid */
+button.hero-ring { padding: 0; border: 0; font: inherit; color: inherit; cursor: pointer; transition: transform 0.14s var(--spring); }
+button.hero-ring:active { transform: scale(0.97); }
+.hero-topline-label { cursor: pointer; }
+
 /* Readiness strip — Oura-style composite gauge inside the Today's-arc hero */
 .readiness-strip {
   display: flex; align-items: center; gap: 11px; width: 100%;

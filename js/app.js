@@ -2673,7 +2673,7 @@ function viewToday() {
 
     <section class="card hero-card">
       <div class="hero-topline">
-        <div>
+        <div class="hero-topline-label" data-act="today-habits-scroll">
           <span class="eyebrow">Today’s arc</span>
           <strong>${total ? `${done} of ${total} complete` : 'No habits due'}</strong>
         </div>
@@ -2684,7 +2684,7 @@ function viewToday() {
       </div>
 
       <div class="hero">
-        <div class="ring-wrap hero-ring">
+        <button class="ring-wrap hero-ring" data-act="today-habits-scroll" aria-label="Open today's habits — ${done} of ${total || 0} complete">
           <svg viewBox="0 0 132 132" width="132" height="132">
             <circle class="ring-track" cx="66" cy="66" r="58" fill="none" stroke-width="12"/>
             <circle class="ring-fill" cx="66" cy="66" r="58" fill="none" stroke-width="12"
@@ -2694,7 +2694,7 @@ function viewToday() {
             <div class="big-num"><span data-countup="${todayPct}" data-suffix="%">0</span></div>
             <div class="of">${done}/${total || 0} today</div>
           </div>
-        </div>
+        </button>
         <div class="hero-stats">
           <div class="hstat">
             <div class="eyebrow">Momentum score</div>
@@ -2747,6 +2747,14 @@ function viewToday() {
     </section>
 
     ${vitalityCard()}
+
+    <div class="card-head today-reps-head">
+      <span class="section-title" style="margin:0">Today</span>
+      <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
+    </div>
+    ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
+      : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
+
     ${todayStopCard()}
 
     ${S.habits.length ? streakBannerCard() : ''}
@@ -2758,13 +2766,6 @@ function viewToday() {
         <small>Your read, where to improve &amp; a 7-day plan →</small>
       </span>
     </button>
-
-    <div class="card-head today-reps-head">
-      <span class="section-title" style="margin:0">Today</span>
-      <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
-    </div>
-    ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
-      : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
     ${premiumLaunchCard()}
 
@@ -6779,6 +6780,7 @@ document.addEventListener('click', (e) => {
     case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
     case 'readiness-scroll': document.querySelector('.vitality-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
     case 'stop-scroll': document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
+    case 'today-habits-scroll': document.querySelector('.today-reps-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'task-add': {
       const ti = document.getElementById('taskTitle');
       const du = document.getElementById('taskDue');
