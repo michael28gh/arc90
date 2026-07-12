@@ -1070,6 +1070,25 @@ function buildTodayCanvas() {
   ctx.textBaseline = 'alphabetic';
   ctx.fillStyle = P.mute; ctx.font = '700 31px ' + SANS; ctx.fillText(`${done} of ${total} today`, cx, ry + 86);
 
+  // stat row — streak · readiness · momentum (the full story for anyone who sees the card)
+  {
+    const stk = dayStreak();
+    const rd = vitality().score;
+    const tiles = [
+      [String(stk), stk === 1 ? 'DAY STREAK' : 'DAY STREAK'],
+      [rd === null ? `Day ${dayNumber()}` : String(rd), rd === null ? 'OF 90' : 'READINESS'],
+      [momentum() + '%', 'MOMENTUM'],
+    ];
+    const tw = 280, th = 100, gap = 20, tx0 = cx - (tw * 3 + gap * 2) / 2, ty = 668;
+    tiles.forEach(([val, lab], i) => {
+      const x = tx0 + i * (tw + gap);
+      ctx.fillStyle = P.dim; storyRoundRect(ctx, x, ty, tw, th, 24); ctx.fill();
+      ctx.strokeStyle = P.border; ctx.lineWidth = 1.5; storyRoundRect(ctx, x, ty, tw, th, 24); ctx.stroke();
+      ctx.fillStyle = P.ink; ctx.font = '800 42px ' + SANS; ctx.fillText(val, x + tw / 2, ty + 52);
+      ctx.fillStyle = P.faint; ctx.font = '700 18px ' + SANS; ctx.fillText(cap(lab), x + tw / 2, ty + 82);
+    });
+  }
+
   // daily reflection
   ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.fillText(cap('DAILY REFLECTION'), cx, 812);
   ctx.fillStyle = P.ink; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
@@ -1193,7 +1212,9 @@ function cardBigClear() {
   ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; ctx.fillText(psv, cx, ry + 20); ctx.textBaseline = 'alphabetic';
 
   // status pill
-  const pill = stk > 1 ? `${done} of ${total} today   ·   ${stk}-day streak` : `${done} of ${total} habits today`;
+  const rdBC = vitality().score;
+  const pill = [`${done} of ${total} today`, stk > 1 ? `${stk}-day streak` : null, rdBC !== null ? `Readiness ${rdBC}` : null]
+    .filter(Boolean).join('   ·   ');
   ctx.font = '700 30px ' + SANS;
   const pw = ctx.measureText(pill).width + 64, ph = 68, px = cx - pw / 2, py = 962;
   ctx.fillStyle = P.dim; storyRoundRect(ctx, px, py, pw, ph, 34); ctx.fill();
@@ -1252,7 +1273,9 @@ function cardCertificate() {
   ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 30;
   ctx.strokeStyle = P.accent; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(cx, sy, sr, 0, 2 * Math.PI); ctx.stroke(); ctx.restore();
   ctx.fillStyle = P.ink; ctx.font = '800 74px ' + SANS; ctx.textBaseline = 'middle'; ctx.fillText(pct + '%', cx, sy - 4); ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = P.mute; ctx.font = '600 30px ' + SANS; ctx.fillText(`${done} of ${total} habits today`, cx, sy + sr + 54);
+  const rdCert = vitality().score;
+  ctx.fillStyle = P.mute; ctx.font = '600 30px ' + SANS;
+  ctx.fillText(`${done} of ${total} habits today${rdCert !== null ? `  ·  Readiness ${rdCert}` : ''}`, cx, sy + sr + 54);
   if (stk > 1) { ctx.fillStyle = P.accent; ctx.font = '800 32px ' + SANS; ctx.fillText(`${stk}-day streak`, cx, sy + sr + 116); }
   ctx.fillStyle = P.faint; ctx.font = '600 26px ' + SANS;
   ctx.fillText(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), cx, H - 116);
@@ -3350,6 +3373,42 @@ function chart(nDays) {
    HABITS
    ============================================================ */
 
+/* Shared premium opener for tabs — same design language as the Today hero. */
+function tabHeroCard(eyebrow, title, sub, stats) {
+  return `
+    <section class="card tab-hero">
+      <span class="eyebrow">${eyebrow}</span>
+      <div class="th-title">${title}</div>
+      ${sub ? `<div class="th-sub">${sub}</div>` : ''}
+      ${stats && stats.length ? `
+      <div class="th-stats">
+        ${stats.map(([l, v]) => `<div><span>${l}</span><b>${v}</b></div>`).join('')}
+      </div>` : ''}
+    </section>`;
+}
+
+function habitsHeroCard() {
+  const n = S.habits.length;
+  if (!n) return '';
+  const today = atMidnight(new Date());
+  let done = 0, due = 0;
+  for (let i = 0; i < 7; i++) {
+    const k = dkey(addDays(today, -i));
+    const a = actionable(k);
+    due += a.length;
+    done += a.filter((h) => isCompleted(h.id, k)).length;
+  }
+  const rate = due ? Math.round((done / due) * 100) : 0;
+  let bestS = 0;
+  S.habits.forEach((h) => { const s = streak(h.id); if (s > bestS) bestS = s; });
+  return tabHeroCard(
+    'Your system',
+    `${n} rep${n === 1 ? '' : 's'} in rotation`,
+    `Small daily votes for ${esc(S.profile.identity || 'the new you')}`,
+    [['This week', rate + '%'], ['Best chain', bestS ? bestS + 'd' : '—'], ['Total votes', totalReps()]]
+  );
+}
+
 function viewHabits() {
   return `
     ${brandbar()}
@@ -3360,6 +3419,8 @@ function viewHabits() {
       </div>
       <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
     </header>
+
+    ${habitsHeroCard()}
 
     <div class="section-title">Your habits <span class="count-bub">${S.habits.length}${S.premium ? '' : ` / ${FREE_HABITS}`}</span></div>
     ${S.premium ? '' : `<div class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></div>`}
@@ -3859,6 +3920,16 @@ function viewPlan() {
       </div>
     </header>
 
+    ${(() => {
+      const nextUp = open.find((t) => t.due);
+      return tabHeroCard(
+        'Execution',
+        open.length ? `${open.length} open task${open.length === 1 ? '' : 's'}` : 'Clear runway',
+        nextUp ? `Next up: ${esc(nextUp.title)}` : 'Add a deadline and Arc90 nudges you the moment it’s due.',
+        [['Open', open.length], ['Overdue', overdue], ['Journal', jStreak ? jStreak + 'd' : '—']]
+      );
+    })()}
+
     <section class="card plan-add-card">
       <div class="card-head"><span class="tip-tag" style="margin:0">New task</span></div>
       <input id="taskTitle" class="plan-input" type="text" placeholder="What needs to get done?" maxlength="200" autocomplete="off" />
@@ -3978,9 +4049,13 @@ function cmGauge(pct, label, value) {
 
 function commandCenterCard() {
   const k = todayKey();
-  const ready = momentum();
+  const rd = vitality().score;                      // real Readiness (logged signals)
+  const ready = rd === null ? momentum() : rd;      // fall back to momentum pre-log
   const tier = cmTier(ready);
-  const readyWord = ready >= 70 ? 'Primed' : ready >= 45 ? 'Building' : 'Recover';
+  const readyWord = rd === null
+    ? (ready >= 70 ? 'Primed' : ready >= 45 ? 'Building' : 'Recover')
+    : vitalityState(rd).label;
+  const ringName = rd === null ? 'Momentum' : 'Readiness';
   const s = sleepStats(7);
   const sleepPct = s.avg ? Math.min(100, Math.round((s.avg / Math.max(1, s.goal)) * 100)) : 0;
   const f = focusStats();
@@ -4019,7 +4094,7 @@ function commandCenterCard() {
       <div class="cmd-deck">
         <div class="cmd-ring-wrap ${tier}">
           ${cmRing(ready)}
-          <div class="cmd-ring-meta"><b>Readiness</b><span>${readyWord}</span></div>
+          <div class="cmd-ring-meta"><b>${ringName}</b><span>${readyWord}</span></div>
         </div>
         <div class="cmd-metrics">
           ${metrics.map((m) => `
@@ -5998,12 +6073,12 @@ function viewProfile() {
       </div>
     </header>
 
-    <section class="card">
-      <div class="eyebrow" style="margin-bottom:6px">Current challenge</div>
-      <div style="font-size:17px;font-weight:800;letter-spacing:-0.01em">${esc(S.profile.goal)}</div>
-      <div style="font-size:12.5px;color:var(--tx-2);margin-top:5px">${fmtDate(startDate())} → ${fmtDate(end)} · Day ${dayNumber()} of 90 · becoming <b>${esc(S.profile.identity)}</b></div>
-      ${S.profile.motivation ? `<div style="font-size:12.5px;color:var(--tx-3);margin-top:7px;font-style:italic">“${esc(S.profile.motivation)}”</div>` : ''}
-    </section>
+    ${tabHeroCard(
+      'Current challenge',
+      esc(S.profile.goal || 'Set a target'),
+      `${fmtDate(startDate())} → ${fmtDate(end)} · becoming <b>${esc(S.profile.identity || 'the new you')}</b>${S.profile.motivation ? `<div class="th-quote">“${esc(S.profile.motivation)}”</div>` : ''}`,
+      [['Day', `${dayNumber()}<em>/90</em>`], ['Streak', `${dayStreak()}d`], ['Votes', totalReps()]]
+    )}
 
     ${emailCaptureCard()}
 
