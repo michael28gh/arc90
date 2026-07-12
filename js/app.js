@@ -2102,6 +2102,37 @@ function energyLabel(value) {
   return ['Very low', 'Low', 'Steady', 'High', 'Peak'][n - 1] || 'Logged';
 }
 
+/* Stress (1 calm → 5 maxed, scored inverted) & focus quality (1 foggy → 5 locked in) */
+function stressLabel(value) {
+  const n = Number(value) || 0;
+  if (!n) return 'Not logged';
+  return ['Calm', 'Settled', 'Tense', 'High', 'Maxed'][n - 1] || 'Logged';
+}
+function focusQLabel(value) {
+  const n = Number(value) || 0;
+  if (!n) return 'Not logged';
+  return ['Foggy', 'Scattered', 'Okay', 'Clear', 'Locked in'][n - 1] || 'Logged';
+}
+function scaleOptionChips(act, current, labeler, extraClass = '') {
+  return `
+    <div class="mood-choice-row ${extraClass}">
+      ${[1, 2, 3, 4, 5].map((n) => `
+        <button class="${Number(current) === n ? 'on' : ''}" data-act="${act}" data-id="${n}" aria-label="${esc(labeler(n))}">
+          ${n}
+        </button>`).join('')}
+    </div>`;
+}
+function setQuickScale(field, id, nudgeName, labeler, k = todayKey()) {
+  const n = Math.max(1, Math.min(5, Number(id) || 0));
+  if (!n) return;
+  const l = dlog(k);
+  l[field] = n;
+  S.log[k] = l;
+  save();
+  render();
+  showNudge(`${nudgeName} logged: ${labeler(n)}.`);
+}
+
 function nextBestRep() {
   const pending = actionable(todayKey()).filter((h) => !isCompleted(h.id, todayKey()));
   if (!pending.length) return null;
@@ -2683,6 +2714,19 @@ function viewToday() {
         </div>
       </div>
 
+      ${(() => {
+        const rd = vitality();
+        const rst = vitalityState(rd.score);
+        return `
+      <button class="readiness-strip" data-act="readiness-scroll" aria-label="Readiness ${rd.score === null ? 'not logged yet' : `${rd.score} — ${rst.label}`}. View breakdown.">
+        <span class="rd-label">Readiness</span>
+        <span class="rd-meter"><i style="width:${rd.score === null ? 0 : rd.score}%"></i></span>
+        ${rd.score === null
+          ? `<span class="rd-state none">Log signals →</span>`
+          : `<b class="rd-score">${rd.score}</b><span class="rd-state ${rst.cls}">${rst.label}</span>`}
+      </button>`;
+      })()}
+
       <div class="hero-metrics">
         <div><span>Day</span><b>${day}<em>/90</em></b></div>
         <div><span>Left</span><b>${dayLeftCount}</b></div>
@@ -2798,11 +2842,16 @@ function vitalitySignals(k = todayKey()) {
     sleepVal = `${hrs % 1 ? hrs.toFixed(1) : hrs}h`;
   }
 
+  const stress = Number(l.stress) || 0;
+  const focusQ = Number(l.focusQ) || 0;
+
   return [
-    { key: 'sleep',  label: 'Sleep',  icon: '☾', weight: 0.34, logged: sleepScore !== null, score: sleepScore, value: sleepVal, act: 'data-act="tab" data-id="sleep"' },
-    { key: 'energy', label: 'Energy', icon: '⚡', weight: 0.28, logged: !!energy, score: energy ? clamp(energy * 20) : null, value: energy ? `${energy}/5` : '', act: 'data-act="review"' },
-    { key: 'mood',   label: 'Mood',   icon: '◕', weight: 0.22, logged: !!moodOrd, score: moodOrd ? clamp(moodOrd * 20) : null, value: moodOrd ? moodLabel(l.mood) : '', act: 'data-act="review"' },
-    { key: 'water',  label: 'Water',  icon: '💧', weight: 0.16, logged: water > 0, score: water > 0 ? clamp((water / waterGoal) * 100) : null, value: water > 0 ? `${water}/${waterGoal}` : '', act: 'data-act="water-add"' },
+    { key: 'sleep',  label: 'Sleep',  icon: '☾', weight: 0.28, logged: sleepScore !== null, score: sleepScore, value: sleepVal, act: 'data-act="tab" data-id="sleep"' },
+    { key: 'energy', label: 'Energy', icon: '⚡', weight: 0.20, logged: !!energy, score: energy ? clamp(energy * 20) : null, value: energy ? `${energy}/5` : '', act: 'data-act="review"' },
+    { key: 'mood',   label: 'Mood',   icon: '◕', weight: 0.16, logged: !!moodOrd, score: moodOrd ? clamp(moodOrd * 20) : null, value: moodOrd ? moodLabel(l.mood) : '', act: 'data-act="review"' },
+    { key: 'stress', label: 'Stress', icon: '〜', weight: 0.14, logged: !!stress, score: stress ? clamp((6 - stress) * 20) : null, value: stress ? stressLabel(stress) : '', act: 'data-act="stop-scroll"' },
+    { key: 'focus',  label: 'Focus',  icon: '◎', weight: 0.12, logged: !!focusQ, score: focusQ ? clamp(focusQ * 20) : null, value: focusQ ? focusQLabel(focusQ) : '', act: 'data-act="stop-scroll"' },
+    { key: 'water',  label: 'Water',  icon: '💧', weight: 0.10, logged: water > 0, score: water > 0 ? clamp((water / waterGoal) * 100) : null, value: water > 0 ? `${water}/${waterGoal}` : '', act: 'data-act="water-add"' },
   ];
 }
 
@@ -2823,13 +2872,15 @@ function vitalityState(score) {
 }
 
 function vitalityInsight(v) {
-  if (v.score === null) return 'Log your sleep, energy, mood, and water to see today’s reserve — the fuel behind showing up.';
+  if (v.score === null) return 'Log your signals — sleep, energy, mood, stress, focus, water — to see today’s readiness.';
   if (v.score >= 80) return 'Well-resourced. A strong day to push a hard rep while your reserve is high.';
   const weakest = v.logged.slice().sort((a, b) => a.score - b.score)[0];
   const tips = {
     sleep: 'Sleep is running the show today — an earlier wind-down tonight pays back tomorrow.',
     energy: 'Energy is low — protect the basics and take the minimum version of a hard rep.',
     mood: 'Mood is dipping — a short walk or one small win tends to lift it.',
+    stress: 'Stress is elevated — one unhurried rep beats three rushed ones today.',
+    focus: 'Focus is foggy — pick one habit, silence the rest, and take it slow.',
     water: 'You’re behind on water — one full glass now is the easiest point to reclaim.',
   };
   if (weakest && weakest.score < 60) return tips[weakest.key];
@@ -2853,7 +2904,7 @@ function vitalityCard() {
   return `
     <section class="card vitality-card">
       <div class="card-head">
-        <span class="eyebrow">Vitality · overall health</span>
+        <span class="eyebrow">Readiness · overall health</span>
         <span class="vitality-count">${v.count}/${v.total} signals</span>
       </div>
       <div class="vitality-main">
@@ -2865,7 +2916,7 @@ function vitalityCard() {
           </svg>
           <div class="ring-center">
             <div class="big-num">${v.score === null ? '<span class="of">--</span>' : `<span data-countup="${v.score}">0</span>`}</div>
-            <div class="of">Vitality</div>
+            <div class="of">Readiness</div>
           </div>
         </div>
         <div class="vitality-head">
@@ -2889,7 +2940,7 @@ function todayStopCard() {
       <div class="today-stop-head">
         <div>
           <span class="tip-tag" style="margin:0">Today’s stop</span>
-          <h3>Water, mood &amp; energy</h3>
+          <h3>Daily check-in</h3>
         </div>
         <button class="mini-act" data-act="review">edit</button>
       </div>
@@ -2910,8 +2961,22 @@ function todayStopCard() {
           ${moodOptionChips(l.mood, 'compact')}
           <div class="stop-energy">
             <span class="stop-energy-label">Energy${l.energy ? ` · ${esc(energyLabel(l.energy))}` : ''}</span>
-            ${energyOptionChips(l.energy, 'compact energy-row')}
+            ${energyOptionChips(l.energy, 'compact energy-row five-up')}
           </div>
+        </div>
+        <div class="stop-tile mind-count">
+          <span>Mind check</span>
+          <div class="mind-scales">
+            <div class="stop-energy">
+              <span class="stop-energy-label">Stress${l.stress ? ` · ${esc(stressLabel(l.stress))}` : ''}</span>
+              ${scaleOptionChips('stress-quick', l.stress, (n) => `Set stress to ${stressLabel(n)}`, 'compact energy-row five-up')}
+            </div>
+            <div class="stop-energy">
+              <span class="stop-energy-label">Focus${l.focusQ ? ` · ${esc(focusQLabel(l.focusQ))}` : ''}</span>
+              ${scaleOptionChips('focusq-quick', l.focusQ, (n) => `Set focus quality to ${focusQLabel(n)}`, 'compact energy-row five-up')}
+            </div>
+          </div>
+          <small class="scale-hint">Stress: 1 calm → 5 maxed · Focus: 1 foggy → 5 locked in</small>
         </div>
         <div class="water-graph" aria-label="7 day water graph">
           ${waterGraphRows().map((r) => `<div class="water-day ${r.today ? 'today' : ''}"><i style="height:${Math.max(8, r.pct)}%"></i><span>${esc(r.label)}</span></div>`).join('')}
@@ -6715,6 +6780,10 @@ document.addEventListener('click', (e) => {
     }
     case 'mood-quick': setQuickMood(id); break;
     case 'energy-quick': setQuickEnergy(id); break;
+    case 'stress-quick': setQuickScale('stress', id, 'Stress', stressLabel); break;
+    case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
+    case 'readiness-scroll': document.querySelector('.vitality-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
+    case 'stop-scroll': document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
     case 'task-add': {
       const ti = document.getElementById('taskTitle');
       const du = document.getElementById('taskDue');
