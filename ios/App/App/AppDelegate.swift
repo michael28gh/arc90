@@ -2,6 +2,11 @@ import UIKit
 import Capacitor
 import WatchConnectivity
 import WebKit
+import WidgetKit
+
+/// Shared App Group — must match the capability added to both the App and the
+/// Arc90Widget extension in Xcode (Signing & Capabilities ▸ App Groups).
+let arc90AppGroup = "group.com.arc90.app"
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -97,10 +102,24 @@ final class Arc90WatchBridge: NSObject, WCSessionDelegate, WKScriptMessageHandle
             let summary = body["summary"] as? [String: Any] ?? [:]
             latestSummary = summary
             sendSummaryToWatch(summary)
+            writeSummaryToAppGroup(summary)
         }
 
         if action == "ping" {
             publishStatus()
+        }
+    }
+
+    /// Persist the latest snapshot into the shared App Group so the home-screen
+    /// widget can read it, then ask WidgetKit to refresh. No-op (silent) until
+    /// the App Group capability is added to the target in Xcode.
+    private func writeSummaryToAppGroup(_ summary: [String: Any]) {
+        guard let defaults = UserDefaults(suiteName: arc90AppGroup),
+              JSONSerialization.isValidJSONObject(summary),
+              let data = try? JSONSerialization.data(withJSONObject: summary) else { return }
+        defaults.set(data, forKey: "arc90.snapshot")
+        if #available(iOS 14.0, *) {
+            WidgetCenter.shared.reloadAllTimelines()
         }
     }
 
