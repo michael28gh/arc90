@@ -2579,6 +2579,7 @@ function render() {
       ${tabBtn('profile', 'Profile', ICONS.profile)}
     </nav>
     ${sheet ? viewSheet() : ''}
+    ${alarmOverlayView()}
   `;
   wireAfterRender();
   hydrateProofImages();
@@ -4772,6 +4773,8 @@ const SOUND_ENGINE = (() => {
   let timerMin = 15;          // sleep timer: minutes before auto-off (0 = continuous)
   let stopTimeout = null;     // pending auto-off timeout
   let endAt = 0;              // epoch ms when the current timer fires (0 = none)
+  let alarmAt = 0;            // epoch ms when the armed alarm rings (0 = disarmed)
+  let ringing = false;        // alarm currently sounding
   const cache = {};           // id -> playable URL (object URL for synth, file path for recordings)
   const FILE_BASE = './assets/sounds/';
   // Nature sounds are real CC0 / CC-BY / public-domain field recordings (credits in the
@@ -4810,6 +4813,9 @@ const SOUND_ENGINE = (() => {
       // Lock-screen failsafe: iOS suspends setTimeout while the screen is off, but media
       // 'timeupdate' events keep firing — so the sleep timer still stops on schedule.
       audioEl.addEventListener('timeupdate', () => {
+        // Armed alarm first: this event keeps firing under a locked screen, so the
+        // swap-to-chime below is what makes Night Mode ring while the phone sleeps.
+        if (alarmAt && !ringing && Date.now() >= alarmAt) { startRinging(); return; }
         if (endAt && active && Date.now() >= endAt) fadeOutStop();
       });
       document.body.appendChild(audioEl);
@@ -4978,6 +4984,90 @@ const SOUND_ENGINE = (() => {
     endAt = 0;
   }
 
+  // ── Night Mode alarm ──────────────────────────────────────────────────────
+  // iOS suspends JS timers under a locked screen but keeps <audio> playing and
+  // firing 'timeupdate'. Arming plays a whisper-quiet loop to hold the audio
+  // session open all night; at alarmAt the timeupdate handler swaps the SAME
+  // element to a loud rising chime — a real alarm through a locked screen.
+  async function renderSpecial(kind) {
+    if (kind === 'keepalive') {
+      // 8s of near-silent brown noise: keeps the session alive, inaudible on a nightstand.
+      const len = Math.round(SR * 8);
+      const oc = new OfflineAudioContext(2, len, SR);
+      const src = oc.createBufferSource();
+      const nb = oc.createBuffer(2, len, SR);
+      fillNoise(nb.getChannelData(0), 'brown', len);
+      fillNoise(nb.getChannelData(1), 'brown', len);
+      src.buffer = nb; src.connect(oc.destination); src.start();
+      return normalize(await oc.startRendering(), 0.012);
+    }
+    // Rising 4-note chime (C5 E5 G5 C6), looped — bright enough to wake, not harsh.
+    const TSR = 16000, dur = 3.6, len = Math.round(TSR * dur);
+    const oc = new OfflineAudioContext(2, len, TSR);
+    [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
+      const t = i * 0.55;
+      [1, 2].forEach((harm) => {
+        const osc = oc.createOscillator(), g = oc.createGain();
+        osc.type = 'sine'; osc.frequency.value = freq * harm;
+        g.gain.setValueAtTime(0, t);
+        g.gain.linearRampToValueAtTime(harm === 1 ? 0.5 : 0.08, t + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 1.5);
+        osc.connect(g); g.connect(oc.destination);
+        osc.start(t); osc.stop(t + 1.6);
+      });
+    });
+    return normalize(await oc.startRendering(), 0.9);
+  }
+  async function cacheSpecial(kind) {
+    const key = '#' + kind;
+    if (!cache[key]) cache[key] = URL.createObjectURL(bufferToWav(await renderSpecial(kind)));
+    return cache[key];
+  }
+
+  function startRinging() {
+    ringing = true;
+    clearTimer(); clearInterval(fadeTimer);
+    const el = getEl();
+    if (cache['#alarm']) { el.src = cache['#alarm']; el.loop = true; }
+    try { el.volume = 1; } catch (e) {}
+    el.play().catch(() => {});
+    try { if (navigator.vibrate) navigator.vibrate([400, 200, 400, 200, 900]); } catch (e) {}
+    try { if (window.__arc90AlarmRing) window.__arc90AlarmRing(); } catch (e) {}
+  }
+
+  // Resume the quiet keep-alive if night audio stops for any reason while armed
+  // (e.g. the user stops a sleep sound) — the alarm must survive that.
+  function reviveKeepalive() {
+    if (!alarmAt || ringing || active || !cache['#keepalive']) return;
+    active = '#keepalive';
+    const el = getEl();
+    el.src = cache['#keepalive']; el.loop = true;
+    try { el.volume = 1; } catch (e) {}
+    el.play().catch(() => { active = null; });
+  }
+
+  // Must be called from a user gesture (audio unlock). Returns false if blocked.
+  async function armAlarm(epochMs) {
+    try { await cacheSpecial('alarm'); await cacheSpecial('keepalive'); } catch (e) { return false; }
+    clearTimer();               // armed nights are continuous — a sleep timer would kill the session
+    alarmAt = epochMs; ringing = false;
+    if (!active) {
+      active = '#keepalive';
+      const el = getEl();
+      el.src = cache['#keepalive']; el.loop = true;
+      try { el.volume = 1; await el.play(); } catch (e) { active = null; alarmAt = 0; return false; }
+      if ('mediaSession' in navigator) {
+        try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Night Mode — alarm armed', artist: 'Arc90' }); } catch (e) {}
+      }
+    }
+    return true;
+  }
+
+  function disarmAlarm() {
+    alarmAt = 0; ringing = false;
+    stopAll();
+  }
+
   // Gently fade the volume out, then stop. (iOS ignores el.volume, so there it just
   // stops cleanly at the deadline — still does what the timer promises.)
   function fadeOutStop() {
@@ -4998,6 +5088,7 @@ const SOUND_ENGINE = (() => {
   function scheduleStop() {
     clearTimer();
     if (!timerMin) return;                 // 0 = continuous, never auto-off
+    if (alarmAt) return;                   // armed night: never auto-off, the alarm needs the session
     endAt = Date.now() + timerMin * 60000;
     stopTimeout = setTimeout(fadeOutStop, timerMin * 60000);
   }
@@ -5013,6 +5104,7 @@ const SOUND_ENGINE = (() => {
     clearTimer();
     if (audioEl) { try { audioEl.pause(); } catch (e) {} }
     active = null;
+    reviveKeepalive();   // no-op unless an alarm is armed
   }
 
   // Returns 'started' | 'stopped' | 'retry'. Async, but sets `active` synchronously
@@ -5050,6 +5142,10 @@ const SOUND_ENGINE = (() => {
 
   return {
     play, stopAll, warm, setTimer,
+    armAlarm, disarmAlarm,
+    alarmArmed: () => !!alarmAt,
+    alarmRinging: () => ringing,
+    getAlarmAt: () => alarmAt,
     getActive: () => active,
     getTimerMin: () => timerMin,
     getRemaining: () => (endAt ? Math.max(0, endAt - Date.now()) : 0),
@@ -5145,6 +5241,43 @@ function playAlarmChime() {
       osc.start(t); osc.stop(t + 2.5);
     });
   } catch(e) {}
+}
+
+// ── Night Mode alarm: app-side wake screen ───────────────────────────────────
+let alarmRingingUI = false;
+window.__arc90AlarmRing = () => {
+  alarmRingingUI = true;
+  S.health.settings.alarmTime = '';   // one-shot, same as the foreground path
+  save();
+  try { render(); } catch (e) {}
+};
+
+function alarmOverlayView() {
+  if (!alarmRingingUI) return '';
+  const t = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `
+    <div class="alarm-overlay" role="alertdialog" aria-label="Alarm ringing">
+      <div class="alarm-ov-inner">
+        <div class="alarm-ov-time">${t}</div>
+        <div class="alarm-ov-word">Rise &amp; build</div>
+        <div class="alarm-ov-sub">Day ${dayNumber()} of 90 is yours.</div>
+        <button class="btn alarm-ov-stop" data-act="alarm-stop">I’m up</button>
+      </div>
+    </div>`;
+}
+
+function armNightAlarm() {
+  const alarm = S.health.settings.alarmTime;
+  if (!alarm) { showNudge('Set an alarm time first.'); return; }
+  const [ah, am] = alarm.split(':').map(Number);
+  const at = new Date(); at.setHours(ah, am, 0, 0);
+  if (at <= new Date()) at.setDate(at.getDate() + 1);
+  SOUND_ENGINE.armAlarm(at.getTime()).then((ok) => {
+    showNudge(ok
+      ? 'Night Mode armed. Leave Arc90 open — locking the screen is fine.'
+      : 'Audio was blocked — tap Arm once more.');
+    render();
+  });
 }
 
 function meditationRunningView() {
@@ -5252,7 +5385,13 @@ function viewSleep() {
         <div class="alarm-active">
           <div class="alarm-big-time">${fmtTime12(Number(alarm.split(':')[0])*60+Number(alarm.split(':')[1]))}</div>
           <div class="alarm-countdown">${alarmCountdown}</div>
-          <div class="alarm-note">Gentle rising chime · starts softly, builds over 30s</div>
+          ${SOUND_ENGINE.alarmArmed() ? `
+            <div class="alarm-armed-pill">● Night Mode armed — rings even with the screen locked</div>
+            <div class="alarm-note">Keep Arc90 open on your nightstand and plug the phone in.${SOUND_ENGINE.getActive() && SOUND_ENGINE.getActive() !== '#keepalive' ? ' Your sleep sound stays on until the alarm.' : ' A whisper-quiet track keeps the alarm alive overnight.'}</div>
+            <button class="btn btn-ghost alarm-disarm-btn" data-act="alarm-disarm">Disarm Night Mode</button>` : `
+            <div class="alarm-note">Set — but iOS only lets this ring while Arc90 is open in the foreground.</div>
+            <button class="btn alarm-arm-btn" data-act="alarm-arm">🌙 Arm Night Mode — rings with the screen locked</button>
+            <div class="seg-hint" style="margin-top:8px">Arming keeps a near-silent audio session alive so the alarm can sound under a locked screen. Start a sleep sound first to drift off to it.</div>`}
         </div>` : `
         <div class="alarm-setup">
           <div class="alarm-setup-row">
@@ -7155,8 +7294,25 @@ document.addEventListener('click', (e) => {
     case 'alarm-clear': {
       S.health.settings.alarmTime = '';
       if (window.__arc90AlarmCheck) { clearInterval(window.__arc90AlarmCheck); window.__arc90AlarmCheck = null; }
+      if (SOUND_ENGINE.alarmArmed()) SOUND_ENGINE.disarmAlarm();
       save(); render();
       showNudge('Alarm cleared.');
+      break;
+    }
+    case 'alarm-arm': armNightAlarm(); break;
+    case 'alarm-disarm': {
+      SOUND_ENGINE.disarmAlarm();
+      render();
+      showNudge('Night Mode off — alarm will only ring while Arc90 is in the foreground.');
+      break;
+    }
+    case 'alarm-stop': {
+      SOUND_ENGINE.disarmAlarm();
+      alarmRingingUI = false;
+      tab = 'sleep';
+      render();
+      setTimeout(() => document.querySelector('.sleep-wakemood-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+      showNudge('Good morning — log how you woke up.');
       break;
     }
     case 'sound-play': {
@@ -7386,6 +7542,7 @@ function wireAfterRender() {
     window.__arc90AlarmCheck = setInterval(() => {
       const alarm = S.health.settings.alarmTime;
       if (!alarm) { clearInterval(window.__arc90AlarmCheck); window.__arc90AlarmCheck = null; return; }
+      if (SOUND_ENGINE.alarmArmed()) return;   // Night Mode owns the trigger — no double-fire
       const now = new Date(), [ah, am] = alarm.split(':').map(Number);
       if (now.getHours() === ah && now.getMinutes() === am && now.getSeconds() < 30) {
         playAlarmChime();

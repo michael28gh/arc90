@@ -52,17 +52,17 @@ module.exports = async function handler(req, res) {
     if (!r.ok) return sendJson(res, 502, { error: 'Load failed.' });
     const subs = await r.json();
 
-    const now = new Date();
-    const utcMin = now.getUTCHours() * 60 + now.getUTCMinutes();
     let sent = 0, skipped = 0, removed = 0;
 
     for (const row of subs) {
-      const localMin = ((utcMin + (Number(row.tz_offset_min) || 0)) % 1440 + 1440) % 1440;
-      const due = slotsFor(row.mode, row.remind_time).some((s) => localMin >= s);
-      // Dedup: at most one push per ~20h per subscriber (cron may run daily on this plan).
+      // This cron runs ONCE a day (Hobby-plan limit), so the old "past the slot"
+      // gate (localMin >= slot) meant a reminder set later than the cron hour
+      // could NEVER send. On a daily cron the only correct behavior is one nudge
+      // per subscriber per run, deduped to ~20h. (Sub-daily modes need a more
+      // frequent trigger — e.g. an external pinger hitting this endpoint.)
       const last = row.last_sent_at ? new Date(row.last_sent_at).getTime() : 0;
       const fresh = Date.now() - last < 20 * 60 * 60 * 1000;
-      if (!due || fresh) { skipped++; continue; }
+      if (fresh) { skipped++; continue; }
 
       const copy = COPY[row.mode] || COPY.daily;
       try {
