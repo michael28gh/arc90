@@ -3171,80 +3171,6 @@ function dailyPromptsCard() {
     </section>`;
 }
 
-function healthTodayCard() {
-  const h = healthDay();
-  const waterPct = Math.min(100, Math.round((h.water / S.health.settings.waterGoal) * 100));
-  const stepPct = Math.min(100, Math.round((h.steps / S.health.settings.stepGoal) * 100));
-  const stats = dayStats(todayKey());
-  const todayPct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
-  const l = dlog(todayKey());
-  const energyPct = l.energy ? l.energy * 20 : 0;
-  const weightMeta = latestWeightMeta();
-  return `
-    <section class="health-stack">
-      <div class="signal-card score-card">
-        <div class="signal-head">
-          <div>
-            <span class="signal-icon">◎</span>
-            <b><span data-countup="${momentum()}">0</span><em>%</em></b>
-            <small>Momentum score</small>
-          </div>
-          <div class="signal-goal">
-            <span>Goal</span>
-            <b>${stats.done}/${stats.total || 0}</b>
-          </div>
-        </div>
-        <div class="mini-ring-row">
-          ${miniMetricRing('Today', todayPct, `${stats.done}/${stats.total || 0}`)}
-          ${miniMetricRing('Glasses', waterPct, `${h.water}/${S.health.settings.waterGoal}`)}
-          ${miniMetricRing('Steps', stepPct, h.steps ? compactNumber(h.steps) : '--')}
-          ${miniMetricRing('Energy', energyPct, l.energy ? `${l.energy}/5` : '--')}
-        </div>
-      </div>
-
-      <div class="signal-card flow-card">
-        <div class="flow-head">
-          <div><span class="signal-icon">↟</span><b>${stats.done}/${stats.total || 0}</b><small>habit flow today</small></div>
-          <span>${stats.rate === null ? 'Rest day' : `${todayPct}% kept`}</span>
-        </div>
-        <div class="flow-bars">${dayFlowBars()}</div>
-        <div class="flow-times"><span>06:00</span><span>12:00</span><span>18:00</span><span>23:00</span></div>
-      </div>
-
-      <div class="signal-grid">
-        <div class="signal-card compact-signal">
-          <div class="compact-top"><span class="signal-icon">💧</span><small>Glasses</small></div>
-          <b>${h.water}<em>/${S.health.settings.waterGoal}</em></b>
-          <div class="mini-progress"><i style="width:${waterPct}%"></i></div>
-          <div class="health-actions">
-            <button data-act="water-sub" aria-label="Remove one glass of water">−</button>
-            <button data-act="water-add" aria-label="Add one glass of water">+</button>
-          </div>
-        </div>
-        <div class="signal-card compact-signal">
-          <div class="compact-top"><span class="signal-icon">⌁</span><small>Steps</small></div>
-          <b>${h.steps ? h.steps.toLocaleString() : '--'}<em>/${compactNumber(S.health.settings.stepGoal)}</em></b>
-          <div class="mini-progress"><i style="width:${stepPct}%"></i></div>
-          <small>${h.steps >= S.health.settings.stepGoal ? 'Auto-complete ready' : 'Native Health sync ready'}</small>
-        </div>
-      </div>
-
-      <div class="signal-card weight-signal">
-        <div>
-          <div class="compact-top"><span class="signal-icon">⚖️</span><small>Weight signal</small></div>
-          <b>${weightMeta.value ? `${esc(weightMeta.value)}<em>${weightMeta.unit}</em>` : '--'}</b>
-          <small>${esc(weightMeta.copy)}</small>
-        </div>
-        <div class="weight-row">
-          <input id="weightInput" type="number" inputmode="decimal" placeholder="Weight" value="${esc(h.weight)}"/>
-          <button class="btn" data-act="weight-save">Save</button>
-        </div>
-      </div>
-
-      <button class="signal-sync" data-act="health-sync">Sync Health signals</button>
-      <div class="seg-hint">Designed for HealthKit steps and weight sync. Until the native bridge is attached, manual entries stay private on this device.</div>
-    </section>`;
-}
 
 function miniMetricRing(label, pct, value) {
   const p = Math.max(0, Math.min(100, Number(pct) || 0));
@@ -3595,17 +3521,29 @@ function requestHealthSync() {
   save();
   const message = { type: 'health-sync-request', date: todayKey(), stepGoal: S.health.settings.stepGoal };
   try {
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.arc90Health) {
-      window.webkit.messageHandlers.arc90Health.postMessage(message);
-      showNudge('Asked the native Health bridge for steps and weight.');
+    const cap = window.Capacitor;
+    let plugin = cap && cap.Plugins && cap.Plugins.Arc90Health;
+    // Instance-registered native plugins may not be in the Plugins proxy on
+    // older runtimes — registerPlugin by name is the reliable lookup.
+    if ((!plugin || !plugin.sync) && cap && typeof cap.registerPlugin === 'function') {
+      try { plugin = cap.registerPlugin('Arc90Health'); } catch (e) { /* keep null */ }
+    }
+    if (plugin && plugin.sync) {
+      showNudge('Reading Apple Health…');
+      plugin.sync(message)
+        .then(applyNativeHealthSync)
+        .catch((e) => showNudge('Health sync failed: ' + ((e && e.message) || e || 'unknown error')));
       return;
     }
-    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Arc90Health) {
-      window.Capacitor.Plugins.Arc90Health.sync(message).then(applyNativeHealthSync).catch(() => showNudge('Health sync bridge is not available yet.'));
+    if (cap && cap.isNativePlatform && cap.isNativePlatform()) {
+      showNudge('Bridge is up but Arc90Health is missing. Plugins: ' + Object.keys((cap.Plugins) || {}).join(', ').slice(0, 140));
       return;
     }
-  } catch (e) { /* native bridge unavailable */ }
-  showNudge('HealthKit sync needs the SwiftUI or Capacitor wrapper. This web layer is ready.');
+  } catch (e) {
+    showNudge('Health bridge error: ' + ((e && e.message) || e));
+    return;
+  }
+  showNudge('HealthKit sync works in the native iPhone app. This web layer is ready.');
 }
 
 function safeStripeCheckout() {
@@ -5791,6 +5729,27 @@ function vitalCard(m) {
     </section>`;
 }
 
+function healthSyncCard() {
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  if (!isNative) return `
+    <section class="card health-sync-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Apple Health</span>
+      </div>
+      <p class="vitality-insight" style="margin:0">Auto-sync needs the Arc90 iPhone app, not the browser. Log manually here for now.</p>
+    </section>`;
+  const synced = S.product.nativeBridge;
+  return `
+    <section class="card health-sync-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Apple Health</span>
+        ${synced ? `<span class="reminder-state sdb-pos">● Connected</span>` : ''}
+      </div>
+      <p class="vitality-insight" style="margin:0 0 10px">${synced ? 'Pull the last 14 days again any time — new Health data replaces stale entries, your manual sleep notes are never overwritten.' : 'Pull steps, weight, sleep, resting heart rate, HRV, and VO2 max straight from Apple Health — no manual logging.'}</p>
+      <button class="btn signal-sync" data-act="health-sync">${synced ? 'Sync again' : 'Sync Apple Health'}</button>
+    </section>`;
+}
+
 function viewVitals() {
   const set = S.health.settings;
   const metrics = [
@@ -5810,6 +5769,7 @@ function viewVitals() {
         <div class="sub">Biohacking signals · recovery, sleep, output</div>
       </div>
     </header>
+    ${healthSyncCard()}
     <div class="vital-grid">
       ${metrics.map(vitalCard).join('')}
     </div>

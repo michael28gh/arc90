@@ -40,10 +40,18 @@ public class Arc90HealthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let sleep = HKCategoryType.categoryType(forIdentifier: .sleepAnalysis) { read.insert(sleep) }
 
-        store.requestAuthorization(toShare: nil, read: read) { [weak self] _, _ in
-            // Read authorization status is intentionally opaque in HealthKit;
-            // unauthorized types simply return no samples.
-            self?.gather(call)
+        // Plugin calls arrive on a background queue; the authorization sheet is UI.
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            self.store.requestAuthorization(toShare: nil, read: read) { _, error in
+                // Read authorization status is intentionally opaque in HealthKit;
+                // unauthorized types simply return no samples.
+                if let error = error {
+                    call.reject("Health authorization failed: \(error.localizedDescription)")
+                    return
+                }
+                self.gather(call)
+            }
         }
     }
 
