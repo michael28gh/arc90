@@ -46,5 +46,9 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>NSHealthShareUsageDescription</key>
+	<string>Arc90 reads your steps, weight, sleep, resting heart rate, HRV, and VO2 max from Apple Health to fill your daily dashboard automatically. Health data stays on your device.</string>
+	<key>NSHealthUpdateUsageDescription</key>
+	<string>Arc90 does not write to Apple Health today; this permission is reserved for future opt-in logging.</string>
 </dict>
 </plist>

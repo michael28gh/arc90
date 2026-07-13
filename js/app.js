@@ -1732,17 +1732,49 @@ function maybeAutoCompleteSteps(k = todayKey()) {
 }
 
 function applyNativeHealthSync(payload = {}) {
-  const k = payload.date || todayKey();
-  setHealthDay(k, {
-    steps: payload.steps,
-    weight: payload.weight,
-    water: payload.water,
-  });
-  if (payload.sleepHours !== undefined || payload.sleepQuality !== undefined) {
-    setSleepDay(k, { hours: payload.sleepHours ?? '', quality: payload.sleepQuality || 'steady' });
+  const applyDay = (row) => {
+    const k = row.date;
+    if (!k) return 0;
+    let touched = 0;
+    // Sensor data wins for steps/weight/vitals; water keeps the higher of
+    // in-app taps vs HealthKit; sleep NEVER clobbers a manual log.
+    if (row.steps !== undefined && row.steps !== null) { S.health.steps[k] = Math.max(0, Number(row.steps) || 0); touched++; }
+    if (row.weight !== undefined && row.weight !== null && String(row.weight).trim()) { S.health.weight[k] = String(row.weight); touched++; }
+    if (row.water !== undefined && row.water !== null) {
+      const w = Math.max(Number(S.health.water[k]) || 0, Number(row.water) || 0);
+      if (w > 0) { S.health.water[k] = w; touched++; }
+    }
+    ['rhr', 'hrv', 'vo2'].forEach((key) => {
+      if (row[key] !== undefined && row[key] !== null && S.health[key]) { S.health[key][k] = Number(row[key]); touched++; }
+    });
+    if (row.sleepHours !== undefined && row.sleepHours !== null) {
+      const existing = sleepDay(k);
+      if (existing.hours === '') {
+        S.health.sleep[k] = Object.assign({}, existing, { hours: Number(row.sleepHours), quality: row.sleepQuality || existing.quality || 'steady' });
+        touched++;
+      }
+    }
+    return touched;
+  };
+
+  let touched = 0, daysWithData = 0;
+  const history = Array.isArray(payload.history) ? payload.history : [];
+  for (const row of history) {
+    const t = applyDay(row);
+    touched += t;
+    if (t) daysWithData++;
   }
+  // Single-day payloads (older bridge shape) still apply.
+  if (!history.length) {
+    touched = applyDay({ ...payload, date: payload.date || todayKey() });
+    daysWithData = touched ? 1 : 0;
+  }
+  save();
+  maybeAutoCompleteSteps(todayKey());
   render();
-  showNudge('Health signals synced. Steps can now auto-complete matching habits.');
+  showNudge(touched
+    ? `Apple Health synced — ${daysWithData} day${daysWithData === 1 ? '' : 's'} of signals imported. Steps can auto-complete matching habits.`
+    : 'Apple Health connected, but no readable data yet. Check Settings → Health → Data Access.');
 }
 
 function sleepStats(nDays = 7) {
