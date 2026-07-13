@@ -79,6 +79,7 @@ function normalizeState(data) {
   if (!s.health.settings.sleepOnset) s.health.settings.sleepOnset = 14;
   if (!('alarmTime' in s.health.settings)) s.health.settings.alarmTime = '';
   if (!('soundTimerMin' in s.health.settings)) s.health.settings.soundTimerMin = 15;
+  if (!('windDown' in s.health.settings)) s.health.settings.windDown = '';
   s.health.water = s.health.water && typeof s.health.water === 'object' ? s.health.water : {};
   s.health.weight = s.health.weight && typeof s.health.weight === 'object' ? s.health.weight : {};
   s.health.steps = s.health.steps && typeof s.health.steps === 'object' ? s.health.steps : {};
@@ -1698,13 +1699,14 @@ function sleepDay(k = todayKey()) {
     quality: raw.quality || 'steady',
     note: raw.note || '',
     wakeMood: raw.wakeMood || '',
+    lightsOut: raw.lightsOut || '',
   };
 }
 
 function setSleepDay(k, patch) {
   S.health.sleep[k] = Object.assign({}, sleepDay(k), patch);
   const d = S.health.sleep[k];
-  if (d.hours === '' && !d.note && !d.wakeMood) delete S.health.sleep[k];
+  if (d.hours === '' && !d.note && !d.wakeMood && !d.lightsOut) delete S.health.sleep[k];
   save();
 }
 
@@ -5301,6 +5303,185 @@ function meditationRunningView() {
     </div>`;
 }
 
+/* ── Sleep Score: one honest number per night ────────────────────────────────
+   duration .55 (goal→goal+1.5h band, oversleep penalty) · consistency .20
+   (7-night stddev, needs ≥3 nights) · quality .15 · wake mood .10.
+   Same renormalize-over-logged pattern as Readiness — never fabricated. */
+function sleepScoreFor(k = todayKey()) {
+  const goal = Math.max(4, Number(S.health.settings.sleepGoal) || 7);
+  const s = sleepDay(k);
+  const clamp = (n) => Math.max(0, Math.min(100, Math.round(n)));
+  const parts = [];
+  if (s.hours !== '') {
+    const hrs = Number(s.hours);
+    const dur = hrs >= goal
+      ? clamp(hrs <= goal + 1.5 ? 100 : 100 - (hrs - (goal + 1.5)) * 12)
+      : clamp((hrs / goal) * 100);
+    parts.push({ key: 'duration', label: `${hrs % 1 ? hrs.toFixed(1) : hrs}h`, weight: 0.55, score: dur });
+    const rows = sleepStats(7).rows;
+    if (rows.length >= 3) {
+      const mean = rows.reduce((a, r) => a + r.hours, 0) / rows.length;
+      const sd = Math.sqrt(rows.reduce((a, r) => a + (r.hours - mean) ** 2, 0) / rows.length);
+      parts.push({ key: 'consistency', label: sd <= 0.75 ? 'Steady window' : sd <= 1.5 ? 'Drifting' : 'Irregular', weight: 0.20, score: clamp(100 - Math.max(0, sd - 0.5) * 53) });
+    }
+    const qmap = { strong: 100, steady: 75, light: 50, broken: 25 };
+    if (s.quality && qmap[s.quality]) parts.push({ key: 'quality', label: { strong: 'Deep', steady: 'Steady', light: 'Light', broken: 'Broken' }[s.quality], weight: 0.15, score: qmap[s.quality] });
+  }
+  if (s.wakeMood) {
+    const ord = (MOOD_OPTIONS.find(([id]) => id === s.wakeMood) || [])[2] || 0;
+    if (ord) parts.push({ key: 'wake', label: moodLabel(s.wakeMood) + ' wake', weight: 0.10, score: clamp(ord * 20) });
+  }
+  const wsum = parts.reduce((a, p) => a + p.weight, 0);
+  const score = wsum ? Math.round(parts.reduce((a, p) => a + p.score * p.weight, 0) / wsum) : null;
+  const label = score === null ? 'Not logged' : score >= 85 ? 'Excellent' : score >= 70 ? 'Solid' : score >= 50 ? 'Fair' : 'Rough';
+  return { score, label, parts };
+}
+
+function sleepScoreCard() {
+  const ss = sleepScoreFor();
+  const C = 326.73;
+  const frac = ss.score === null ? 0 : ss.score / 100;
+  const stateCls = ss.score === null ? 'none' : ss.score >= 85 ? 'good' : ss.score >= 70 ? 'mid' : ss.score >= 50 ? 'warn' : 'low';
+  return `
+    <section class="card sleep-score-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Sleep score</span>
+        <span class="reminder-state">${ss.parts.length ? `${ss.parts.length} signal${ss.parts.length > 1 ? 's' : ''}` : 'last night'}</span>
+      </div>
+      <div class="vitality-main">
+        <div class="ring-wrap vitality-ring">
+          <svg viewBox="0 0 120 120" width="104" height="104">
+            <circle class="ring-track" cx="60" cy="60" r="52" fill="none" stroke-width="11"/>
+            <circle class="ring-fill" cx="60" cy="60" r="52" fill="none" stroke-width="11"
+              stroke-dasharray="${C}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}"/>
+          </svg>
+          <div class="ring-center">
+            <div class="big-num">${ss.score === null ? '<span class="of">--</span>' : `<span data-countup="${ss.score}">0</span>`}</div>
+            <div class="of">Sleep</div>
+          </div>
+        </div>
+        <div class="vitality-head">
+          <span class="vitality-state ${stateCls}"><span class="dot"></span>${ss.label}</span>
+          ${ss.score === null
+            ? `<p class="vitality-insight">Log last night below — hours, quality, and how you woke build tonight’s score.</p>`
+            : `<div class="ss-chips">${ss.parts.map((p) => `<span class="ss-chip"><b>${esc(p.label)}</b><i style="width:${p.score}%"></i></span>`).join('')}</div>`}
+        </div>
+      </div>
+    </section>`;
+}
+
+/* ── Wind-down mode: the bedtime consistency lever ──────────────────────────── */
+function windDownActive() {
+  const t = S.health.settings.windDown;
+  if (!t) return false;
+  const [h, m] = t.split(':').map(Number);
+  const now = new Date(), cur = now.getHours() * 60 + now.getMinutes();
+  const start = h * 60 + m;
+  return cur >= start || cur < 180; // window runs until 3am
+}
+
+function windDownCard() {
+  const t = S.health.settings.windDown;
+  const lights = sleepDay().lightsOut;
+  const next = typeof nextBestRep === 'function' ? nextBestRep() : null;
+  const tomorrowRep = S.habits.length ? (next || S.habits[0]) : null;
+  if (!t) return `
+    <section class="card winddown-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Wind-down</span>
+      </div>
+      <p class="vitality-insight" style="margin:0 0 10px">Pick an evening hour — from then on, this tab shifts to night mode: tomorrow’s anchor rep, one-tap sounds, and a lights-out log. Bedtime consistency is the strongest sleep lever.</p>
+      <div class="sleep-wake-row">
+        <span class="swr-label">Start at</span>
+        <input type="time" id="windDownInput" value="21:30" class="sleep-wake-input" />
+        <button class="mini-act" data-act="winddown-save">Set</button>
+      </div>
+    </section>`;
+  if (!windDownActive()) return `
+    <section class="card winddown-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Wind-down</span>
+        <button class="mini-act sac-clear" data-act="winddown-clear">Off</button>
+      </div>
+      <p class="vitality-insight" style="margin:0">Tonight at <b>${fmtTime12(Number(t.split(':')[0]) * 60 + Number(t.split(':')[1]))}</b> this tab shifts into wind-down: anchor rep, sounds, lights-out.</p>
+    </section>`;
+  return `
+    <section class="card winddown-card wd-active">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Wind-down · active</span>
+        <button class="mini-act sac-clear" data-act="winddown-clear">Off</button>
+      </div>
+      ${lights ? `
+        <div class="wd-done">
+          <div class="wd-moon">🌙</div>
+          <div>
+            <b>Lights out at ${esc(lights)}</b>
+            <small>Good night. Tomorrow’s arc starts with ${tomorrowRep ? esc(shortHabitName(tomorrowRep.name)) : 'your first rep'}.</small>
+          </div>
+        </div>` : `
+        ${tomorrowRep ? `
+        <div class="wd-row">
+          <span class="wd-label">Tomorrow’s anchor</span>
+          <b>${habitIcon(tomorrowRep)} ${esc(shortHabitName(tomorrowRep.name))}</b>
+        </div>` : ''}
+        <div class="wd-row">
+          <span class="wd-label">Drift off to</span>
+          <div class="wd-sounds">
+            ${['rain', 'ocean', 'brown'].map((id) => `<button class="stm-chip${SOUND_ENGINE.getActive() === id ? ' on' : ''}" data-act="sound-play" data-id="${id}">${SOUND_ENGINE.SOUNDS[id].emoji} ${SOUND_ENGINE.SOUNDS[id].label}</button>`).join('')}
+          </div>
+        </div>
+        <button class="btn wd-lightsout" data-act="lights-out">Lights out — log bedtime</button>
+        ${S.health.settings.alarmTime && !SOUND_ENGINE.alarmArmed() ? `<div class="seg-hint" style="margin-top:8px">Alarm set for ${esc(S.health.settings.alarmTime)} — arm Night Mode below so it rings under a locked screen.</div>` : ''}`}
+    </section>`;
+}
+
+/* ── Sleep debt: rolling 14-night ledger vs goal ────────────────────────────── */
+function sleepDebt(nDays = 14) {
+  const goal = Math.max(4, Number(S.health.settings.sleepGoal) || 7);
+  const today = atMidnight(new Date());
+  const nights = [];
+  let net = 0, logged = 0;
+  for (let i = nDays - 1; i >= 0; i--) {
+    const k = dkey(addDays(today, -i));
+    const s = sleepDay(k);
+    const h = s.hours === '' ? null : Number(s.hours);
+    if (h !== null) { net += h - goal; logged++; }
+    nights.push({ k, h, delta: h === null ? null : h - goal });
+  }
+  return { nights, net, logged, goal };
+}
+
+function sleepDebtCard() {
+  const d = sleepDebt(14);
+  if (!d.logged) return '';
+  const debt = -d.net;
+  const wake = S.health.settings.wakeTarget || '07:00';
+  const [wh, wm] = wake.split(':').map(Number);
+  let clearMin = (wh * 60 + wm) - Math.round((d.goal + 1) * 60);
+  clearMin = ((clearMin % 1440) + 1440) % 1440;
+  const line = debt > 0.5
+    ? `You’re <b>${debt.toFixed(1)}h behind</b> over ${d.logged} night${d.logged > 1 ? 's' : ''}. Lights out by <b>${fmtTime12(clearMin)}</b> clears it in ${Math.max(1, Math.ceil(debt))} night${Math.ceil(debt) > 1 ? 's' : ''}.`
+    : debt < -0.5
+      ? `You’re <b>${Math.abs(debt).toFixed(1)}h banked</b> ahead of your ${d.goal}h goal. Recovery is compounding.`
+      : `Even with your ${d.goal}h goal — steady as she goes.`;
+  const bars = d.nights.map((n) => {
+    if (n.delta === null) return `<span class="sdb-bar sdb-empty" title="not logged"></span>`;
+    const mag = Math.min(24, Math.abs(n.delta) * 12);
+    return n.delta >= 0
+      ? `<span class="sdb-bar sdb-up" style="--m:${mag.toFixed(0)}px" title="+${n.delta.toFixed(1)}h"></span>`
+      : `<span class="sdb-bar sdb-down" style="--m:${mag.toFixed(0)}px" title="${n.delta.toFixed(1)}h"></span>`;
+  }).join('');
+  return `
+    <section class="card sleep-debt-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Sleep debt · 14 nights</span>
+        <span class="reminder-state ${debt > 0.5 ? 'sdb-neg' : 'sdb-pos'}">${debt > 0.5 ? `−${debt.toFixed(1)}h` : debt < -0.5 ? `+${Math.abs(debt).toFixed(1)}h` : '±0h'}</span>
+      </div>
+      <div class="sdb-strip" aria-hidden="true"><span class="sdb-axis"></span>${bars}</div>
+      <p class="vitality-insight" style="margin:8px 0 0">${line}</p>
+    </section>`;
+}
+
 function viewSleep() {
   const set = S.health.settings;
   const wake = set.wakeTarget || '07:00';
@@ -5340,6 +5521,9 @@ function viewSleep() {
         <div class="slhero-sub">${esc(heroStat)}</div>
       </div>
     </div>
+
+    ${sleepScoreCard()}
+    ${windDownCard()}
 
     <section class="card sleep-opt-card">
       <div class="card-head">
@@ -5454,6 +5638,7 @@ function viewSleep() {
         </div>`}
     </section>
 
+    ${sleepDebtCard()}
     ${sleepAnalysisCard()}
 
     <div class="sleep-health-nav">
@@ -7297,6 +7482,31 @@ document.addEventListener('click', (e) => {
       if (SOUND_ENGINE.alarmArmed()) SOUND_ENGINE.disarmAlarm();
       save(); render();
       showNudge('Alarm cleared.');
+      break;
+    }
+    case 'winddown-save': {
+      const inp = document.getElementById('windDownInput');
+      if (inp && inp.value) {
+        S.health.settings.windDown = inp.value;
+        save(); render();
+        showNudge(`Wind-down starts at ${fmtTime12(Number(inp.value.split(':')[0]) * 60 + Number(inp.value.split(':')[1]))}.`);
+      }
+      break;
+    }
+    case 'winddown-clear': {
+      S.health.settings.windDown = '';
+      save(); render();
+      showNudge('Wind-down off.');
+      break;
+    }
+    case 'lights-out': {
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+      setSleepDay(todayKey(), { lightsOut: hhmm });
+      if (navigator.vibrate) { try { navigator.vibrate(12); } catch (e) {} }
+      render();
+      showNudge('Bedtime logged. Sleep well — tomorrow is built tonight. 🌙');
+      track('lights_out');
       break;
     }
     case 'alarm-arm': armNightAlarm(); break;

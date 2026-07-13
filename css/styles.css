@@ -648,6 +648,40 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .th-stats b { font-size: 19px; font-weight: 930; letter-spacing: -0.01em; }
 .th-stats b em { font-style: normal; font-size: 12px; color: var(--tx-3); }
 
+/* Sleep Score — nightly composite ring + component chips */
+.ss-chips { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.ss-chip { position: relative; display: block; padding: 6px 10px 9px; border-radius: 10px; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.06); overflow: hidden; }
+.ss-chip b { font-size: 12px; font-weight: 800; color: var(--tx-2); }
+.ss-chip i { position: absolute; left: 0; bottom: 0; height: 3px; background: var(--grad); border-radius: 2px; }
+[data-theme="light"] .ss-chip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); }
+
+/* Wind-down mode */
+.winddown-card.wd-active { border-color: rgba(143, 107, 255, 0.35); box-shadow: 0 0 34px -12px rgba(143, 107, 255, 0.45), var(--card-edge, 0 0 0 transparent); }
+.wd-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+.wd-row:last-of-type { border-bottom: 0; }
+.wd-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx-3); flex: none; }
+.wd-row b { font-size: 13.5px; font-weight: 800; display: inline-flex; align-items: center; gap: 7px; min-width: 0; }
+.wd-row b svg { width: 16px; height: 16px; }
+.wd-sounds { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.wd-lightsout { width: 100%; margin-top: 12px; padding: 14px; font-size: 15.5px; }
+.wd-done { display: flex; align-items: center; gap: 13px; padding: 6px 2px; }
+.wd-moon { font-size: 30px; line-height: 1; }
+.wd-done b { display: block; font-size: 15px; }
+.wd-done small { display: block; margin-top: 3px; color: var(--tx-2); font-size: 12.5px; }
+
+/* Sleep debt ledger */
+.sdb-strip { position: relative; display: flex; align-items: center; gap: 4px; height: 64px; padding: 0 2px; }
+.sdb-axis { position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: rgba(255,255,255,0.12); }
+.sdb-bar { position: relative; flex: 1; height: 100%; }
+.sdb-bar::after { content: ''; position: absolute; left: 0; right: 0; border-radius: 3px; }
+.sdb-up::after { bottom: 50%; height: var(--m); background: linear-gradient(180deg, #39d98a, rgba(57,217,138,0.35)); }
+.sdb-down::after { top: 50%; height: var(--m); background: linear-gradient(180deg, rgba(255,107,107,0.4), #ff6b6b); }
+.sdb-empty::after { top: calc(50% - 2px); height: 4px; background: rgba(255,255,255,0.10); }
+.reminder-state.sdb-neg { color: #ff8a8a; }
+.reminder-state.sdb-pos { color: #63e6a4; }
+[data-theme="light"] .sdb-axis { background: rgba(0,0,0,0.14); }
+[data-theme="light"] .sdb-empty::after { background: rgba(0,0,0,0.10); }
+
 /* Night Mode alarm — armed states + full-screen wake overlay */
 .alarm-armed-pill {
   display: inline-flex; align-items: center; gap: 7px;
