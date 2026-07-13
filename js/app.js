@@ -2453,6 +2453,8 @@ function watchSummaryPayload() {
     readiness: vitality().score,
     streak: dayStreak(),
     pct: stats.total ? Math.round((stats.done / stats.total) * 100) : 0,
+    quote: (reflectionQuote() || {}).quote || '',
+    quoteSource: (reflectionQuote() || {}).source || '',
     completed: stats.done,
     total: stats.total || 0,
     goal: S.profile.goal || 'Arc90',
