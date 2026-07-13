@@ -34,6 +34,8 @@ public class Arc90HealthPlugin: CAPPlugin, CAPBridgedPlugin {
         var read: Set<HKObjectType> = []
         let quantityIds: [HKQuantityTypeIdentifier] = [
             .stepCount, .bodyMass, .dietaryWater, .restingHeartRate, .heartRateVariabilitySDNN, .vo2Max,
+            .activeEnergyBurned, .appleExerciseTime, .distanceWalkingRunning, .flightsClimbed,
+            .oxygenSaturation, .respiratoryRate,
         ]
         for id in quantityIds {
             if let t = HKQuantityType.quantityType(forIdentifier: id) { read.insert(t) }
@@ -79,10 +81,14 @@ public class Arc90HealthPlugin: CAPPlugin, CAPBridgedPlugin {
             lock.unlock()
         }
 
-        // Daily cumulative sums: steps, water.
+        // Daily cumulative sums: steps, water, energy, exercise, distance, flights.
         let sums: [(HKQuantityTypeIdentifier, String, HKUnit, (Double) -> Any)] = [
             (.stepCount, "steps", .count(), { Int($0.rounded()) }),
             (.dietaryWater, "water", .literUnit(with: .milli), { Int(($0 / 250.0).rounded()) }), // glasses
+            (.activeEnergyBurned, "kcal", .kilocalorie(), { Int($0.rounded()) }),
+            (.appleExerciseTime, "exercise", .minute(), { Int($0.rounded()) }),
+            (.distanceWalkingRunning, "distance", .meterUnit(with: .kilo), { (($0 * 10).rounded()) / 10 }), // km
+            (.flightsClimbed, "flights", .count(), { Int($0.rounded()) }),
         ]
         for (id, field, unit, map) in sums {
             guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }
@@ -113,6 +119,8 @@ public class Arc90HealthPlugin: CAPPlugin, CAPBridgedPlugin {
             (.restingHeartRate, "rhr", HKUnit.count().unitDivided(by: .minute()), { Int($0.rounded()) }),
             (.heartRateVariabilitySDNN, "hrv", .secondUnit(with: .milli), { Int($0.rounded()) }),
             (.vo2Max, "vo2", vo2Unit, { (($0 * 10).rounded()) / 10 }),
+            (.oxygenSaturation, "spo2", .percent(), { Int(($0 * 100).rounded()) }), // HK stores 0.0–1.0
+            (.respiratoryRate, "resp", HKUnit.count().unitDivided(by: .minute()), { (($0 * 10).rounded()) / 10 }),
         ]
         for (id, field, unit, map) in avgs {
             guard let type = HKQuantityType.quantityType(forIdentifier: id) else { continue }

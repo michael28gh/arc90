@@ -84,7 +84,7 @@ function normalizeState(data) {
   s.health.weight = s.health.weight && typeof s.health.weight === 'object' ? s.health.weight : {};
   s.health.steps = s.health.steps && typeof s.health.steps === 'object' ? s.health.steps : {};
   s.health.sleep = s.health.sleep && typeof s.health.sleep === 'object' ? s.health.sleep : {};
-  for (const m of ['rhr', 'hrv', 'vo2']) s.health[m] = s.health[m] && typeof s.health[m] === 'object' ? s.health[m] : {};
+  for (const m of ['rhr', 'hrv', 'vo2', 'kcal', 'exercise', 'distance', 'flights', 'spo2', 'resp']) s.health[m] = s.health[m] && typeof s.health[m] === 'object' ? s.health[m] : {};
   s.weeklyReviews = data.weeklyReviews && typeof data.weeklyReviews === 'object' ? data.weeklyReviews : {};
   s.product = Object.assign(defaultState().product, data.product || {});
   s.log = data.log && typeof data.log === 'object' ? data.log : {};
@@ -1744,7 +1744,7 @@ function applyNativeHealthSync(payload = {}) {
       const w = Math.max(Number(S.health.water[k]) || 0, Number(row.water) || 0);
       if (w > 0) { S.health.water[k] = w; touched++; }
     }
-    ['rhr', 'hrv', 'vo2'].forEach((key) => {
+    ['rhr', 'hrv', 'vo2', 'kcal', 'exercise', 'distance', 'flights', 'spo2', 'resp'].forEach((key) => {
       if (row[key] !== undefined && row[key] !== null && S.health[key]) { S.health[key][k] = Number(row[key]); touched++; }
     });
     if (row.sleepHours !== undefined && row.sleepHours !== null) {
@@ -2899,7 +2899,35 @@ function vitalitySignals(k = todayKey()) {
   const stress = Number(l.stress) || 0;
   const focusQ = Number(l.focusQ) || 0;
 
+  // Recovery — synced wearable data (RHR/HRV) vs your rolling 30-day baseline.
+  // Below-baseline RHR and above-baseline HRV both read as "recovered".
+  const baselineOf = (map) => {
+    if (!map) return 0;
+    const today = atMidnight(new Date());
+    let sum = 0, n = 0;
+    for (let i = 1; i <= 30; i++) {
+      const v = Number(map[dkey(addDays(today, -i))]) || 0;
+      if (v) { sum += v; n++; }
+    }
+    return n >= 3 ? sum / n : 0;
+  };
+  const rhrT = Number((S.health.rhr || {})[k]) || 0;
+  const hrvT = Number((S.health.hrv || {})[k]) || 0;
+  let recScore = null, recVal = '';
+  if (rhrT || hrvT) {
+    const rb = baselineOf(S.health.rhr), hb = baselineOf(S.health.hrv);
+    const recParts = [];
+    if (rhrT && rb) recParts.push(clamp(75 + (rb - rhrT) * 4));
+    if (hrvT && hb) recParts.push(clamp(75 + (hrvT - hb) * 1.2));
+    // First days (no baseline yet): a rough absolute read beats silence.
+    if (!recParts.length && hrvT) recParts.push(hrvT >= 60 ? 80 : hrvT >= 40 ? 65 : 45);
+    if (!recParts.length && rhrT) recParts.push(rhrT <= 55 ? 80 : rhrT <= 65 ? 65 : 45);
+    recScore = Math.round(recParts.reduce((a, b) => a + b, 0) / recParts.length);
+    recVal = hrvT ? `HRV ${hrvT}` : `RHR ${rhrT}`;
+  }
+
   return [
+    { key: 'recovery', label: 'Recovery', icon: '♥', weight: 0.14, logged: recScore !== null, score: recScore, value: recVal, act: 'data-act="tab" data-id="vitals"' },
     { key: 'sleep',  label: 'Sleep',  icon: '☾', weight: 0.28, logged: sleepScore !== null, score: sleepScore, value: sleepVal, act: 'data-act="tab" data-id="sleep"' },
     { key: 'energy', label: 'Energy', icon: '⚡', weight: 0.20, logged: !!energy, score: energy ? clamp(energy * 20) : null, value: energy ? `${energy}/5` : '', act: 'data-act="review"' },
     { key: 'mood',   label: 'Mood',   icon: '◕', weight: 0.16, logged: !!moodOrd, score: moodOrd ? clamp(moodOrd * 20) : null, value: moodOrd ? moodLabel(l.mood) : '', act: 'data-act="review"' },
@@ -2936,6 +2964,7 @@ function vitalityInsight(v) {
     stress: 'Stress is elevated — one unhurried rep beats three rushed ones today.',
     focus: 'Focus is foggy — pick one habit, silence the rest, and take it slow.',
     water: 'You’re behind on water — one full glass now is the easiest point to reclaim.',
+    recovery: 'Your body is below baseline — take the minimum versions today and bank recovery.',
   };
   if (weakest && weakest.score < 60) return tips[weakest.key];
   return 'Steady reserve. Keep the basics topped up and show up as planned.';
@@ -5493,6 +5522,7 @@ function viewSleep() {
     </div>
 
     ${sleepScoreCard()}
+    ${healthSyncCard()}
     ${windDownCard()}
 
     <section class="card sleep-opt-card">
@@ -5760,6 +5790,12 @@ function viewVitals() {
     { key: 'sleep', label: 'Sleep', unit: 'h', dir: 'up', step: '0.25', ph: 'hours', goal: set.sleepGoal },
     { key: 'steps', label: 'Steps', unit: '', dir: 'up', step: '100', ph: 'steps', goal: set.stepGoal },
     { key: 'water', label: 'Hydration', unit: '', dir: 'up', step: '1', ph: 'glasses', goal: set.waterGoal },
+    { key: 'kcal', label: 'Active energy', unit: 'kcal', dir: 'up', step: '10', ph: 'kcal' },
+    { key: 'exercise', label: 'Exercise', unit: 'min', dir: 'up', step: '1', ph: 'minutes' },
+    { key: 'distance', label: 'Distance', unit: 'km', dir: 'up', step: '0.1', ph: 'km' },
+    { key: 'flights', label: 'Flights climbed', unit: '', dir: 'up', step: '1', ph: 'flights' },
+    { key: 'spo2', label: 'Blood oxygen', unit: '%', dir: 'up', step: '1', ph: '%' },
+    { key: 'resp', label: 'Respiratory rate', unit: '/min', dir: 'flat', step: '0.1', ph: 'breaths/min' },
   ];
   return `
     ${brandbar()}
@@ -6772,9 +6808,11 @@ const OCCUPATIONS = [
 
 function renderOnboarding() {
   if (!ob) ob = freshOb();
-  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, obContract, obUpgrade];
+  const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
+  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obUpgrade];
+  const dotCount = steps.length - 2;
   const dots = ob.step === 0 ? '' :
-    `<div class="ob-dots">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
+    `<div class="ob-dots">${Array.from({ length: dotCount }, (_, x) => x + 1).map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
   app.innerHTML = `
     <div class="ob ${ob.step === 0 ? 'welcome' : ''} ${ob.step === 3 ? 'reps-step' : ''}">
       ${ob.step > 0 ? `<div class="ob-top"><button class="ob-back" data-act="ob-back">← Back</button>${dots}</div>` : ''}
@@ -6919,6 +6957,25 @@ function obOccupation() {
   const parts = [...ob.occs].map((o) => o.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim());
   if (ob.occCustom.trim()) parts.push(ob.occCustom.trim());
   return parts.filter(Boolean).slice(0, 3).join(' · ') || 'human';
+}
+
+function obHealth() {
+  return `
+    <div>
+      <div class="ob-title">Connect <em>Apple Health</em></div>
+      <div class="ob-sub">One tap and Arc90 fills itself — no manual logging, ever.</div>
+      <div class="ob-health-list">
+        <div class="ob-health-row"><span>👟</span><div><b>Steps auto-complete habits</b><small>Hit 8,000 steps and the rep checks itself off.</small></div></div>
+        <div class="ob-health-row"><span>😴</span><div><b>Sleep fills your Sleep Score</b><small>Duration, consistency, and quality — straight from your nights.</small></div></div>
+        <div class="ob-health-row"><span>❤️</span><div><b>Heart data powers Readiness</b><small>Resting HR, HRV, and VO2 max feed your daily reserve.</small></div></div>
+        <div class="ob-health-row"><span>🔒</span><div><b>Stays on your device</b><small>Read-only. Never uploaded, never used for ads.</small></div></div>
+      </div>
+      ${ob.healthDone
+        ? `<div class="ob-health-ok">✓ Connected — your last 14 days are already in.</div>
+           <button class="btn ob-cta" data-act="ob-next">Continue</button>`
+        : `<button class="btn ob-cta" data-act="ob-health-connect">Connect Apple Health</button>
+           <button class="ob-skip" data-act="ob-next">Skip for now — I’ll log manually</button>`}
+    </div>`;
 }
 
 function obContract() {
@@ -7619,6 +7676,24 @@ document.addEventListener('click', (e) => {
     /* onboarding */
     case 'ob-next': ob.step++; renderOnboarding(); break;
     case 'ob-back': ob.step--; renderOnboarding(); break;
+    case 'ob-health-connect': {
+      const cap = window.Capacitor;
+      let plugin = cap && cap.Plugins && cap.Plugins.Arc90Health;
+      if ((!plugin || !plugin.sync) && cap && typeof cap.registerPlugin === 'function') {
+        try { plugin = cap.registerPlugin('Arc90Health'); } catch (e) {}
+      }
+      if (!plugin || !plugin.sync) { showNudge('Apple Health needs the Arc90 iPhone app.'); break; }
+      showNudge('Reading Apple Health…');
+      plugin.sync({ type: 'health-sync-request', date: todayKey(), stepGoal: S.health.settings.stepGoal })
+        .then((p) => {
+          S.product.nativeBridge = true;
+          applyNativeHealthSync(p);          // stores signals; render() lands back on this step
+          ob.healthDone = true;
+          renderOnboarding();
+        })
+        .catch((e) => showNudge('Health sync failed: ' + ((e && e.message) || e)));
+      break;
+    }
     case 'ob-occ': ob.occs.has(id) ? ob.occs.delete(id) : ob.occs.add(id); renderOnboarding(); break;
     case 'ob-cat': {
       if (ob.cats.has(id)) ob.cats.delete(id);

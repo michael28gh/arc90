@@ -2743,6 +2743,23 @@ button.hero-ring:active { transform: scale(0.97); }
 .ob-dots i { width: 7px; height: 7px; border-radius: 99px; background: var(--line-2); transition: all 0.3s; }
 .ob-dots i.on { width: 22px; background: var(--accent); }
 
+/* Onboarding · Apple Health step */
+.ob-health-list { display: flex; flex-direction: column; gap: 10px; margin: 18px 0 22px; }
+.ob-health-row {
+  display: flex; align-items: center; gap: 13px; padding: 13px 14px; border-radius: 16px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07);
+}
+.ob-health-row > span { font-size: 22px; line-height: 1; flex: none; }
+.ob-health-row b { display: block; font-size: 14px; font-weight: 800; }
+.ob-health-row small { display: block; margin-top: 2px; color: var(--tx-2); font-size: 12px; line-height: 1.4; }
+.ob-skip { display: block; width: 100%; margin-top: 12px; padding: 10px; color: var(--tx-2); font-size: 13px; font-weight: 700; text-align: center; background: none; border: 0; }
+.ob-health-ok {
+  margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; text-align: center;
+  font-size: 13.5px; font-weight: 800; color: #63e6a4;
+  background: rgba(57, 217, 138, 0.10); border: 1px solid rgba(57, 217, 138, 0.28);
+}
+[data-theme="light"] .ob-health-row { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); }
+
 .ob-body { flex: 1; display: flex; flex-direction: column; }
 .ob-title { font-size: 30px; font-weight: 800; letter-spacing: -0.025em; line-height: 1.15; margin-bottom: 9px; }
 .ob-title em { font-style: normal; color: var(--accent-2); }
