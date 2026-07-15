@@ -17,3 +17,5 @@
 2026-07-12 - Goal Gradient Effect for 90 day habits
 2026-07-12 - Moral Licensing Effect for consistency
 2026-07-13 - Environment design
+2026-07-14 - Sleep as the #1 underrated habit
+2026-07-15 - Morning routine mistakes

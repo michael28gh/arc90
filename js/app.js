@@ -2679,6 +2679,7 @@ function switchTab(next) {
     tab = next;
     navOpen = false;
     openQA = null;
+    todayRoom = null;   // leaving Today always exits its rooms
     window.scrollTo(0, 0);
     render();
   };
@@ -2704,7 +2705,113 @@ function brandbar() {
    TODAY
    ============================================================ */
 
+/* ── Today rooms: progressive disclosure ─────────────────────────────────────
+   The Today surface stays calm (hero · habits · one contextual card · tiles);
+   depth lives in "rooms" that push in from the right with a back chevron. */
+let todayRoom = null;   // null | 'readiness' | 'checkin' | 'insights'
+
+function roomHead(title) {
+  return `
+    <div class="room-head">
+      <button class="room-back" data-act="room-back" aria-label="Back to Today">‹ Today</button>
+      <h2>${esc(title)}</h2>
+    </div>`;
+}
+
+function todayRoomView() {
+  const hr = new Date().getHours();
+  if (todayRoom === 'readiness') return `
+    ${brandbar()}
+    <div class="room-view">
+      ${roomHead('Readiness')}
+      ${vitalityCard()}
+      <button class="coach-entry" data-act="tab" data-id="vitals">
+        <span class="coach-entry-ico">${ICONS.vitals}</span>
+        <span class="coach-entry-txt"><b>Vitals &amp; trends</b><small>RHR, HRV, VO2, sleep — 14-day history →</small></span>
+      </button>
+    </div>`;
+  if (todayRoom === 'checkin') return `
+    ${brandbar()}
+    <div class="room-view">
+      ${roomHead(hr >= 18 || hr < 4 ? 'Close the day' : 'Daily check-in')}
+      ${todayStopCard()}
+      ${hr >= 18 || hr < 4 ? `
+        ${dailyReflectionCard()}
+        <button class="coach-entry" data-act="tab" data-id="sleep">
+          <span class="coach-entry-ico">${ICONS.sleep}</span>
+          <span class="coach-entry-txt"><b>Wind down</b><small>Sounds, alarm &amp; lights-out →</small></span>
+        </button>` : ''}
+    </div>`;
+  // insights — everything that used to crowd the surface
+  return `
+    ${brandbar()}
+    <div class="room-view">
+      ${roomHead('Insights')}
+      ${S.habits.length ? streakBannerCard() : ''}
+      ${arcFieldPanel()}
+      ${weakSpotCard()}
+      ${dailyReflectionCard()}
+      ${todayFocusStrip()}
+      ${comebackBtn()}
+      ${premiumLaunchCard()}
+    </div>`;
+}
+
+/* One card, changes with the clock — morning check-in, midday slip-rescue,
+   evening close-the-day. Same features, a third of the surface. */
+function contextualCard() {
+  const hr = new Date().getHours();
+  const k = todayKey();
+  const l = dlog(k);
+  const checkinDone = !!(l.mood && l.energy && (Number(S.health.water[k]) || 0) > 0);
+  const entry = (eyebrow, title, sub, act) => `
+    <button class="ctx-card" ${act}>
+      <span class="ctx-eyebrow">${eyebrow}</span>
+      <b>${title}</b>
+      <small>${sub}</small>
+    </button>`;
+  if (hr >= 18 || hr < 4)
+    return entry('Evening', 'Close the day', 'Check-in, reflection &amp; wind-down →', 'data-act="room-open" data-id="checkin"');
+  if (hr < 12)
+    return checkinDone
+      ? entry('Morning', 'Signals locked in', 'Check-in done — go take the first rep.', 'data-act="room-open" data-id="checkin"')
+      : entry('Morning', 'Morning check-in', 'Water, mood, energy — 20 seconds →', 'data-act="room-open" data-id="checkin"');
+  const pending = actionable(k).filter((h) => !isCompleted(h.id, k)).length;
+  if (pending && momentum() < 50)
+    return entry('Midday', 'Feeling off track?', 'Tap for your smallest next move →', 'data-act="comeback"');
+  return entry('Midday', pending ? 'Keep the arc moving' : 'All reps in — strong day',
+    pending ? `${pending} rep${pending === 1 ? '' : 's'} left · check in anytime →` : 'Log how it felt while it’s fresh →',
+    'data-act="room-open" data-id="checkin"');
+}
+
+/* The 90-day dot field, extracted from the hero — now lives in Insights. */
+function arcFieldPanel() {
+  const day = dayNumber();
+  const challengePct = Math.round((day / 90) * 100);
+  const mom = momentum();
+  const weekTone = mom >= 70 ? 'Strong week' : mom >= 45 ? 'Gaining traction' : 'Needs a reset';
+  return `
+    <section class="card">
+      <div class="arc-grid-panel" style="margin-top:0">
+        <div class="arc-grid-head">
+          <div>
+            <span class="eyebrow">90-day field</span>
+            <b>${challengePct}% of the arc</b>
+          </div>
+          <span>${weekTone}</span>
+        </div>
+        ${grid90()}
+        <div class="arc-grid-legend">
+          <span><i class="l1"></i>started</span>
+          <span><i class="l2"></i>partial</span>
+          <span><i class="l3"></i>fulfilled</span>
+        </div>
+      </div>
+    </section>`;
+}
+
 function viewToday() {
+  if (todayRoom) return todayRoomView();
   const act = actionable(todayKey());
   const total = act.length;
   const done = act.filter((h) => isCompleted(h.id, todayKey())).length;
@@ -2785,31 +2892,7 @@ function viewToday() {
       </button>`;
       })()}
 
-      <div class="hero-metrics">
-        <div><span>Day</span><b>${day}<em>/90</em></b></div>
-        <div><span>Left</span><b>${dayLeftCount}</b></div>
-        <div><span>Votes</span><b data-countup="${reps}">0</b></div>
-      </div>
-
-      <div class="arc-grid-panel">
-        <div class="arc-grid-head">
-          <div>
-            <span class="eyebrow">90-day field</span>
-            <b>${challengePct}% of the arc</b>
-          </div>
-          <span>${weekTone}</span>
-        </div>
-        ${grid90()}
-        <div class="arc-grid-legend">
-          <span><i class="l1"></i>started</span>
-          <span><i class="l2"></i>partial</span>
-          <span><i class="l3"></i>fulfilled</span>
-        </div>
-      </div>
-
     </section>
-
-    ${vitalityCard()}
 
     <div class="card-head today-reps-head">
       <span class="section-title" style="margin:0">Today</span>
@@ -2818,24 +2901,19 @@ function viewToday() {
     ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
       : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
 
-    ${todayStopCard()}
+    ${contextualCard()}
 
-    ${S.habits.length ? streakBannerCard() : ''}
-
-    <button class="coach-entry" data-act="tab" data-id="coach">
-      <span class="coach-entry-ico">${ICONS.coach}</span>
-      <span class="coach-entry-txt">
-        <b>Ask your Coach</b>
-        <small>Your read, where to improve &amp; a 7-day plan →</small>
-      </span>
-    </button>
-
-    ${premiumLaunchCard()}
-
-    ${weakSpotCard()}
-    ${dailyReflectionCard()}
-    ${todayFocusStrip()}
-    ${comebackBtn()}
+    <div class="mini-tile-row">
+      <button class="mini-tile" data-act="room-open" data-id="insights">
+        <b class="mt-amber">${dayStreak()}</b><small>streak</small>
+      </button>
+      <button class="mini-tile" data-act="tab" data-id="coach">
+        <b class="mt-violet">${ICONS.coach}</b><small>coach</small>
+      </button>
+      <button class="mini-tile" data-act="room-open" data-id="insights">
+        <b class="mt-violet">◈</b><small>insights</small>
+      </button>
+    </div>
   `;
 }
 
@@ -7231,8 +7309,18 @@ document.addEventListener('click', (e) => {
     case 'energy-quick': setQuickEnergy(id); break;
     case 'stress-quick': setQuickScale('stress', id, 'Stress', stressLabel); break;
     case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
-    case 'readiness-scroll': document.querySelector('.vitality-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
-    case 'stop-scroll': document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
+    case 'room-open': todayRoom = id; window.scrollTo(0, 0); render(); break;
+    case 'room-back': todayRoom = null; window.scrollTo(0, 0); render(); break;
+    case 'readiness-scroll': {
+      if (tab === 'today') { todayRoom = 'readiness'; window.scrollTo(0, 0); render(); }
+      else document.querySelector('.vitality-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+    }
+    case 'stop-scroll': {
+      if (tab === 'today') { todayRoom = 'checkin'; window.scrollTo(0, 0); render(); }
+      else document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      break;
+    }
     case 'today-habits-scroll': document.querySelector('.today-reps-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'task-add': {
       const ti = document.getElementById('taskTitle');
