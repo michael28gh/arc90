@@ -41,7 +41,7 @@ function defaultState() {
   return {
     onboarded: false,
     premium: false,
-    theme: 'dark',
+    theme: 'mono',
     profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null },
     ai: { provider: 'anthropic', key: '' },
     aiChat: [],                  // [{role:'user'|'assistant', content}]
@@ -87,6 +87,12 @@ function normalizeState(data) {
   for (const m of ['rhr', 'hrv', 'vo2', 'kcal', 'exercise', 'distance', 'flights', 'spo2', 'resp']) s.health[m] = s.health[m] && typeof s.health[m] === 'object' ? s.health[m] : {};
   s.weeklyReviews = data.weeklyReviews && typeof data.weeklyReviews === 'object' ? data.weeklyReviews : {};
   s.product = Object.assign(defaultState().product, data.product || {});
+  // One-time v3 brand migration: monochrome editorial becomes the default look.
+  // (The old purple "dark" is retired; its slot is now the optional Gold theme.)
+  if (!s.product.themeV3) {
+    if (s.theme === 'dark' || s.theme === 'auto') s.theme = 'mono';
+    s.product.themeV3 = true;
+  }
   s.log = data.log && typeof data.log === 'object' ? data.log : {};
   for (const k of Object.keys(s.log)) {
     if (Array.isArray(s.log[k])) s.log[k] = { done: s.log[k], min: [], skip: [] };
@@ -854,7 +860,7 @@ function buildStoryCanvas() {
   ctx.textAlign = 'left';
   ctx.fillStyle = INK; ctx.fillText('ARC', x0, 230);
   const wm = ctx.createLinearGradient(x0 + wArc, 0, x0 + wArc + wNine, 0);
-  wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  wm.addColorStop(0, '#c8c8c8'); wm.addColorStop(1, '#ffffff');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 230);
   ctx.textAlign = 'center';
 
@@ -875,14 +881,14 @@ function buildStoryCanvas() {
   ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
-  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
+  rg.addColorStop(0, '#e6e6e6'); rg.addColorStop(0.5, '#ffffff'); rg.addColorStop(1, '#c8c8c8');
   ctx.save();
-  ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 38;
+  ctx.shadowColor = 'rgba(255,255,255,0.35)'; ctx.shadowBlur = 38;
   ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke();
   ctx.restore();
   // leading "activity dot" at the arc tip
   ctx.save();
-  ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 24;
+  ctx.shadowColor = 'rgba(255,255,255,0.6)'; ctx.shadowBlur = 24;
   ctx.fillStyle = '#ecdcff';
   ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 14, 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
@@ -948,7 +954,7 @@ function buildQuoteCanvas() {
   ctx.font = '800 60px ' + SANS;
   const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
   ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 200);
-  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#c8c8c8'); wm.addColorStop(1, '#ffffff');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 200);
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(143,107,255,0.45)'; ctx.font = '800 240px Georgia, "Times New Roman", serif'; ctx.fillText('“', cx, 600);
@@ -6542,7 +6548,7 @@ function viewProfile() {
       <div class="theme-swatches">
         ${[
           ['mono',  'Mono',  '#0a0a0a', '#f2f2f2'],
-          ['dark',  'Dark',  '#0a0b18', '#b69cff'],
+          ['dark',  'Gold',  '#0c0b0a', '#e3c27d'],
           ['light', 'Light', '#f2f2f2', '#111111'],
           ['green', 'Green', '#050b08', '#34d399'],
           ['red',   'Red',   '#0a0405', '#ff5d6c'],
@@ -8073,14 +8079,14 @@ function shareCardSvg() {
       <stop offset="1" stop-color="#202131"/>
     </linearGradient>
     <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5ee4ff"/>
-      <stop offset="0.52" stop-color="#8f6bff"/>
-      <stop offset="1" stop-color="#c14cff"/>
+      <stop offset="0" stop-color="#e6e6e6"/>
+      <stop offset="0.52" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c8c8c8"/>
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5ee4ff"/>
-      <stop offset="0.52" stop-color="#8f6bff"/>
-      <stop offset="1" stop-color="#c14cff"/>
+      <stop offset="0" stop-color="#e6e6e6"/>
+      <stop offset="0.52" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c8c8c8"/>
     </linearGradient>
     <style>
       .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b8bbd4;font-size:28px;font-weight:800;letter-spacing:5px}
@@ -8092,8 +8098,8 @@ function shareCardSvg() {
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#bgGrad)"/>
-  <circle cx="930" cy="90" r="260" fill="#8f6bff" opacity="0.18"/>
-  <circle cx="100" cy="1240" r="280" fill="#5ee4ff" opacity="0.08"/>
+  <circle cx="930" cy="90" r="260" fill="#ffffff" opacity="0.10"/>
+  <circle cx="100" cy="1240" r="280" fill="#ffffff" opacity="0.05"/>
   <rect x="70" y="70" width="940" height="1210" rx="58" fill="#11121c" opacity="0.94" stroke="#dce0ff" stroke-opacity="0.12"/>
 
   <text x="120" y="150" class="label">ARC90</text>
@@ -8230,7 +8236,7 @@ function exportProtocolReport() {
    ============================================================ */
 
 function confetti() {
-  const colors = ['#5ee4ff', '#8f6bff', '#c14cff', '#f7f7ff', '#5ee4c2'];
+  const colors = ['#ffffff', '#c8c8c8', '#3ecf8e', '#ffbd6b', '#f2f2f2'];
   for (let i = 0; i < 30; i++) {
     const b = document.createElement('div');
     b.className = 'confetti-bit';

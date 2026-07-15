@@ -4448,11 +4448,11 @@ button.hero-ring:active { transform: scale(0.97); }
   overflow: hidden;
   background:
     radial-gradient(120% 80% at 78% -10%,
-      color-mix(in srgb, #6366F1 30%, transparent) 0%,
+      rgba(255, 255, 255, 0.10) 0%,
       transparent 58%),
     linear-gradient(180deg,
-      color-mix(in srgb, #4338CA 22%, var(--bg)) 0%,
-      color-mix(in srgb, #4338CA 7%, var(--bg)) 42%,
+      color-mix(in srgb, #ffffff 7%, var(--bg)) 0%,
+      color-mix(in srgb, #ffffff 2%, var(--bg)) 42%,
       var(--bg) 100%);
 }
 /* soft drifting moonlight bloom */
@@ -4460,7 +4460,7 @@ button.hero-ring:active { transform: scale(0.97); }
   position: absolute; top: -56px; right: -36px;
   width: 200px; height: 200px; pointer-events: none;
   background: radial-gradient(circle,
-    color-mix(in srgb, #A5B4FC 42%, transparent) 0%,
+    rgba(255, 255, 255, 0.30) 0%,
     transparent 70%);
   filter: blur(8px);
   opacity: 0.7;
@@ -4474,7 +4474,7 @@ button.hero-ring:active { transform: scale(0.97); }
 .slhero-date {
   font-size: 11px; font-weight: 700; letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: color-mix(in srgb, #C7D2FE 70%, var(--tx-3));
+  color: var(--tx-3);
   margin-bottom: 8px;
 }
 .slhero-greeting {
@@ -4484,18 +4484,18 @@ button.hero-ring:active { transform: scale(0.97); }
   margin: 0;
 }
 .slhero-name {
-  background: linear-gradient(92deg, #818CF8, #C4B5FD);
+  background: var(--grad);
   -webkit-background-clip: text; background-clip: text;
   -webkit-text-fill-color: transparent; color: transparent;
 }
 .slhero-moon {
   font-size: 22px; line-height: 1; margin-left: 9px;
   align-self: center;
-  filter: drop-shadow(0 0 10px color-mix(in srgb, #A5B4FC 60%, transparent));
+  filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.35));
 }
 .slhero-sub {
   margin-top: 9px; font-size: 13px; font-weight: 600;
-  color: color-mix(in srgb, var(--tx-2) 88%, #C7D2FE);
+  color: var(--tx-2);
   letter-spacing: 0.01em;
 }
 
