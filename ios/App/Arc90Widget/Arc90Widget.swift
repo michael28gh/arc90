@@ -4,13 +4,13 @@ import SwiftUI
 // Must match the App Group added to BOTH the App and this widget target.
 private let arc90AppGroup = "group.com.arc90.app"
 
-// Brand palette (luxury obsidian).
-private let arcInk = Color(red: 0.97, green: 0.97, blue: 1.0)
-private let arcBG = Color(red: 0.027, green: 0.031, blue: 0.047)
+// Brand palette (obsidian + ivory, one champagne accent).
+private let arcInk = Color(red: 0.957, green: 0.945, blue: 0.918)
+private let arcBG = Color(red: 0.02, green: 0.02, blue: 0.02)
+private let arcAccent = Color(red: 0.89, green: 0.76, blue: 0.49)
 private let arcGrad = LinearGradient(
-    colors: [Color(red: 0.37, green: 0.89, blue: 1.0),
-             Color(red: 0.56, green: 0.42, blue: 1.0),
-             Color(red: 0.76, green: 0.30, blue: 1.0)],
+    colors: [Color(red: 0.965, green: 0.925, blue: 0.84),
+             Color(red: 0.89, green: 0.76, blue: 0.49)],
     startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct Arc90Entry: TimelineEntry {
@@ -73,7 +73,7 @@ private struct Arc90HomeView: View {
             HStack {
                 Text("ARC").font(.system(size: 13, weight: .heavy)).foregroundColor(arcInk)
                 + Text("90").font(.system(size: 13, weight: .heavy))
-                    .foregroundColor(Color(red: 0.56, green: 0.42, blue: 1.0))
+                    .foregroundColor(arcAccent)
                 Spacer()
                 if e.streak > 0 {
                     Text("🔥 \(e.streak)").font(.system(size: 12, weight: .bold))
@@ -184,7 +184,7 @@ struct Arc90ReflectionView: View {
                 Spacer(minLength: 8)
                 HStack {
                     Text("— \(source)").font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(Color(red: 0.56, green: 0.42, blue: 1.0))
+                        .foregroundColor(arcAccent)
                         .lineLimit(1)
                     Spacer()
                     Text("Day \(entry.day)").font(.system(size: 11, weight: .semibold))

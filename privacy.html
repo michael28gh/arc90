@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- DRAFT — generated template, not legal advice. Review with a qualified attorney before launch. -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -19,7 +20,7 @@
   <main>
     <a href="/index.html">← Back to Arc90</a>
     <h1>Privacy Policy</h1>
-    <p class="muted">Last updated: July 10, 2026</p>
+    <p class="muted">Last updated: July 15, 2026 · Effective date: [PLACEHOLDER: set the effective date when this policy is finalized and published]</p>
     <p>Arc90 is a personal habit and momentum tracker. The current PWA stores your challenge, habits, logs, protocol notes, and settings on your device using browser storage.</p>
 
     <h2>Data Stored On Your Device</h2>
@@ -32,16 +33,52 @@
     <p>If you enable reminder notifications, Arc90 stores a push delivery address (a browser-generated push endpoint) together with your reminder rhythm, time, and timezone offset so scheduled nudges can reach your device when the app is closed. No habit, journal, health, or other personal content is ever stored on the server or included in notifications. Turning reminders off deletes this registration.</p>
 
     <h2>Payments</h2>
-    <p>Premium checkout is handled by Stripe. Arc90 does not store full payment card numbers. Stripe may process payment details, billing details, and transaction metadata under its own privacy terms.</p>
+    <p>Premium checkout is handled by Stripe. Arc90 does not store full payment card numbers. Stripe may process payment details, billing details, and transaction metadata under its own privacy terms. To keep Premium unlocked across sessions, Arc90 stores a minimal entitlement record on our server (via Supabase): your Stripe customer ID, the email used at checkout, and your subscription status. This record is used only to verify your purchase and is never sold or used for advertising.</p>
+
+    <h2>Email Updates (Marketing)</h2>
+    <p>If you opt in to Arc90 updates on the landing page or in the app, we store your email address, a consent flag, the consent timestamp, and the signup source in our database (Supabase). We only send product updates you opted in to, and every email will include an unsubscribe link. You can withdraw consent at any time by using that link or by emailing <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>, and we will remove your address from the list. We do not sell or share the email list.</p>
 
     <h2>AI Connections</h2>
     <p>If you connect an AI provider key inside Arc90, prompts you send to the coach may be sent directly from your device to that provider. Your key is stored locally on your device. Do not enter sensitive medical, financial, or emergency information into AI chat.</p>
 
     <h2>Health And Protocol Information</h2>
-    <p>Arc90 is not a medical device and does not provide medical advice. Protocol, supplement, peptide, weight, water, and step tracking are self-reported wellness logs unless a future native HealthKit bridge is enabled by you.</p>
+    <p>Arc90 is not a medical device and does not provide medical advice. Protocol, supplement, peptide, weight, water, and step tracking are self-reported wellness logs, unless you enable the optional Apple Health sync in the native iPhone app (described below).</p>
+
+    <h2>Apple Health (HealthKit) — Native iOS App</h2>
+    <p>The native Arc90 iPhone app can, only with your explicit permission through Apple's Health permission sheet, <b>read</b> data from Apple Health to fill your daily dashboard: steps, weight, sleep, resting heart rate, heart rate variability (HRV), VO2 max, dietary water, active energy, exercise time, walking/running distance, flights climbed, blood oxygen (SpO2), and respiratory rate.</p>
+    <ul>
+      <li>HealthKit access is <b>read-only</b>. Arc90 does not write to Apple Health today.</li>
+      <li>Health data read from HealthKit <b>stays on your device</b>. It is never uploaded to our servers, never included in analytics or notifications, and never shared with anyone.</li>
+      <li>We do not use HealthKit data for advertising or marketing, and we never sell it or disclose it to data brokers, advertising platforms, or any other third party.</li>
+      <li>You can revoke Arc90's Health access at any time in iOS Settings → Health → Data Access &amp; Devices (or in the Health app), and Arc90 will simply stop receiving that data.</li>
+    </ul>
+
+    <h2>Data Retention And Deletion</h2>
+    <p>Because Arc90 is local-first, most deletion is in your hands:</p>
+    <ul>
+      <li><b>On-device data</b> (habits, logs, journals, health entries, AI keys, settings): deleting the app, or clearing browser/site data for the web app, permanently removes it. We cannot recover it, so export a backup first if you want one.</li>
+      <li><b>Push reminder registration</b>: turning reminders off deletes your push endpoint and reminder schedule from our server.</li>
+      <li><b>Server-side data</b> (marketing email address, Stripe entitlement record): email a deletion request to <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> and we will delete it within [PLACEHOLDER: response window, e.g., 30 days — CCPA/GDPR set specific deadlines; confirm with counsel]. Note that deleting your entitlement record may remove your ability to restore a paid purchase, and Stripe retains transaction records under its own legal obligations.</li>
+    </ul>
+    <p>We retain server-side records only for as long as needed for the purpose you gave them to us (delivering reminders, verifying your purchase, or sending updates you opted in to), or as required by law.</p>
+
+    <h2>Your Rights (GDPR / CCPA Summary)</h2>
+    <p>Depending on where you live (for example the EU/UK under GDPR, or California under CCPA/CPRA), you may have the right to access, correct, delete, or receive a copy of personal data we hold about you, to object to or restrict certain processing, to withdraw consent, and to not be discriminated against for exercising these rights. Because Arc90 keeps almost all data on your device, the personal data we actually hold server-side is limited to what is described above (push registration, opt-in email, entitlement record). We do not sell or share personal information as defined by the CCPA/CPRA, and we do not use it for cross-context behavioral advertising.</p>
+    <p>To exercise any of these rights, email <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>. If you are in the EU/UK, you also have the right to lodge a complaint with your local data protection authority. [PLACEHOLDER: have counsel confirm GDPR/CCPA applicability and whether an EU/UK representative or additional disclosures (categories tables, "shine the light," verification procedures) are needed at current scale.]</p>
+
+    <h2>Service Providers</h2>
+    <p>Arc90 relies on a small set of processors: Vercel (hosting and anonymous analytics), Supabase (database for push registrations, opt-in emails, and entitlement records), and Stripe (payments). If you connect your own AI key, your chosen provider (for example Anthropic, OpenAI, or Google) receives the prompts you send, directly from your device, under its own terms. We do not use advertising networks or data brokers.</p>
+
+    <h2>Children's Privacy</h2>
+    <p>Arc90 is not directed at children. We do not knowingly collect personal information from children under 13 (or under 16 where a higher age applies, such as parts of the EEA). If you believe a child has provided us personal information (for example an email address), contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> and we will delete it. [PLACEHOLDER: confirm the minimum age policy with counsel and keep it consistent with the Terms of Service.]</p>
+
+    <h2>Changes To This Policy</h2>
+    <p>We may update this policy as Arc90 evolves (for example, when native App Store payments launch). We will update the "Last updated" date above and, for material changes, provide notice in the app or on the site before the changes take effect. Prior versions are available on request.</p>
 
     <h2>Contact</h2>
-    <p>For privacy questions, contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>.</p>
+    <p>For privacy questions or requests, contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>.</p>
+
+    <p class="muted">This page is a draft template generated for review purposes. It is not legal advice. Review with a qualified attorney before launch.</p>
   </main>
 </body>
 </html>

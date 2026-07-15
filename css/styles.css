@@ -36,34 +36,34 @@
   --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.10);
 }
 
-/* ===== ORIGINAL DARK THEME (purple aurora) ===== */
+/* ===== OBSIDIAN THEME (default dark: warm ivory + one champagne accent) ===== */
 [data-theme="dark"] {
-  --bg: #03040a;
-  --bg-2: #06070f;
-  --card: rgba(220, 224, 255, 0.05);
-  --card-2: rgba(220, 224, 255, 0.09);
-  --line: rgba(220, 224, 255, 0.09);
-  --line-2: rgba(220, 224, 255, 0.17);
-  --tx: #f7f7ff;
-  --tx-2: rgba(247, 247, 255, 0.62);
-  --tx-3: rgba(247, 247, 255, 0.50);
-  --accent: #c4a8ff;
-  --accent-2: #a986ff;
-  --accent-3: #5ee4ff;
-  --accent-soft: rgba(143, 107, 255, 0.10);
-  --accent-line: rgba(143, 107, 255, 0.24);
-  --accent-glow: rgba(143, 107, 255, 0.22);
-  --grad: linear-gradient(135deg, #5ee4ff, #8f6bff 52%, #c14cff);
-  --on-accent: #ffffff;
-  --mint: #5ee4c2;
-  --mint-soft: rgba(94, 228, 194, 0.12);
+  --bg: #050505;
+  --bg-2: #0c0b0a;
+  --card: rgba(255, 250, 240, 0.045);
+  --card-2: rgba(255, 250, 240, 0.085);
+  --line: rgba(255, 250, 240, 0.09);
+  --line-2: rgba(255, 250, 240, 0.16);
+  --tx: #f4f1ea;
+  --tx-2: rgba(244, 241, 234, 0.62);
+  --tx-3: rgba(244, 241, 234, 0.50);
+  --accent: #e3c27d;
+  --accent-2: #d4af6a;
+  --accent-3: #b08d4f;
+  --accent-soft: rgba(227, 194, 125, 0.09);
+  --accent-line: rgba(227, 194, 125, 0.24);
+  --accent-glow: rgba(227, 194, 125, 0.16);
+  --grad: linear-gradient(135deg, #f6ecd6, #e3c27d);
+  --on-accent: #191204;
+  --mint: #4ad99a;
+  --mint-soft: rgba(74, 217, 154, 0.12);
   --red: #f25c75;
   --red-soft: rgba(242, 92, 117, 0.10);
   --amber: #ffbd6b;
   --amber-soft: rgba(255, 189, 107, 0.12);
   --shadow: 0 20px 60px rgba(0, 0, 0, 0.60);
   --btn-shadow: none;
-  --glow: rgba(143, 107, 255, 0.22);
+  --glow: rgba(227, 194, 125, 0.14);
   --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
@@ -187,11 +187,11 @@ body::before {
     radial-gradient(140% 130% at 50% 0%, transparent 44%, rgba(0,0,0,0.68) 100%);
 }
 [data-theme="dark"] body::before {
+  /* restrained depth: one warm candlelight bloom + neutral top sheen + vignette */
   background:
-    radial-gradient(640px 560px at 74% 6%, rgba(143, 107, 255, 0.28), transparent 62%),
-    radial-gradient(520px 460px at 12% 42%, rgba(77, 131, 255, 0.18), transparent 58%),
-    radial-gradient(440px 360px at 56% 98%, rgba(199, 62, 207, 0.16), transparent 62%),
-    radial-gradient(140% 130% at 50% 0%, transparent 48%, rgba(0,0,0,0.72) 100%);
+    radial-gradient(640px 560px at 74% 6%, rgba(227, 194, 125, 0.10), transparent 62%),
+    radial-gradient(65% 30% at 50% -4%, rgba(255, 252, 244, 0.05), transparent 65%),
+    radial-gradient(140% 130% at 50% 0%, transparent 48%, rgba(0, 0, 0, 0.72) 100%);
 }
 [data-theme="green"] body::before {
   background:
@@ -625,7 +625,7 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 .vsig-top i { font-style: normal; font-size: 13px; line-height: 1; }
 .vsig-top small { font-size: 10px; font-weight: 700; letter-spacing: 0.02em; }
 .vsig-val { font-size: 12.5px; font-weight: 800; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.vsig.off .vsig-val { color: var(--accent-2, #8f6bff); }
+.vsig.off .vsig-val { color: var(--accent-2); }
 .vsig-bar { width: 100%; height: 5px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; }
 .vsig-bar b { display: block; height: 100%; border-radius: 3px; background: var(--grad); transition: width 0.6s var(--spring); }
 [data-theme="light"] .vsig { background: rgba(0,0,0,0.03); border-color: rgba(0,0,0,0.08); }
@@ -656,7 +656,7 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
 [data-theme="light"] .ss-chip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.08); }
 
 /* Wind-down mode */
-.winddown-card.wd-active { border-color: rgba(143, 107, 255, 0.35); box-shadow: 0 0 34px -12px rgba(143, 107, 255, 0.45), var(--card-edge, 0 0 0 transparent); }
+.winddown-card.wd-active { border-color: var(--accent-line); box-shadow: 0 0 34px -12px var(--accent-glow), var(--card-edge, 0 0 0 transparent); }
 .wd-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
 .wd-row:last-of-type { border-bottom: 0; }
 .wd-label { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.06em; color: var(--tx-3); flex: none; }
@@ -696,8 +696,8 @@ html[data-tab-direction="prev"]::view-transition-new(app-screen) { animation-nam
   position: fixed; inset: 0; z-index: 400;
   display: grid; place-items: center; text-align: center;
   background:
-    radial-gradient(circle at 50% 30%, rgba(94, 228, 255, 0.10), transparent 55%),
-    radial-gradient(circle at 50% 80%, rgba(193, 76, 255, 0.12), transparent 60%),
+    radial-gradient(circle at 50% 30%, rgba(246, 236, 214, 0.07), transparent 55%),
+    radial-gradient(circle at 50% 80%, rgba(227, 194, 125, 0.10), transparent 60%),
     #06070b;
   animation: alarmPulse 1.6s ease-in-out infinite;
 }
@@ -912,7 +912,8 @@ button.hero-ring:active { transform: scale(0.97); }
 .weak-rate { font-size: 12.5px; color: var(--red); font-weight: 700; margin-top: 1px; }
 
 .tip-card { background: var(--card); border: 1px solid var(--accent-line); }
-.tip-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-2); margin-bottom: 8px; }
+/* Card labels read as quiet wayfinding, not colored badges */
+.tip-tag { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx-3); margin-bottom: 8px; }
 .tip-title { font-size: 16.5px; font-weight: 800; margin-bottom: 6px; letter-spacing: -0.01em; }
 .tip-body { font-size: 13.5px; color: var(--tx-2); line-height: 1.55; }
 .tip-body b { color: var(--tx); }

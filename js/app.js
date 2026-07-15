@@ -974,7 +974,7 @@ function cardTheme() {
   const t = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   const P = {
     mono:  { bg: ['#141414', '#0b0b0b', '#050505'], glow: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.08)', ink: '#f4f4f4', mute: 'rgba(244,244,244,0.58)', faint: 'rgba(244,244,244,0.42)', track: 'rgba(255,255,255,0.10)', grad: ['#d6d6d6', '#f4f4f4', '#c8c8c8'], accent: '#f2f2f2', on: '#000000', ringGlow: 'rgba(255,255,255,0.30)', tick: '#ffffff', dim: 'rgba(255,255,255,0.07)' },
-    dark:  { bg: ['#0c0e18', '#08090f', '#050609'], glow: 'rgba(143,107,255,0.20)', border: 'rgba(255,255,255,0.05)', ink: '#f4f5ff', mute: 'rgba(221,225,255,0.58)', faint: 'rgba(221,225,255,0.42)', track: 'rgba(221,225,255,0.10)', grad: ['#5ee4ff', '#8f6bff', '#c14cff'], accent: '#8f6bff', on: '#ffffff', ringGlow: 'rgba(143,107,255,0.5)', tick: '#ecdcff', dim: 'rgba(221,225,255,0.09)' },
+    dark:  { bg: ['#12100c', '#0a0908', '#050505'], glow: 'rgba(227,194,125,0.14)', border: 'rgba(255,255,255,0.05)', ink: '#f4f1ea', mute: 'rgba(244,241,234,0.58)', faint: 'rgba(244,241,234,0.42)', track: 'rgba(244,241,234,0.10)', grad: ['#f6ecd6', '#e9cf94', '#e3c27d'], accent: '#e3c27d', on: '#191204', ringGlow: 'rgba(227,194,125,0.45)', tick: '#f6ecd6', dim: 'rgba(244,241,234,0.09)' },
     light: { bg: ['#ffffff', '#f1f1f1', '#e6e6e6'], glow: 'rgba(0,0,0,0.035)', border: 'rgba(0,0,0,0.14)', ink: '#141414', mute: 'rgba(17,17,17,0.66)', faint: 'rgba(17,17,17,0.54)', track: 'rgba(0,0,0,0.14)', grad: ['#555555', '#222222', '#111111'], accent: '#141414', on: '#ffffff', ringGlow: 'rgba(0,0,0,0.18)', tick: '#111111', dim: 'rgba(0,0,0,0.08)' },
     green: { bg: ['#08150e', '#050b08', '#030604'], glow: 'rgba(52,211,153,0.17)', border: 'rgba(180,255,214,0.08)', ink: '#eafff4', mute: 'rgba(234,255,244,0.58)', faint: 'rgba(234,255,244,0.42)', track: 'rgba(180,255,214,0.12)', grad: ['#6ee7b7', '#34d399', '#10b981'], accent: '#34d399', on: '#04140d', ringGlow: 'rgba(52,211,153,0.45)', tick: '#eafff4', dim: 'rgba(180,255,214,0.08)' },
     red:   { bg: ['#170709', '#0a0405', '#060203'], glow: 'rgba(255,93,108,0.17)', border: 'rgba(255,205,210,0.08)', ink: '#fff0f1', mute: 'rgba(255,240,241,0.58)', faint: 'rgba(255,240,241,0.42)', track: 'rgba(255,205,210,0.12)', grad: ['#ff8f7a', '#ff5d6c', '#e23950'], accent: '#ff5d6c', on: '#1a0306', ringGlow: 'rgba(255,93,108,0.45)', tick: '#fff0f1', dim: 'rgba(255,205,210,0.08)' },
@@ -7856,7 +7856,34 @@ function closeSheet() {
   render();
 }
 
+/* Scroll choreography: collapsing header + subtle hero parallax.
+   Composited transform/opacity only; disabled under prefers-reduced-motion. */
+function wireScrollFX() {
+  if (window.__arcScrollFX) return;                 // one app-lifetime listener
+  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  window.__arcScrollFX = true;
+  let ticking = false;
+  window.addEventListener('scroll', () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      const y = Math.max(0, window.scrollY);
+      const top = document.querySelector('.topbar');
+      if (top) {
+        const k = Math.min(1, y / 150);
+        top.style.transform = `translateY(${(y * 0.16).toFixed(1)}px) scale(${(1 - k * 0.09).toFixed(3)})`;
+        top.style.transformOrigin = 'left top';
+        top.style.opacity = (1 - k * 0.5).toFixed(2);
+      }
+      const ring = document.querySelector('.hero-ring');
+      if (ring) ring.style.transform = y > 0 ? `translateY(${Math.min(34, y * 0.07).toFixed(1)}px)` : '';
+    });
+  }, { passive: true });
+}
+
 function wireAfterRender() {
+  wireScrollFX();
   // Swipe the bottom sheet down to dismiss it back to the app (any sheet: share, paywall, proof…)
   const sheetEl = document.querySelector('.sheet');
   if (sheetEl && !sheetEl.dataset.swipe) {
