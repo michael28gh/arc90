@@ -2685,7 +2685,7 @@ function switchTab(next) {
     tab = next;
     navOpen = false;
     openQA = null;
-    todayRoom = null;   // leaving Today always exits its rooms
+    appRoom = null;   // leaving Today always exits its rooms
     window.scrollTo(0, 0);
     render();
   };
@@ -2714,7 +2714,7 @@ function brandbar() {
 /* ── Today rooms: progressive disclosure ─────────────────────────────────────
    The Today surface stays calm (hero · habits · one contextual card · tiles);
    depth lives in "rooms" that push in from the right with a back chevron. */
-let todayRoom = null;   // null | 'readiness' | 'checkin' | 'insights'
+let appRoom = null;   // null | 'readiness' | 'checkin' | 'insights'
 
 function roomHead(title) {
   return `
@@ -2724,9 +2724,9 @@ function roomHead(title) {
     </div>`;
 }
 
-function todayRoomView() {
+function appRoomView() {
   const hr = new Date().getHours();
-  if (todayRoom === 'readiness') return `
+  if (appRoom === 'readiness') return `
     ${brandbar()}
     <div class="room-view">
       ${roomHead('Readiness')}
@@ -2736,7 +2736,7 @@ function todayRoomView() {
         <span class="coach-entry-txt"><b>Vitals &amp; trends</b><small>RHR, HRV, VO2, sleep — 14-day history →</small></span>
       </button>
     </div>`;
-  if (todayRoom === 'checkin') return `
+  if (appRoom === 'checkin') return `
     ${brandbar()}
     <div class="room-view">
       ${roomHead(hr >= 18 || hr < 4 ? 'Close the day' : 'Daily check-in')}
@@ -2846,7 +2846,7 @@ function arcFieldPanel() {
 }
 
 function viewToday() {
-  if (todayRoom) return todayRoomView();
+  if (appRoom) return appRoomView();
   const act = actionable(todayKey());
   const total = act.length;
   const done = act.filter((h) => isCompleted(h.id, todayKey())).length;
@@ -7333,15 +7333,15 @@ document.addEventListener('click', (e) => {
     case 'energy-quick': setQuickEnergy(id); break;
     case 'stress-quick': setQuickScale('stress', id, 'Stress', stressLabel); break;
     case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
-    case 'room-open': todayRoom = id; window.scrollTo(0, 0); render(); break;
-    case 'room-back': todayRoom = null; window.scrollTo(0, 0); render(); break;
+    case 'room-open': appRoom = id; window.scrollTo(0, 0); render(); break;
+    case 'room-back': appRoom = null; window.scrollTo(0, 0); render(); break;
     case 'readiness-scroll': {
-      if (tab === 'today') { todayRoom = 'readiness'; window.scrollTo(0, 0); render(); }
+      if (tab === 'today') { appRoom = 'readiness'; window.scrollTo(0, 0); render(); }
       else document.querySelector('.vitality-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       break;
     }
     case 'stop-scroll': {
-      if (tab === 'today') { todayRoom = 'checkin'; window.scrollTo(0, 0); render(); }
+      if (tab === 'today') { appRoom = 'checkin'; window.scrollTo(0, 0); render(); }
       else document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       break;
     }
