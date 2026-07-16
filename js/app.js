@@ -2790,6 +2790,35 @@ function contextualCard() {
     'data-act="room-open" data-id="checkin"');
 }
 
+/* Readiness arc — its own ring on the Today surface, right below the hero.
+   Tap opens the Readiness room with the full 7-signal breakdown. */
+function readinessArcCard() {
+  const v = vitality();
+  const st = vitalityState(v.score);
+  const frac = v.score === null ? 0 : v.score / 100;
+  const C = 276.46; // 2π·44
+  return `
+    <button class="card readiness-arc-card" data-act="room-open" data-id="readiness"
+      aria-label="Readiness ${v.score === null ? 'not logged yet' : `${v.score} — ${st.label}`}. Open breakdown.">
+      <span class="ring-wrap rac-ring">
+        <svg viewBox="0 0 104 104" width="88" height="88">
+          <circle class="ring-track" cx="52" cy="52" r="44" fill="none" stroke-width="9"/>
+          <circle class="ring-fill" cx="52" cy="52" r="44" fill="none" stroke-width="9"
+            stroke-dasharray="${C}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}"/>
+        </svg>
+        <span class="ring-center">
+          <b class="rac-num">${v.score === null ? '--' : `<span data-countup="${v.score}">0</span>`}</b>
+        </span>
+      </span>
+      <span class="rac-txt">
+        <span class="eyebrow">Readiness</span>
+        <span class="vitality-state ${st.cls}"><span class="dot"></span>${st.label}</span>
+        <small>${v.score === null ? 'Log your signals to see today’s reserve →' : `${v.count}/${v.total} signals · tap for the breakdown`}</small>
+      </span>
+      <span class="rac-chev" aria-hidden="true">›</span>
+    </button>`;
+}
+
 /* The 90-day dot field, extracted from the hero — now lives in Insights. */
 function arcFieldPanel() {
   const day = dayNumber();
@@ -2885,20 +2914,9 @@ function viewToday() {
         </div>
       </div>
 
-      ${(() => {
-        const rd = vitality();
-        const rst = vitalityState(rd.score);
-        return `
-      <button class="readiness-strip" data-act="readiness-scroll" aria-label="Readiness ${rd.score === null ? 'not logged yet' : `${rd.score} — ${rst.label}`}. View breakdown.">
-        <span class="rd-label">Readiness</span>
-        <span class="rd-meter"><i style="width:${rd.score === null ? 0 : rd.score}%"></i></span>
-        ${rd.score === null
-          ? `<span class="rd-state none">Log signals →</span>`
-          : `<b class="rd-score">${rd.score}</b><span class="rd-state ${rst.cls}">${rst.label}</span>`}
-      </button>`;
-      })()}
-
     </section>
+
+    ${readinessArcCard()}
 
     <div class="card-head today-reps-head">
       <span class="section-title" style="margin:0">Today</span>
