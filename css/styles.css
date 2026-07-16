@@ -727,6 +727,14 @@ button.hero-ring:active { transform: scale(0.97); }
 }
 .room-back:active { opacity: 0.6; }
 
+/* Tappable console wrapper — a hero card that pushes into its room */
+.tap-console { cursor: pointer; position: relative; transition: transform 0.13s var(--spring); }
+.tap-console:active { transform: scale(0.985); }
+.tap-console::after {
+  content: '›'; position: absolute; top: 16px; right: 18px;
+  color: var(--tx-3); font-size: 20px; font-weight: 700; pointer-events: none;
+}
+
 /* Readiness arc card — ring below the Today's-arc hero */
 .readiness-arc-card {
   display: flex; align-items: center; gap: 16px; width: 100%;
