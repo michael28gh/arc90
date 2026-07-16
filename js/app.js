@@ -2748,18 +2748,15 @@ function appRoomView() {
           <span class="coach-entry-txt"><b>Wind down</b><small>Sounds, alarm &amp; lights-out →</small></span>
         </button>` : ''}
     </div>`;
-  // insights — everything that used to crowd the surface
+  // insights — the deeper reads that don't need to live on the surface
   return `
     ${brandbar()}
     <div class="room-view">
       ${roomHead('Insights')}
       ${S.habits.length ? streakBannerCard() : ''}
-      ${arcFieldPanel()}
       ${weakSpotCard()}
-      ${dailyReflectionCard()}
       ${todayFocusStrip()}
       ${comebackBtn()}
-      ${premiumLaunchCard()}
     </div>`;
 }
 
@@ -2927,6 +2924,10 @@ function viewToday() {
 
     ${contextualCard()}
 
+    ${arcFieldPanel()}
+
+    ${dailyReflectionCard()}
+
     <div class="mini-tile-row">
       <button class="mini-tile" data-act="room-open" data-id="insights">
         <b class="mt-amber">${dayStreak()}</b><small>streak</small>
@@ -2938,6 +2939,8 @@ function viewToday() {
         <b class="mt-violet">◈</b><small>insights</small>
       </button>
     </div>
+
+    ${premiumLaunchCard()}
   `;
 }
 
@@ -5856,13 +5859,6 @@ function viewSleep() {
 
   const disclaimer = `<div class="empty-note" style="padding-top:8px">Arc90 is not a medical device. Sounds and meditations are for relaxation only.</div>`;
 
-  if (appRoom === 'checkin') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Morning check-in')}
-      ${wakeMoodCard}
-      ${healthSyncCard()}
-    </div>`;
   if (appRoom === 'alarm') return `
     ${brandbar()}
     <div class="room-view">
@@ -5882,9 +5878,10 @@ function viewSleep() {
     ${brandbar()}
     <div class="room-view">
       ${roomHead('Sleep insights')}
-      ${sleepDebtCard()}
       ${sleepAnalysisCard()}
+      ${sleepDebtCard()}
       ${optimizerCard}
+      ${healthSyncCard()}
       ${healthNav}
       ${disclaimer}
     </div>`;
@@ -5907,18 +5904,40 @@ function viewSleep() {
     </div>
 
     <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="checkin">
-        <b>${wakeMood ? '✓' : '◦'}</b><small>check-in</small>
-      </button>
       <button class="mini-tile" data-act="room-open" data-id="alarm">
         <b>${armed ? '●' : alarmSet ? fmtTime12(Number(alarm.split(':')[0]) * 60 + Number(alarm.split(':')[1])).replace(' ', '') : '—'}</b><small>${armed ? 'armed' : 'alarm'}</small>
       </button>
       <button class="mini-tile" data-act="room-open" data-id="sounds">
         <b>${activeSound ? '♪' : '𝄽'}</b><small>sounds</small>
       </button>
+      <button class="mini-tile" data-act="room-open" data-id="insights">
+        <b>${stats.avg ? stats.avg.toFixed(1) + 'h' : '…'}</b><small>insights</small>
+      </button>
     </div>
 
     ${windDownActive() ? windDownCard() : ''}
+
+    ${wakeMoodCard}
+
+    ${(() => {
+      const goalH = Math.max(stats.goal + 2, 8);
+      const bars = recentKeys(7).map((k) => {
+        const s = sleepDay(k);
+        const h = s.hours === '' ? 0 : Number(s.hours);
+        const pct = Math.max(8, Math.min(100, Math.round((h / goalH) * 100)));
+        const dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][new Date(k + 'T00:00').getDay()] || '';
+        return `<button class="sleep-bar ${h >= stats.goal ? 'kept' : h ? 'low' : ''}" data-act="sleep-day" data-key="${k}" aria-label="Edit sleep for ${niceDate(k)}"><span class="sh">${h ? h.toFixed(h % 1 ? 1 : 0) : ''}</span><span class="strack"><i style="height:${h ? pct : 8}%"></i></span><span class="sd">${dow}</span></button>`;
+      }).join('');
+      return `
+      <section class="card sleep-graph-card">
+        <div class="card-head">
+          <span class="tip-tag" style="margin:0">Last 7 nights</span>
+          <span class="reminder-state">${stats.avg ? `${stats.avg.toFixed(1)}h avg · goal ${stats.goal}h` : 'nothing logged yet'}</span>
+        </div>
+        <div class="sleep-bars">${bars}</div>
+        <div class="seg-hint" style="margin-top:8px">Tap a night to log or edit it.</div>
+      </section>`;
+    })()}
   `;
 }
 
@@ -7874,6 +7893,7 @@ document.addEventListener('click', (e) => {
     case 'sleep-day': {
       const key = el.dataset.key || todayKey();
       sleepEditKey = key === todayKey() ? null : key;
+      if (tab === 'sleep' && !appRoom) appRoom = 'insights';   // surface graph taps land in the editor room
       render();
       break;
     }
