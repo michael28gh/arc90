@@ -2818,6 +2818,10 @@ button.hero-ring:active { transform: scale(0.97); }
 .ob-health-row b { display: block; font-size: 14px; font-weight: 800; }
 .ob-health-row small { display: block; margin-top: 2px; color: var(--tx-2); font-size: 12px; line-height: 1.4; }
 .ob-skip { display: block; width: 100%; margin-top: 12px; padding: 10px; color: var(--tx-2); font-size: 13px; font-weight: 700; text-align: center; background: none; border: 0; }
+.ob-consent { display: flex; align-items: flex-start; gap: 10px; margin: 14px 2px 4px; cursor: pointer; }
+.ob-consent input { margin-top: 2px; width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
+.ob-consent span { font-size: 12.5px; line-height: 1.45; color: var(--tx-2); }
+.ob-email-err { min-height: 16px; margin: 8px 2px 0; font-size: 12.5px; font-weight: 600; color: var(--red); }
 .ob-health-ok {
   margin: 0 0 12px; padding: 12px 14px; border-radius: 14px; text-align: center;
   font-size: 13.5px; font-weight: 800; color: #63e6a4;

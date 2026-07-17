@@ -3509,36 +3509,7 @@ function habitsHeroCard() {
   );
 }
 
-function habitsRoomView() {
-  if (appRoom === 'library') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Library')}
-      ${libraryPanel()}
-      <div class="section-gap">${challengeTemplatesPanel()}</div>
-    </div>`;
-  if (appRoom === 'create') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Create your own')}
-      <div class="custom-form">
-        <input id="customName" type="text" placeholder="e.g. Practice salsa 15 min" maxlength="48"/>
-        <button class="btn" data-act="add-custom" style="padding:0 20px">Add</button>
-      </div>
-      <div class="seg-hint" style="margin-top:10px">Give it a verb and a size — “Read 10 pages” beats “Read more”.</div>
-    </div>`;
-  // 'reps' — the full habit list
-  return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Your habits')}
-      ${S.premium ? '' : `<div class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></div>`}
-      ${S.habits.length ? `<div class="mine-grid">${S.habits.map(mineRow).join('')}</div>` : '<div class="card empty-note">Nothing here yet — add from the library.</div>'}
-    </div>`;
-}
-
 function viewHabits() {
-  if (appRoom) return habitsRoomView();
   return `
     ${brandbar()}
     <header class="topbar">
@@ -3549,21 +3520,21 @@ function viewHabits() {
       <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
     </header>
 
-    <div class="tap-console" data-act="room-open" data-id="reps" role="button" tabindex="0" aria-label="Open your habit list">
-      ${habitsHeroCard()}
+    ${habitsHeroCard()}
+
+    <div class="section-title">Your habits <span class="count-bub">${S.habits.length}${S.premium ? '' : ` / ${FREE_HABITS}`}</span></div>
+    ${S.premium ? '' : `<div class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></div>`}
+    ${S.habits.length ? `<div class="mine-grid">${S.habits.map(mineRow).join('')}</div>` : '<div class="card empty-note">Nothing here yet — add from the library below.</div>'}
+
+    ${libraryPanel()}
+
+    <div class="section-gap section-title">Create your own</div>
+    <div class="custom-form">
+      <input id="customName" type="text" placeholder="e.g. Practice salsa 15 min" maxlength="48"/>
+      <button class="btn" data-act="add-custom" style="padding:0 20px">Add</button>
     </div>
 
-    <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="reps">
-        <b>${S.habits.length}</b><small>your habits</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="library">
-        <b>${HABIT_LIBRARY.length}</b><small>library</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="create">
-        <b>+</b><small>create</small>
-      </button>
-    </div>
+    <div class="section-gap">${challengeTemplatesPanel()}</div>
   `;
 }
 
@@ -4038,26 +4009,20 @@ function taskRow(t) {
     </div>`;
 }
 
-function planSortedTasks() {
-  return (S.tasks || []).slice().sort((a, b) => {
+function viewPlan() {
+  const tasks = (S.tasks || []).slice().sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
     if (!a.due && !b.due) return (b.created || 0) - (a.created || 0);
     if (!a.due) return 1;
     if (!b.due) return -1;
     return new Date(a.due) - new Date(b.due);
   });
-}
-
-function viewPlan() {
-  const tasks = planSortedTasks();
   const open = tasks.filter((t) => !t.done);
   const overdue = open.filter(taskOverdue).length;
   const jKey = todayKey();
   const jText = (S.journal && S.journal[jKey]) || '';
   const jStreak = journalStreak();
   const jCount = journalCount();
-  if (appRoom) return planRoomView({ tasks, open, overdue, jKey, jText, jStreak, jCount });
-  const doneHabits = S.habits.filter((h) => isCompleted(h.id, jKey));
   return `
     ${brandbar()}
     <header class="topbar">
@@ -4067,79 +4032,17 @@ function viewPlan() {
       </div>
     </header>
 
-    <div class="tap-console" data-act="room-open" data-id="tasks" role="button" tabindex="0" aria-label="Open tasks">
-      ${(() => {
-        const nextUp = open.find((t) => t.due);
-        return tabHeroCard(
-          'Execution',
-          open.length ? `${open.length} open task${open.length === 1 ? '' : 's'}` : 'Clear runway',
-          nextUp ? `Next up: ${esc(nextUp.title)}` : 'Add a deadline and Arc90 nudges you the moment it’s due.',
-          [['Open', open.length], ['Overdue', overdue], ['Journal', jStreak ? jStreak + 'd' : '—']]
-        );
-      })()}
-    </div>
+    ${(() => {
+      const nextUp = open.find((t) => t.due);
+      return tabHeroCard(
+        'Execution',
+        open.length ? `${open.length} open task${open.length === 1 ? '' : 's'}` : 'Clear runway',
+        nextUp ? `Next up: ${esc(nextUp.title)}` : 'Add a deadline and Arc90 nudges you the moment it’s due.',
+        [['Open', open.length], ['Overdue', overdue], ['Journal', jStreak ? jStreak + 'd' : '—']]
+      );
+    })()}
 
-    <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="tasks">
-        <b>${open.length}</b><small>tasks</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="journal">
-        <b>${jStreak || '✎'}</b><small>journal</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="done">
-        <b>${doneHabits.length}</b><small>done today</small>
-      </button>
-    </div>
-  `;
-}
-
-function planRoomView(ctx) {
-  const { tasks, open, overdue, jKey, jText, jStreak, jCount } = ctx;
-  if (appRoom === 'journal') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Journal')}
-      <section class="card plan-journal-card">
-        <div class="card-head">
-          <span class="tip-tag" style="margin:0">Today’s journal</span>
-          <span class="reminder-state">${jStreak ? `${jStreak}-day streak` : 'New'}</span>
-        </div>
-        <div class="plan-journal-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-        <textarea id="journalText" class="plan-journal-ta" rows="9" placeholder="How did today go? What did you learn, feel, or want to remember?">${esc(jText)}</textarea>
-        <div class="seg-hint">Saves automatically on this device · ${jCount} ${jCount === 1 ? 'entry' : 'entries'} logged.</div>
-      </section>
-    </div>`;
-  if (appRoom === 'done') {
-    const dueToday = actionable(jKey);
-    const doneHabits = S.habits.filter((h) => isCompleted(h.id, jKey));
-    return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Done today')}
-      <div class="card-head plan-list-head">
-        <span class="section-title" style="margin:0">Habits done today</span>
-        <span class="reminder-state">${doneHabits.length}/${dueToday.length || S.habits.length}</span>
-      </div>
-      ${doneHabits.length ? `
-        <div class="plan-tasks">
-          ${doneHabits.map((h) => `
-            <div class="plan-task done habit-row">
-              <span class="plan-task-check on" aria-hidden="true">${ICONS.check}</span>
-              <div class="plan-task-body">
-                <div class="plan-task-title">${h.emoji ? esc(h.emoji) + ' ' : ''}${esc(h.name)}</div>
-                <div class="plan-task-due">${statusOf(h.id, jKey) === 'min' ? 'Minimum version · habit' : 'Completed · habit'}</div>
-              </div>
-            </div>`).join('')}
-        </div>`
-      : `<div class="card empty-note">Nothing logged yet today. <button class="inline-link" data-act="tab" data-id="today">Knock one out →</button></div>`}
-    </div>`;
-  }
-  // 'tasks'
-  return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Tasks')}
-      <section class="card plan-add-card">
+    <section class="card plan-add-card">
       <div class="card-head"><span class="tip-tag" style="margin:0">New task</span></div>
       <input id="taskTitle" class="plan-input" type="text" placeholder="What needs to get done?" maxlength="200" autocomplete="off" />
       <div class="plan-add-row">
@@ -4160,8 +4063,40 @@ function planRoomView(ctx) {
       ? `<div class="plan-tasks">${tasks.map(taskRow).join('')}</div>`
       : `<div class="card empty-note">No tasks yet. Add a deadline above and Arc90 will nudge you the moment it’s due.</div>`}
 
+    ${S.habits.length ? (() => {
+      const dueToday = actionable(jKey);
+      const doneHabits = S.habits.filter((h) => isCompleted(h.id, jKey));
+      return `
+        <div class="card-head plan-list-head">
+          <span class="section-title" style="margin:0">Habits done today</span>
+          <span class="reminder-state">${doneHabits.length}/${dueToday.length || S.habits.length}</span>
+        </div>
+        ${doneHabits.length ? `
+          <div class="plan-tasks">
+            ${doneHabits.map((h) => `
+              <div class="plan-task done habit-row">
+                <span class="plan-task-check on" aria-hidden="true">${ICONS.check}</span>
+                <div class="plan-task-body">
+                  <div class="plan-task-title">${h.emoji ? esc(h.emoji) + ' ' : ''}${esc(h.name)}</div>
+                  <div class="plan-task-due">${statusOf(h.id, jKey) === 'min' ? 'Minimum version · habit' : 'Completed · habit'}</div>
+                </div>
+              </div>`).join('')}
+          </div>`
+        : `<div class="card empty-note">Nothing logged yet today. <button class="inline-link" data-act="tab" data-id="today">Knock one out →</button></div>`}
+      `;
+    })() : ''}
+
+    <section class="card plan-journal-card">
+      <div class="card-head">
+        <span class="tip-tag" style="margin:0">Today’s journal</span>
+        <span class="reminder-state">${jStreak ? `${jStreak}-day streak` : 'New'}</span>
+      </div>
+      <div class="plan-journal-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
+      <textarea id="journalText" class="plan-journal-ta" rows="7" placeholder="How did today go? What did you learn, feel, or want to remember?">${esc(jText)}</textarea>
+      <div class="seg-hint">Saves automatically on this device · ${jCount} ${jCount === 1 ? 'entry' : 'entries'} logged.</div>
+    </section>
+
     <div class="empty-note" style="padding-top:8px">Reminders fire while Arc90 is open or in the background. Add Arc90 to your home screen for the most reliable notifications.</div>
-    </div>
   `;
 }
 
@@ -4169,36 +4104,7 @@ function planRoomView(ctx) {
    PROGRESS
    ============================================================ */
 
-function progressRoomView() {
-  if (appRoom === 'trends') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Trends')}
-      <section class="card">
-        <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
-        ${chart(7)}
-      </section>
-      ${progressAnalyticsCard()}
-    </div>`;
-  if (appRoom === 'mood') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Mood & pulse')}
-      ${moodGraphPanel()}
-      ${progressPulseCard()}
-    </div>`;
-  // 'proof' — evidence wall + the 90-day map
-  return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Proof & the arc')}
-      ${proofCard(true)}
-      ${progressArcMapCard()}
-    </div>`;
-}
-
 function viewProgress() {
-  if (appRoom) return progressRoomView();
   const end = addDays(startDate(), 89);
   return `
     ${brandbar()}
@@ -4209,21 +4115,16 @@ function viewProgress() {
       </div>
     </header>
 
-    <div class="tap-console" data-act="room-open" data-id="trends" role="button" tabindex="0" aria-label="Open trends">
-      ${commandCenterCard()}
-    </div>
-
-    <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="trends">
-        <b>${momentum()}<em style="font-size:11px;font-style:normal">%</em></b><small>trends</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="mood">
-        <b>◐</b><small>mood</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="proof">
-        <b>${(S.proof || []).length}</b><small>proof</small>
-      </button>
-    </div>
+    ${commandCenterCard()}
+    ${progressArcMapCard()}
+    ${proofCard(true)}
+    <section class="card">
+      <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
+      ${chart(7)}
+    </section>
+    ${progressAnalyticsCard()}
+    ${moodGraphPanel()}
+    ${progressPulseCard()}
   `;
 }
 
@@ -5719,7 +5620,21 @@ function viewSleep() {
     alarmCountdown = `${Math.floor(diff / 60)}h ${diff % 60}m until alarm`;
   }
 
-  const optimizerCard = `
+  return `
+    ${brandbar()}
+    <div class="slhero">
+      <div class="slhero-aurora"></div>
+      <div class="slhero-inner">
+        <div class="slhero-date">${dateStr}</div>
+        <h1 class="slhero-greeting">${greetWord}${firstName ? `,&nbsp;<span class="slhero-name">${esc(firstName)}</span>` : ''}<span class="slhero-moon">${moonPhase}</span></h1>
+        <div class="slhero-sub">${esc(heroStat)}</div>
+      </div>
+    </div>
+
+    ${sleepScoreCard()}
+    ${healthSyncCard()}
+    ${windDownCard()}
+
     <section class="card sleep-opt-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Bedtime optimizer</span>
@@ -5743,9 +5658,8 @@ function viewSleep() {
         <input type="time" id="sleepWakeInput" value="${esc(wake)}" class="sleep-wake-input" />
         <button class="mini-act" data-act="sleep-wake-save">Set</button>
       </div>
-    </section>`;
+    </section>
 
-  const wakeMoodCard = `
     <section class="card sleep-wakemood-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Morning check-in</span>
@@ -5754,9 +5668,8 @@ function viewSleep() {
       <div class="wakemood-q">How did you feel when you woke up today?</div>
       ${wakeMoodChips(wakeMood)}
       <div class="seg-hint" style="margin-top:10px">Logged against today’s sleep — Arc90 will surface how bedtime affects your mornings.</div>
-    </section>`;
+    </section>
 
-  const alarmCard = `
     <section class="card sleep-alarm-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Smart alarm</span>
@@ -5781,9 +5694,8 @@ function viewSleep() {
           </div>
           <div class="seg-hint" style="margin-top:10px">Plays an ascending chime when time arrives. Keep app in foreground or add to home screen.</div>
         </div>`}
-    </section>`;
+    </section>
 
-  const soundsCard = `
     <section class="card sleep-sounds-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Spatial sounds</span>
@@ -5809,9 +5721,8 @@ function viewSleep() {
         <div class="sound-timer-left">${soundTimer ? `Auto-off in <b id="soundTimerLeft">${fmtTimerLeft(SOUND_ENGINE.getRemaining())}</b>` : 'Playing continuously — tap a time to set a sleep timer'}</div>` : ''}
       <div class="seg-hint" style="margin-top:10px">Nature sounds are real field recordings; noise &amp; tones are generated. Use earbuds for binaural beats. The sleep timer fades the sound out and stops.</div>
       <div class="sound-credits">Recordings via Freesound — Rain by alex36917, Ocean by Luftrum, Storm by digifishmusic (CC BY); Stream, Wind, Forest, Night &amp; Fire are CC0 / public domain.</div>
-    </section>`;
+    </section>
 
-  const medCard = `
     <section class="card sleep-med-card">
       <div class="card-head">
         <span class="tip-tag" style="margin:0">Sleep meditations</span>
@@ -5835,9 +5746,11 @@ function viewSleep() {
               <span class="med-go">›</span>
             </button>`).join('')}
         </div>`}
-    </section>`;
+    </section>
 
-  const healthNav = `
+    ${sleepDebtCard()}
+    ${sleepAnalysisCard()}
+
     <div class="sleep-health-nav">
       <button class="shn-chip" data-act="tab" data-id="protocol">
         ${ICONS.protocol}
@@ -5855,89 +5768,9 @@ function viewSleep() {
         </div>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="shn-arr"><path d="M9 18l6-6-6-6"/></svg>
       </button>
-    </div>`;
-
-  const disclaimer = `<div class="empty-note" style="padding-top:8px">Arc90 is not a medical device. Sounds and meditations are for relaxation only.</div>`;
-
-  if (appRoom === 'alarm') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Alarm & wind-down')}
-      ${alarmCard}
-      ${windDownCard()}
-    </div>`;
-  if (appRoom === 'sounds') return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Sounds & meditations')}
-      ${soundsCard}
-      ${medCard}
-      ${disclaimer}
-    </div>`;
-  if (appRoom) return `
-    ${brandbar()}
-    <div class="room-view">
-      ${roomHead('Sleep insights')}
-      ${sleepAnalysisCard()}
-      ${sleepDebtCard()}
-      ${optimizerCard}
-      ${healthSyncCard()}
-      ${healthNav}
-      ${disclaimer}
-    </div>`;
-
-  const alarmSet = !!alarm;
-  const armed = SOUND_ENGINE.alarmArmed();
-  return `
-    ${brandbar()}
-    <div class="slhero">
-      <div class="slhero-aurora"></div>
-      <div class="slhero-inner">
-        <div class="slhero-date">${dateStr}</div>
-        <h1 class="slhero-greeting">${greetWord}${firstName ? `,&nbsp;<span class="slhero-name">${esc(firstName)}</span>` : ''}<span class="slhero-moon">${moonPhase}</span></h1>
-        <div class="slhero-sub">${esc(heroStat)}</div>
-      </div>
     </div>
 
-    <div class="tap-console" data-act="room-open" data-id="insights" role="button" tabindex="0" aria-label="Open sleep insights">
-      ${sleepScoreCard()}
-    </div>
-
-    <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="alarm">
-        <b>${armed ? '●' : alarmSet ? fmtTime12(Number(alarm.split(':')[0]) * 60 + Number(alarm.split(':')[1])).replace(' ', '') : '—'}</b><small>${armed ? 'armed' : 'alarm'}</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="sounds">
-        <b>${activeSound ? '♪' : '𝄽'}</b><small>sounds</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="insights">
-        <b>${stats.avg ? stats.avg.toFixed(1) + 'h' : '…'}</b><small>insights</small>
-      </button>
-    </div>
-
-    ${windDownActive() ? windDownCard() : ''}
-
-    ${wakeMoodCard}
-
-    ${(() => {
-      const goalH = Math.max(stats.goal + 2, 8);
-      const bars = recentKeys(7).map((k) => {
-        const s = sleepDay(k);
-        const h = s.hours === '' ? 0 : Number(s.hours);
-        const pct = Math.max(8, Math.min(100, Math.round((h / goalH) * 100)));
-        const dow = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'][new Date(k + 'T00:00').getDay()] || '';
-        return `<button class="sleep-bar ${h >= stats.goal ? 'kept' : h ? 'low' : ''}" data-act="sleep-day" data-key="${k}" aria-label="Edit sleep for ${niceDate(k)}"><span class="sh">${h ? h.toFixed(h % 1 ? 1 : 0) : ''}</span><span class="strack"><i style="height:${h ? pct : 8}%"></i></span><span class="sd">${dow}</span></button>`;
-      }).join('');
-      return `
-      <section class="card sleep-graph-card">
-        <div class="card-head">
-          <span class="tip-tag" style="margin:0">Last 7 nights</span>
-          <span class="reminder-state">${stats.avg ? `${stats.avg.toFixed(1)}h avg · goal ${stats.goal}h` : 'nothing logged yet'}</span>
-        </div>
-        <div class="sleep-bars">${bars}</div>
-        <div class="seg-hint" style="margin-top:8px">Tap a night to log or edit it.</div>
-      </section>`;
-    })()}
+    <div class="empty-note" style="padding-top:8px">Arc90 is not a medical device. Sounds and meditations are for relaxation only.</div>
   `;
 }
 
@@ -7086,7 +6919,7 @@ const OCCUPATIONS = [
 function renderOnboarding() {
   if (!ob) ob = freshOb();
   const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obUpgrade];
+  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obEmail, obUpgrade];
   const dotCount = steps.length - 2;
   const dots = ob.step === 0 ? '' :
     `<div class="ob-dots">${Array.from({ length: dotCount }, (_, x) => x + 1).map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
@@ -7269,6 +7102,33 @@ function obContract() {
         <div class="dates">${fmtDate(new Date())} → ${fmtDate(end)}, ${end.getFullYear()}</div>
       </div>
       <button class="btn ob-cta" data-act="ob-next">Start Day 1</button>
+    </div>`;
+}
+
+function obEmail() {
+  if (ob.emailDone || S.subscribed) return `
+    <div>
+      <div class="ob-title">You’re <em>in</em>.</div>
+      <div class="ob-sub">Your spot and founding price are saved. One more thing before you start.</div>
+      <div class="ob-health-ok">✓ ${esc(ob.email || 'Email saved')}</div>
+      <button class="btn ob-cta" data-act="ob-next">Continue</button>
+    </div>`;
+  return `
+    <div>
+      <div class="ob-title">Lock your <em>founding spot</em></div>
+      <div class="ob-sub">Drop your email to save your progress backup and lock the founding price before it goes up.</div>
+      <div class="field" style="margin-top:6px">
+        <label>Email</label>
+        <input id="obEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="${esc(ob.email || '')}" />
+        <input id="obEmailHp" type="text" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;width:1px;height:1px;opacity:0" />
+      </div>
+      <label class="ob-consent" for="obEmailConsent">
+        <input type="checkbox" id="obEmailConsent" />
+        <span>Email me occasional progress tips and founding updates. No spam, unsubscribe anytime.</span>
+      </label>
+      <div id="obEmailErr" class="ob-email-err" aria-live="polite"></div>
+      <button class="btn ob-cta" data-act="ob-email-save">Save my spot</button>
+      <button class="ob-skip" data-act="ob-next">Skip for now</button>
     </div>`;
 }
 
@@ -7893,7 +7753,6 @@ document.addEventListener('click', (e) => {
     case 'sleep-day': {
       const key = el.dataset.key || todayKey();
       sleepEditKey = key === todayKey() ? null : key;
-      if (tab === 'sleep' && !appRoom) appRoom = 'insights';   // surface graph taps land in the editor room
       render();
       break;
     }
@@ -7963,6 +7822,35 @@ document.addEventListener('click', (e) => {
 
     /* onboarding */
     case 'ob-next': ob.step++; renderOnboarding(); break;
+    case 'ob-email-save': {
+      const inp = document.getElementById('obEmail');
+      const consent = document.getElementById('obEmailConsent');
+      const hp = document.getElementById('obEmailHp');
+      const errEl = document.getElementById('obEmailErr');
+      const email = (inp ? inp.value : '').trim().toLowerCase();
+      const setErr = (m) => { if (errEl) errEl.textContent = m; };
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) { setErr('Enter a valid email, or skip.'); break; }
+      if (!consent || !consent.checked) { setErr('Check the box to opt in, or skip.'); break; }
+      ob.email = email;
+      const btn = el; btn.disabled = true; btn.textContent = 'Saving…';
+      fetch('/api/subscribe', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, consent: true, source: 'onboarding', hp: hp ? hp.value : '' }),
+      })
+        .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
+        .then(({ ok, d }) => {
+          if (ok && d.ok) {
+            ob.emailDone = true; S.subscribed = true; save();
+            track('subscribed', { source: 'onboarding' });
+            ob.step++; renderOnboarding();
+          } else {
+            setErr((d && d.error) || 'Could not save — try again or skip.');
+            btn.disabled = false; btn.textContent = 'Save my spot';
+          }
+        })
+        .catch(() => { setErr('Network error — try again or skip.'); btn.disabled = false; btn.textContent = 'Save my spot'; });
+      break;
+    }
     case 'ob-back': ob.step--; renderOnboarding(); break;
     case 'ob-health-connect': {
       const cap = window.Capacitor;
