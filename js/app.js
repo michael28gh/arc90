@@ -2854,7 +2854,7 @@ function streakHalf() {
   return halfStat({
     label: 'Streak',
     value: `<span class="${stk > 0 ? 'ms-amber' : ''}">${stk}</span><span style="font-size:13px;font-weight:800;color:var(--tx-2)">day${stk === 1 ? '' : 's'}</span>`,
-    sub: stk > 0 ? `Best ${Math.max(stk, bestDayStreak())} · keep the chain` : 'One rep starts it',
+    sub: stk > 0 ? `Best ${Math.max(stk, bestDayStreak())} · insights →` : 'One rep starts it · insights →',
     act: 'data-act="room-open" data-id="insights"',
     aria: `${stk}-day streak. Open insights.`,
   });
@@ -2880,15 +2880,15 @@ function insightsHalf() {
   });
 }
 
-/* The 90-day dot field, extracted from the hero — now lives in Insights. */
-function arcFieldPanel() {
+/* The 90-day dot field. bare=true returns just the panel (for embedding
+   inside the Today's-arc hero); otherwise a standalone card. */
+function arcFieldPanel(bare = false) {
   const day = dayNumber();
   const challengePct = Math.round((day / 90) * 100);
   const mom = momentum();
   const weekTone = mom >= 70 ? 'Strong week' : mom >= 45 ? 'Gaining traction' : 'Needs a reset';
-  return `
-    <section class="card">
-      <div class="arc-grid-panel" style="margin-top:0">
+  const panel = `
+      <div class="arc-grid-panel" style="${bare ? '' : 'margin-top:0'}">
         <div class="arc-grid-head">
           <div>
             <span class="eyebrow">90-day field</span>
@@ -2902,8 +2902,8 @@ function arcFieldPanel() {
           <span><i class="l2"></i>partial</span>
           <span><i class="l3"></i>fulfilled</span>
         </div>
-      </div>
-    </section>`;
+      </div>`;
+  return bare ? panel : `<section class="card">${panel}</section>`;
 }
 
 function viewToday() {
@@ -2975,11 +2975,15 @@ function viewToday() {
         </div>
       </div>
 
+      ${arcFieldPanel(true)}
+
     </section>
 
     <div class="bento" style="margin-top:12px">
-      ${readinessHalf()}
+      ${readinessArcCard()}
+
       ${streakHalf()}
+      ${coachHalf()}
 
       <div>
         <div class="card-head today-reps-head" style="margin-top:2px">
@@ -2991,11 +2995,6 @@ function viewToday() {
       </div>
 
       ${contextualCard()}
-
-      ${coachHalf()}
-      ${insightsHalf()}
-
-      ${arcFieldPanel()}
 
       ${dailyReflectionCard()}
 
