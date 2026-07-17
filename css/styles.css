@@ -727,6 +727,28 @@ button.hero-ring:active { transform: scale(0.97); }
 }
 .room-back:active { opacity: 0.6; }
 
+/* ============================================================
+   BENTO v4 — composed screens: hero (span 2) · half pairs · strips
+   Grid owns all spacing; cards drop their own margins inside it.
+   ============================================================ */
+.bento { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
+.bento > * { margin: 0 !important; grid-column: span 2; min-width: 0; }
+.bento > .bhalf { grid-column: span 1; }
+
+/* Half card: one stat — big value, caps label, one sub-line */
+.mini-stat {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px;
+  padding: 15px 14px 14px; text-align: left;
+  transition: transform 0.13s var(--spring);
+}
+.mini-stat:active { transform: scale(0.97); }
+.ms-label { font-size: 10px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase; color: var(--tx-3); }
+.ms-value { display: flex; align-items: center; gap: 10px; font-size: 27px; font-weight: 900; letter-spacing: -0.02em; line-height: 1; color: var(--tx); min-height: 40px; }
+.ms-value .ms-ring { width: 40px; height: 40px; flex: none; }
+.ms-value .ms-ico svg { width: 24px; height: 24px; }
+.ms-sub { font-size: 11.5px; color: var(--tx-2); line-height: 1.35; min-height: 15px; }
+.ms-amber { color: #f2b84b; }
+
 /* Tappable console wrapper — a hero card that pushes into its room */
 .tap-console { cursor: pointer; position: relative; transition: transform 0.13s var(--spring); }
 .tap-console:active { transform: scale(0.985); }

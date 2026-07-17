@@ -2816,6 +2816,70 @@ function readinessArcCard() {
     </button>`;
 }
 
+/* Bento v4 helpers — themed mini ring + one-stat half cards */
+function miniRing(pct, size = 40, sw = 6) {
+  const r = (size - sw) / 2, C = 2 * Math.PI * r;
+  const frac = pct === null ? 0 : Math.max(0, Math.min(100, pct)) / 100;
+  return `
+    <svg class="ms-ring" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" style="transform:rotate(-90deg)" aria-hidden="true">
+      <circle class="ring-track" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="${sw}"/>
+      <circle class="ring-fill" cx="${size / 2}" cy="${size / 2}" r="${r}" fill="none" stroke-width="${sw}"
+        stroke-dasharray="${C.toFixed(1)}" stroke-dashoffset="${(C * (1 - frac)).toFixed(1)}"/>
+    </svg>`;
+}
+
+function halfStat({ label, value, sub, act, aria }) {
+  return `
+    <button class="card bhalf mini-stat" ${act} aria-label="${esc(aria || label)}">
+      <span class="ms-label">${label}</span>
+      <span class="ms-value">${value}</span>
+      <span class="ms-sub">${sub}</span>
+    </button>`;
+}
+
+function readinessHalf() {
+  const v = vitality();
+  const st = vitalityState(v.score);
+  return halfStat({
+    label: 'Readiness',
+    value: `${miniRing(v.score)}${v.score === null ? '--' : v.score}`,
+    sub: `<span class="vitality-state ${st.cls}" style="font-size:11.5px"><span class="dot"></span>${st.label}</span>`,
+    act: 'data-act="room-open" data-id="readiness"',
+    aria: `Readiness ${v.score === null ? 'not logged' : v.score + ', ' + st.label}. Open breakdown.`,
+  });
+}
+
+function streakHalf() {
+  const stk = dayStreak();
+  return halfStat({
+    label: 'Streak',
+    value: `<span class="${stk > 0 ? 'ms-amber' : ''}">${stk}</span><span style="font-size:13px;font-weight:800;color:var(--tx-2)">day${stk === 1 ? '' : 's'}</span>`,
+    sub: stk > 0 ? `Best ${Math.max(stk, bestDayStreak())} · keep the chain` : 'One rep starts it',
+    act: 'data-act="room-open" data-id="insights"',
+    aria: `${stk}-day streak. Open insights.`,
+  });
+}
+
+function coachHalf() {
+  return halfStat({
+    label: 'Coach',
+    value: `<span class="ms-ico">${ICONS.coach}</span>`,
+    sub: 'Your read & 7-day plan →',
+    act: 'data-act="tab" data-id="coach"',
+    aria: 'Open your coach',
+  });
+}
+
+function insightsHalf() {
+  return halfStat({
+    label: 'Insights',
+    value: '◈',
+    sub: 'Weak spot, patterns & comeback →',
+    act: 'data-act="room-open" data-id="insights"',
+    aria: 'Open insights',
+  });
+}
+
 /* The 90-day dot field, extracted from the hero — now lives in Insights. */
 function arcFieldPanel() {
   const day = dayNumber();
@@ -2913,34 +2977,30 @@ function viewToday() {
 
     </section>
 
-    ${readinessArcCard()}
+    <div class="bento" style="margin-top:12px">
+      ${readinessHalf()}
+      ${streakHalf()}
 
-    <div class="card-head today-reps-head">
-      <span class="section-title" style="margin:0">Today</span>
-      <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
+      <div>
+        <div class="card-head today-reps-head" style="margin-top:2px">
+          <span class="section-title" style="margin:0">Today</span>
+          <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
+        </div>
+        ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
+          : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
+      </div>
+
+      ${contextualCard()}
+
+      ${coachHalf()}
+      ${insightsHalf()}
+
+      ${arcFieldPanel()}
+
+      ${dailyReflectionCard()}
+
+      ${premiumLaunchCard()}
     </div>
-    ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
-      : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
-
-    ${contextualCard()}
-
-    ${arcFieldPanel()}
-
-    ${dailyReflectionCard()}
-
-    <div class="mini-tile-row">
-      <button class="mini-tile" data-act="room-open" data-id="insights">
-        <b class="mt-amber">${dayStreak()}</b><small>streak</small>
-      </button>
-      <button class="mini-tile" data-act="tab" data-id="coach">
-        <b class="mt-violet">${ICONS.coach}</b><small>coach</small>
-      </button>
-      <button class="mini-tile" data-act="room-open" data-id="insights">
-        <b class="mt-violet">◈</b><small>insights</small>
-      </button>
-    </div>
-
-    ${premiumLaunchCard()}
   `;
 }
 
@@ -5631,7 +5691,24 @@ function viewSleep() {
       </div>
     </div>
 
+    <div class="bento" style="margin-top:12px">
     ${sleepScoreCard()}
+
+    ${halfStat({
+      label: 'Alarm',
+      value: SOUND_ENGINE.alarmArmed() ? `<span class="ms-amber">●</span><span style="font-size:16px">Armed</span>` : (alarm ? fmtTime12(Number(alarm.split(':')[0]) * 60 + Number(alarm.split(':')[1])) : '—'),
+      sub: SOUND_ENGINE.alarmArmed() ? 'Night Mode is on →' : (alarm ? esc(alarmCountdown || 'set') + ' →' : 'Set a smart alarm →'),
+      act: 'data-act="scroll-to" data-target=".sleep-alarm-card"',
+      aria: 'Jump to the alarm',
+    })}
+    ${halfStat({
+      label: 'Sounds',
+      value: SOUND_ENGINE.getActive() && SOUND_ENGINE.getActive() !== '#keepalive' ? `<span style="font-size:16px">${esc(SOUND_ENGINE.SOUNDS[SOUND_ENGINE.getActive()]?.label || 'Playing')}</span>` : '♪',
+      sub: SOUND_ENGINE.getActive() && SOUND_ENGINE.getActive() !== '#keepalive' ? 'Live · tap to manage →' : 'Rain, ocean, noise & tones →',
+      act: 'data-act="scroll-to" data-target=".sleep-sounds-card"',
+      aria: 'Jump to sleep sounds',
+    })}
+
     ${healthSyncCard()}
     ${windDownCard()}
 
@@ -5771,6 +5848,7 @@ function viewSleep() {
     </div>
 
     <div class="empty-note" style="padding-top:8px">Arc90 is not a medical device. Sounds and meditations are for relaxation only.</div>
+    </div>
   `;
 }
 
@@ -7364,6 +7442,7 @@ document.addEventListener('click', (e) => {
     case 'stress-quick': setQuickScale('stress', id, 'Stress', stressLabel); break;
     case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
     case 'room-open': appRoom = id; window.scrollTo(0, 0); render(); break;
+    case 'scroll-to': document.querySelector(el.dataset.target)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); break;
     case 'room-back': appRoom = null; window.scrollTo(0, 0); render(); break;
     case 'readiness-scroll': {
       if (tab === 'today') { appRoom = 'readiness'; window.scrollTo(0, 0); render(); }
