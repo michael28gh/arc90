@@ -149,6 +149,35 @@ Hook stays on screen 1.5s max · Each slide ~2s · Total ~10-12s
 
 ---
 
+## Script 6 — "Your Body Already Knows If Today's a Push Day"
+
+**Hook (Slide 1)**
+> Your body already knows if today's a push day.
+> Most people just don't check.
+
+**Slide 2**
+> Whoop and Oura call it Readiness.
+> Sleep + energy + stress + recovery — one number.
+
+**Slide 3**
+> High Readiness → push the hard rep.
+> Low Readiness → do the minimum, protect the streak.
+> Ignoring it is how burnout starts.
+
+**Slide 4**
+> Most habit apps don't track this.
+> They ask "did you do it."
+> Not "should you, today."
+
+**Slide 5 (CTA)**
+> Arc90 gives you a daily Readiness score.
+> 7 signals. One number.
+> 👇 Link in the pinned comment. Free to start.
+
+**Caption:** Your body already knows — you're just not checking. Link in the pinned comment 👇 #biohacking #readiness #habits #recovery #arc90
+
+---
+
 ## Image Direction Per Script
 
 **Script 1** — Aesthetic dark journal/planner, calendar close-up, abstract time-lapse
@@ -156,3 +185,15 @@ Hook stays on screen 1.5s max · Each slide ~2s · Total ~10-12s
 **Script 3** — Brain/neuron aesthetic (dark purple), clock time-lapse, journal writing
 **Script 4** — Sunrise window, coffee + journal, clean bedroom morning shot
 **Script 5** — Habit tracker app close-up, person checking off list, data chart visual
+**Script 6** — Close-up of Arc90's Readiness ring (aurora gradient glow) on phone, or a wrist-wearable shot for pattern recognition against Whoop/Oura audiences
+
+---
+
+## CTA note (updated 2026-07-18)
+
+Bio link is currently plain text (not tappable) until the TikTok Business
+Account + EIN verification goes through. **Until then, every new video's
+CTA slide + caption should say "link in the pinned comment," not "link in
+bio."** Pin a comment with the raw URL (`arc90.vercel.app`) right after
+publishing each video. Switch back to "link in bio" once the business
+verification clears and the website field is live.

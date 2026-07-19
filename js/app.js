@@ -2548,6 +2548,26 @@ function isDevHost() {
   return ['localhost', '127.0.0.1', '0.0.0.0', ''].includes(window.location.hostname);
 }
 
+/* Full-tab premium lock — used to gate an entire tab (Sleep, Focus) rather
+   than a single action. Renders instead of the tab's real content when
+   !S.premium; tapping it opens the paywall sheet with matching copy. */
+function premiumTabLock(context, icon, points) {
+  const copy = paywallCopy(context);
+  return `
+    <section class="card premium-tab-lock">
+      <div class="ptl-icon">${icon}</div>
+      <span class="tip-tag" style="margin:0">${esc(copy.eyebrow)}</span>
+      <h2 class="ptl-title">${esc(copy.title)}</h2>
+      <p class="ptl-sub">${esc(copy.sub)}</p>
+      ${points ? `<ul class="ptl-points">${points.map((p) => `<li>${esc(p)}</li>`).join('')}</ul>` : ''}
+      <div class="ptl-price">
+        <b>${PREMIUM_OFFER.price}</b><span>${PREMIUM_OFFER.interval} · ${esc(PREMIUM_OFFER.perWeek)}</span>
+      </div>
+      <button class="btn ptl-cta" data-act="paywall-ctx" data-id="${context}">${esc(PREMIUM_OFFER.cta)}</button>
+      <div class="seg-hint">${esc(PREMIUM_OFFER.note)}</div>
+    </section>`;
+}
+
 function paywallCopy(context = '') {
   const copy = {
     'habit-limit': {
@@ -2569,6 +2589,16 @@ function paywallCopy(context = '') {
       eyebrow: 'Proof Wall is filling up',
       title: 'Keep every piece of evidence.',
       sub: `Free saves up to ${PROOF_FREE_PHOTOS} progress photos. Premium unlocks unlimited proof, albums, and a 90-day export you can keep forever.`,
+    },
+    sleep: {
+      eyebrow: 'Sleep is Premium',
+      title: 'Sleep Score, Smart Alarm & sounds — one system.',
+      sub: 'Premium unlocks Sleep Score, the bedtime optimizer, Smart Alarm with Night Mode, spatial sounds, guided meditations, sleep debt tracking, and Apple Health sync.',
+    },
+    focus: {
+      eyebrow: 'Focus is Premium',
+      title: 'Protect the reps that matter most.',
+      sub: 'Premium unlocks the Focus timer, Focus Shield app blocking, the all-day lock, and your focus target list.',
     },
   };
   return copy[context] || {
@@ -2633,7 +2663,8 @@ function render() {
 }
 
 function tabBtn(id, label, icon) {
-  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}</span></button>`;
+  const locked = !S.premium && (id === 'sleep' || id === 'focus');
+  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}${locked ? ' <em class="tab-lock">🔒</em>' : ''}</span></button>`;
 }
 
 function sideNavBtn(id, label, icon, meta = '') {
@@ -3887,6 +3918,16 @@ function focusRecentRow(session) {
 }
 
 function viewFocus() {
+  if (!S.premium) return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Focus</h1>
+        <div class="sub">One clean block. Fewer exits. More attention for the rep that matters.</div>
+      </div>
+    </header>
+    ${premiumTabLock('focus', '🎯', ['Focus timer with live session tracking', 'Focus Shield — block distracting apps', 'All-day lock for deep-work days', 'Unlimited focus targets'])}
+  `;
   const stats = focusStats();
   const active = S.focus.active;
   const next = nextBestRep();
@@ -5652,6 +5693,16 @@ function sleepDebtCard() {
 }
 
 function viewSleep() {
+  if (!S.premium) return `
+    ${brandbar()}
+    <header class="topbar">
+      <div>
+        <h1>Sleep</h1>
+        <div class="sub">Bedtime, sounds, alarms &amp; recovery signals</div>
+      </div>
+    </header>
+    ${premiumTabLock('sleep', '🌙', ['Sleep Score from duration, consistency & quality', 'Smart Alarm with Night Mode (rings screen-locked)', 'Spatial sounds & guided meditations', 'Sleep debt tracking + Apple Health sync'])}
+  `;
   const set = S.health.settings;
   const wake = set.wakeTarget || '07:00';
   const alarm = set.alarmTime || '';
@@ -7217,7 +7268,8 @@ function obUpgrade() {
     ['🧠', 'Coach AI + weekly reviews', 'Personal reads on your data and what to fix next.'],
     ['🔥', 'Forge recovery mode', 'A 7-day comeback plan for when you slip — before it becomes a lost week.'],
     ['📊', 'Axis dashboard & exports', 'Deeper analytics and a 90-day export you keep forever.'],
-    ['🎨', 'Every theme, sound & spatial audio', 'The full premium sleep and focus toolkit.'],
+    ['🌙', 'Full Sleep toolkit', 'Sleep Score, Smart Alarm with Night Mode, spatial sounds & guided meditations.'],
+    ['🎯', 'Full Focus toolkit', 'Focus timer, app-blocking shield, and the all-day lock.'],
   ];
   return `
     <div class="ob-pay">
@@ -7524,6 +7576,7 @@ document.addEventListener('click', (e) => {
     }
 
     case 'paywall': track('paywall_viewed'); sheet = { type: 'paywall' }; render(); break;
+    case 'paywall-ctx': track('paywall_viewed', { context: id }); sheet = { type: 'paywall', context: id }; render(); break;
     case 'premium-on': S.premium = true; save(); sheet = null; render(); confetti(); break;
     case 'premium-off': S.premium = false; save(); render(); break;
 
