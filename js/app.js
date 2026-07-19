@@ -6717,7 +6717,7 @@ function viewProfile() {
     <div class="section-title">App organization</div>
     <button class="prow" data-act="edit"><span class="pe">✏️</span><span class="pl">Edit name, occupation & goal</span><span class="arr">›</span></button>
     <button class="prow" data-act="tab" data-id="habits"><span class="pe">☑</span><span class="pl">Habit library</span><span class="pv">${S.habits.length}${S.premium ? '' : `/${FREE_HABITS}`} active</span><span class="arr">›</span></button>
-    <button class="prow" data-act="tab" data-id="focus"><span class="pe">🎯</span><span class="pl">Focus system</span><span class="pv">${focusStats().blockedCount ? focusStats().blockedCount + ' targets' : 'set up shield'}</span><span class="arr">›</span></button>
+    <button class="prow" data-act="tab" data-id="focus"><span class="pe">🎯</span><span class="pl">Focus system</span><span class="pv">${S.premium ? (focusStats().blockedCount ? focusStats().blockedCount + ' targets' : 'set up shield') : '🔒 Premium'}</span><span class="arr">›</span></button>
     <button class="prow" data-act="tab" data-id="protocol"><span class="pe">🧬</span><span class="pl">Protocol tracker</span><span class="pv">${S.protocols.length ? S.protocols.length + ' tracked' : 'set up'}</span><span class="arr">›</span></button>
 
     <div class="premium-card profile-premium-card">
