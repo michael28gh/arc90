@@ -41,7 +41,7 @@ function defaultState() {
   return {
     onboarded: false,
     premium: false,
-    theme: 'mono',
+    theme: 'dark',
     profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null },
     ai: { provider: 'anthropic', key: '' },
     aiChat: [],                  // [{role:'user'|'assistant', content}]
@@ -860,7 +860,7 @@ function buildStoryCanvas() {
   ctx.textAlign = 'left';
   ctx.fillStyle = INK; ctx.fillText('ARC', x0, 230);
   const wm = ctx.createLinearGradient(x0 + wArc, 0, x0 + wArc + wNine, 0);
-  wm.addColorStop(0, '#c8c8c8'); wm.addColorStop(1, '#ffffff');
+  wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 230);
   ctx.textAlign = 'center';
 
@@ -881,14 +881,14 @@ function buildStoryCanvas() {
   ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
-  rg.addColorStop(0, '#e6e6e6'); rg.addColorStop(0.5, '#ffffff'); rg.addColorStop(1, '#c8c8c8');
+  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
   ctx.save();
-  ctx.shadowColor = 'rgba(255,255,255,0.35)'; ctx.shadowBlur = 38;
+  ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 38;
   ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke();
   ctx.restore();
   // leading "activity dot" at the arc tip
   ctx.save();
-  ctx.shadowColor = 'rgba(255,255,255,0.6)'; ctx.shadowBlur = 24;
+  ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 24;
   ctx.fillStyle = '#ecdcff';
   ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 14, 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
@@ -954,7 +954,7 @@ function buildQuoteCanvas() {
   ctx.font = '800 60px ' + SANS;
   const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
   ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 200);
-  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#c8c8c8'); wm.addColorStop(1, '#ffffff');
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 200);
   ctx.textAlign = 'center';
   ctx.fillStyle = 'rgba(143,107,255,0.45)'; ctx.font = '800 240px Georgia, "Times New Roman", serif'; ctx.fillText('“', cx, 600);
@@ -980,7 +980,8 @@ function cardTheme() {
   const t = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   const P = {
     mono:  { bg: ['#141414', '#0b0b0b', '#050505'], glow: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.08)', ink: '#f4f4f4', mute: 'rgba(244,244,244,0.58)', faint: 'rgba(244,244,244,0.42)', track: 'rgba(255,255,255,0.10)', grad: ['#d6d6d6', '#f4f4f4', '#c8c8c8'], accent: '#f2f2f2', on: '#000000', ringGlow: 'rgba(255,255,255,0.30)', tick: '#ffffff', dim: 'rgba(255,255,255,0.07)' },
-    dark:  { bg: ['#12100c', '#0a0908', '#050505'], glow: 'rgba(227,194,125,0.14)', border: 'rgba(255,255,255,0.05)', ink: '#f4f1ea', mute: 'rgba(244,241,234,0.58)', faint: 'rgba(244,241,234,0.42)', track: 'rgba(244,241,234,0.10)', grad: ['#f6ecd6', '#e9cf94', '#e3c27d'], accent: '#e3c27d', on: '#191204', ringGlow: 'rgba(227,194,125,0.45)', tick: '#f6ecd6', dim: 'rgba(244,241,234,0.09)' },
+    dark:  { bg: ['#0c0e18', '#08090f', '#050609'], glow: 'rgba(143,107,255,0.20)', border: 'rgba(255,255,255,0.05)', ink: '#f4f5ff', mute: 'rgba(221,225,255,0.58)', faint: 'rgba(221,225,255,0.42)', track: 'rgba(221,225,255,0.10)', grad: ['#5ee4ff', '#8f6bff', '#c14cff'], accent: '#8f6bff', on: '#ffffff', ringGlow: 'rgba(143,107,255,0.5)', tick: '#ecdcff', dim: 'rgba(221,225,255,0.09)' },
+    gold:  { bg: ['#12100c', '#0a0908', '#050505'], glow: 'rgba(227,194,125,0.14)', border: 'rgba(255,255,255,0.05)', ink: '#f4f1ea', mute: 'rgba(244,241,234,0.58)', faint: 'rgba(244,241,234,0.42)', track: 'rgba(244,241,234,0.10)', grad: ['#f6ecd6', '#e9cf94', '#e3c27d'], accent: '#e3c27d', on: '#191204', ringGlow: 'rgba(227,194,125,0.45)', tick: '#f6ecd6', dim: 'rgba(244,241,234,0.09)' },
     light: { bg: ['#ffffff', '#f1f1f1', '#e6e6e6'], glow: 'rgba(0,0,0,0.035)', border: 'rgba(0,0,0,0.14)', ink: '#141414', mute: 'rgba(17,17,17,0.66)', faint: 'rgba(17,17,17,0.54)', track: 'rgba(0,0,0,0.14)', grad: ['#555555', '#222222', '#111111'], accent: '#141414', on: '#ffffff', ringGlow: 'rgba(0,0,0,0.18)', tick: '#111111', dim: 'rgba(0,0,0,0.08)' },
     green: { bg: ['#08150e', '#050b08', '#030604'], glow: 'rgba(52,211,153,0.17)', border: 'rgba(180,255,214,0.08)', ink: '#eafff4', mute: 'rgba(234,255,244,0.58)', faint: 'rgba(234,255,244,0.42)', track: 'rgba(180,255,214,0.12)', grad: ['#6ee7b7', '#34d399', '#10b981'], accent: '#34d399', on: '#04140d', ringGlow: 'rgba(52,211,153,0.45)', tick: '#eafff4', dim: 'rgba(180,255,214,0.08)' },
     red:   { bg: ['#170709', '#0a0405', '#060203'], glow: 'rgba(255,93,108,0.17)', border: 'rgba(255,205,210,0.08)', ink: '#fff0f1', mute: 'rgba(255,240,241,0.58)', faint: 'rgba(255,240,241,0.42)', track: 'rgba(255,205,210,0.12)', grad: ['#ff8f7a', '#ff5d6c', '#e23950'], accent: '#ff5d6c', on: '#1a0306', ringGlow: 'rgba(255,93,108,0.45)', tick: '#fff0f1', dim: 'rgba(255,205,210,0.08)' },
@@ -6645,8 +6646,9 @@ function viewProfile() {
     <section class="card">
       <div class="theme-swatches">
         ${[
+          ['dark',  'Dark',  '#03040a', '#8f6bff'],
           ['mono',  'Mono',  '#0a0a0a', '#f2f2f2'],
-          ['dark',  'Gold',  '#0c0b0a', '#e3c27d'],
+          ['gold',  'Gold',  '#0c0b0a', '#e3c27d'],
           ['light', 'Light', '#f2f2f2', '#111111'],
           ['green', 'Green', '#050b08', '#34d399'],
           ['red',   'Red',   '#0a0405', '#ff5d6c'],
@@ -6656,7 +6658,7 @@ function viewProfile() {
             <span class="ts-name">${name}</span>
           </button>`).join('')}
       </div>
-      <div class="seg-hint">Five looks — same instrument. Pick the one you’ll want to open at night.</div>
+      <div class="seg-hint">Six looks — same instrument. Pick the one you’ll want to open at night.</div>
     </section>
 
     ${isDevHost() ? productReadinessCard() : ''}
@@ -8234,14 +8236,14 @@ function shareCardSvg() {
       <stop offset="1" stop-color="#202131"/>
     </linearGradient>
     <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#e6e6e6"/>
-      <stop offset="0.52" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#c8c8c8"/>
+      <stop offset="0" stop-color="#5ee4ff"/>
+      <stop offset="0.52" stop-color="#8f6bff"/>
+      <stop offset="1" stop-color="#c14cff"/>
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#e6e6e6"/>
-      <stop offset="0.52" stop-color="#ffffff"/>
-      <stop offset="1" stop-color="#c8c8c8"/>
+      <stop offset="0" stop-color="#5ee4ff"/>
+      <stop offset="0.52" stop-color="#8f6bff"/>
+      <stop offset="1" stop-color="#c14cff"/>
     </linearGradient>
     <style>
       .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b8bbd4;font-size:28px;font-weight:800;letter-spacing:5px}
@@ -8253,8 +8255,8 @@ function shareCardSvg() {
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#bgGrad)"/>
-  <circle cx="930" cy="90" r="260" fill="#ffffff" opacity="0.10"/>
-  <circle cx="100" cy="1240" r="280" fill="#ffffff" opacity="0.05"/>
+  <circle cx="930" cy="90" r="260" fill="#8f6bff" opacity="0.18"/>
+  <circle cx="100" cy="1240" r="280" fill="#5ee4ff" opacity="0.08"/>
   <rect x="70" y="70" width="940" height="1210" rx="58" fill="#11121c" opacity="0.94" stroke="#dce0ff" stroke-opacity="0.12"/>
 
   <text x="120" y="150" class="label">ARC90</text>
@@ -8391,7 +8393,7 @@ function exportProtocolReport() {
    ============================================================ */
 
 function confetti() {
-  const colors = ['#ffffff', '#c8c8c8', '#3ecf8e', '#ffbd6b', '#f2f2f2'];
+  const colors = ['#5ee4ff', '#8f6bff', '#c14cff', '#f7f7ff', '#5ee4c2'];
   for (let i = 0; i < 30; i++) {
     const b = document.createElement('div');
     b.className = 'confetti-bit';

@@ -38,6 +38,37 @@
 
 /* ===== OBSIDIAN THEME (default dark: warm ivory + one champagne accent) ===== */
 [data-theme="dark"] {
+  --bg: #03040a;
+  --bg-2: #06070f;
+  --card: rgba(220, 224, 255, 0.05);
+  --card-2: rgba(220, 224, 255, 0.09);
+  --line: rgba(220, 224, 255, 0.09);
+  --line-2: rgba(220, 224, 255, 0.17);
+  --tx: #f7f7ff;
+  --tx-2: rgba(247, 247, 255, 0.62);
+  --tx-3: rgba(247, 247, 255, 0.50);
+  --accent: #c4a8ff;
+  --accent-2: #a986ff;
+  --accent-3: #5ee4ff;
+  --accent-soft: rgba(143, 107, 255, 0.10);
+  --accent-line: rgba(143, 107, 255, 0.24);
+  --accent-glow: rgba(143, 107, 255, 0.22);
+  --grad: linear-gradient(135deg, #5ee4ff, #8f6bff 52%, #c14cff);
+  --on-accent: #ffffff;
+  --mint: #5ee4c2;
+  --mint-soft: rgba(94, 228, 194, 0.12);
+  --red: #f25c75;
+  --red-soft: rgba(242, 92, 117, 0.10);
+  --amber: #ffbd6b;
+  --amber-soft: rgba(255, 189, 107, 0.12);
+  --shadow: 0 20px 60px rgba(0, 0, 0, 0.60);
+  --btn-shadow: none;
+  --glow: rgba(143, 107, 255, 0.22);
+  --card-edge: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+/* ===== GOLD THEME (obsidian + champagne — kept as an option, no longer default) ===== */
+[data-theme="gold"] {
   --bg: #050505;
   --bg-2: #0c0b0a;
   --card: rgba(255, 250, 240, 0.045);
@@ -187,6 +218,14 @@ body::before {
     radial-gradient(140% 130% at 50% 0%, transparent 44%, rgba(0,0,0,0.68) 100%);
 }
 [data-theme="dark"] body::before {
+  /* aurora depth: cyan / violet / magenta glows, the original signature look */
+  background:
+    radial-gradient(640px 560px at 74% 6%, rgba(143, 107, 255, 0.28), transparent 62%),
+    radial-gradient(520px 460px at 12% 42%, rgba(77, 131, 255, 0.18), transparent 58%),
+    radial-gradient(440px 360px at 56% 98%, rgba(199, 62, 207, 0.16), transparent 62%),
+    radial-gradient(140% 130% at 50% 0%, transparent 48%, rgba(0, 0, 0, 0.72) 100%);
+}
+[data-theme="gold"] body::before {
   /* restrained depth: one warm candlelight bloom + neutral top sheen + vignette */
   background:
     radial-gradient(640px 560px at 74% 6%, rgba(227, 194, 125, 0.10), transparent 62%),
@@ -217,6 +256,7 @@ body::after {
 }
 [data-theme="light"] body::after { opacity: 0.025; }
 [data-theme="dark"] #app { background: none; }
+[data-theme="gold"] #app { background: none; }
 [data-theme="mono"] #app { background: none; }
 [data-theme="green"] #app { background: none; }
 [data-theme="red"] #app { background: none; }
@@ -227,6 +267,10 @@ body::after {
 [data-theme="dark"] .area-line { stroke: url(#ringGradDark); }
 [data-theme="dark"] .area-fill { fill: url(#areaGradDark); }
 [data-theme="dark"] .donut-fill { stroke: url(#ringGradDark); }
+[data-theme="gold"] .ring-fill { stroke: url(#ringGradGold); }
+[data-theme="gold"] .area-line { stroke: url(#ringGradGold); }
+[data-theme="gold"] .area-fill { fill: url(#areaGradGold); }
+[data-theme="gold"] .donut-fill { stroke: url(#ringGradGold); }
 [data-theme="light"] .ring-fill { stroke: url(#ringGradLight); }
 [data-theme="light"] .area-line { stroke: url(#ringGradLight); }
 [data-theme="light"] .donut-fill { stroke: url(#ringGradLight); }
@@ -4495,19 +4539,19 @@ button.hero-ring:active { transform: scale(0.97); }
   overflow: hidden;
   background:
     radial-gradient(120% 80% at 78% -10%,
-      rgba(255, 255, 255, 0.10) 0%,
+      var(--accent-glow) 0%,
       transparent 58%),
     linear-gradient(180deg,
-      color-mix(in srgb, #ffffff 7%, var(--bg)) 0%,
-      color-mix(in srgb, #ffffff 2%, var(--bg)) 42%,
+      color-mix(in srgb, var(--accent) 7%, var(--bg)) 0%,
+      color-mix(in srgb, var(--accent) 2%, var(--bg)) 42%,
       var(--bg) 100%);
 }
-/* soft drifting moonlight bloom */
+/* soft drifting moonlight bloom — tinted by the active theme's accent */
 .slhero-aurora {
   position: absolute; top: -56px; right: -36px;
   width: 200px; height: 200px; pointer-events: none;
   background: radial-gradient(circle,
-    rgba(255, 255, 255, 0.30) 0%,
+    color-mix(in srgb, var(--accent) 55%, transparent) 0%,
     transparent 70%);
   filter: blur(8px);
   opacity: 0.7;

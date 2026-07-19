@@ -16,14 +16,14 @@
   <link rel="icon" href="icons/icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=96" />
+  <link rel="stylesheet" href="css/styles.css?v=97" />
   <script defer src="/_vercel/insights/script.js"></script>
 </head>
 <body>
   <div id="splash" aria-hidden="true">
     <div class="splash-stage">
       <svg class="splash-arc" viewBox="0 0 200 200" fill="none">
-        <defs><linearGradient id="splashGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#c8c8c8"/><stop offset="1" stop-color="#ffffff"/></linearGradient></defs>
+        <defs><linearGradient id="splashGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ee4ff"/><stop offset="0.52" stop-color="#8f6bff"/><stop offset="1" stop-color="#c14cff"/></linearGradient></defs>
         <circle cx="100" cy="100" r="90" stroke="rgba(220,224,255,.08)" stroke-width="6"/>
         <circle class="splash-arc-fill" cx="100" cy="100" r="90" stroke="url(#splashGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="565" stroke-dashoffset="565" transform="rotate(-90 100 100)"/>
       </svg>
@@ -55,12 +55,22 @@
         <stop offset="0%" stop-color="#c8c8c8"/>
         <stop offset="100%" stop-color="#ffffff"/>
       </linearGradient>
-      <!-- obsidian theme ring: ivory into champagne, reads as brushed metal -->
+      <!-- aurora theme ring: signature cyan -> violet -> magenta glow -->
       <linearGradient id="ringGradDark" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#5ee4ff"/>
+        <stop offset="48%" stop-color="#8f6bff"/>
+        <stop offset="100%" stop-color="#c14cff"/>
+      </linearGradient>
+      <linearGradient id="areaGradDark" x1="0%" y1="0%" x2="0%" y2="100%">
+        <stop offset="0%" stop-color="#8f6bff" stop-opacity="0.36"/>
+        <stop offset="100%" stop-color="#c14cff" stop-opacity="0"/>
+      </linearGradient>
+      <!-- gold theme ring: ivory into champagne, reads as brushed metal -->
+      <linearGradient id="ringGradGold" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="#f6ecd6"/>
         <stop offset="100%" stop-color="#e3c27d"/>
       </linearGradient>
-      <linearGradient id="areaGradDark" x1="0%" y1="0%" x2="0%" y2="100%">
+      <linearGradient id="areaGradGold" x1="0%" y1="0%" x2="0%" y2="100%">
         <stop offset="0%" stop-color="#e3c27d" stop-opacity="0.30"/>
         <stop offset="100%" stop-color="#e3c27d" stop-opacity="0"/>
       </linearGradient>
@@ -72,8 +82,8 @@
     </defs>
   </svg>
 
-  <script src="js/data.js?v=96"></script>
-  <script src="js/app.js?v=96"></script>
+  <script src="js/data.js?v=97"></script>
+  <script src="js/app.js?v=97"></script>
   <script>
     (function () {
       var sp = document.getElementById('splash');
