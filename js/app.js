@@ -2375,6 +2375,7 @@ const ICONS = {
   vitals: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-5 3 10 2.4-6 1.6 3H21"/></svg>',
   sleep: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.5A8 8 0 1 1 10 4.2 6.5 6.5 0 0 0 20 14.5z"/></svg>',
   plan: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4.5" width="16" height="16" rx="3"/><path d="M8 3v3M16 3v3M4 9.5h16"/><path d="M8.6 14l2 2 3.8-4"/></svg>',
+  more: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>',
 };
 
 /* ---- Habit icon system: clean line icons instead of emoji ---- */
@@ -2623,7 +2624,7 @@ function premiumBenefits() {
 
 const app = document.getElementById('app');
 
-const TAB_ORDER = ['today', 'habits', 'sleep', 'focus', 'plan', 'progress', 'profile'];
+const TAB_ORDER = ['today', 'habits', 'sleep', 'focus', 'progress', 'profile'];
 function mainTabOf(id) {
   if (id === 'protocol' || id === 'vitals') return 'sleep'; // reached from the Sleep tab
   return TAB_ORDER.includes(id) ? id : 'today';
@@ -2631,6 +2632,7 @@ function mainTabOf(id) {
 let lastRenderedTab = null;
 let tabDirection = 'next';
 let navOpen = false;
+let moreOpen = false;            // "More" drop-up menu (Sleep/Focus) anchored above the tab bar
 let proofTag = 'Win';            // selected tag in the proof note composer
 let proofSeq = 0;                // disambiguates ids created in the same millisecond
 let shareCanvas = null;          // last-built story card (canvas) for native share / save
@@ -2645,15 +2647,17 @@ function render() {
   const views = { today: viewToday, habits: viewHabits, sleep: viewSleep, focus: viewFocus, plan: viewPlan, progress: viewProgress, coach: viewCoach, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
   app.innerHTML = `
     <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
-    <nav class="tabbar seven">
-      ${tabBtn('today', 'Today', ICONS.today)}
-      ${tabBtn('habits', 'Habits', ICONS.habits)}
-      ${tabBtn('sleep', 'Sleep', ICONS.sleep)}
-      ${tabBtn('focus', 'Focus', ICONS.focus)}
-      ${tabBtn('plan', 'Plan', ICONS.plan)}
-      ${tabBtn('progress', 'Progress', ICONS.progress)}
-      ${tabBtn('profile', 'Profile', ICONS.profile)}
-    </nav>
+    ${moreOpen ? '<button class="dropup-scrim" data-act="more-close" aria-label="Close menu"></button>' : ''}
+    <div class="tabbar-dock">
+      ${moreOpen ? moreDropup() : ''}
+      <nav class="tabbar">
+        ${tabBtn('today', 'Today', ICONS.today)}
+        ${tabBtn('habits', 'Habits', ICONS.habits)}
+        ${moreTabBtn()}
+        ${tabBtn('progress', 'Progress', ICONS.progress)}
+        ${tabBtn('profile', 'Profile', ICONS.profile)}
+      </nav>
+    </div>
     ${sheet ? viewSheet() : ''}
     ${alarmOverlayView()}
   `;
@@ -2663,8 +2667,32 @@ function render() {
 }
 
 function tabBtn(id, label, icon) {
-  const locked = !S.premium && (id === 'sleep' || id === 'focus');
-  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}${locked ? ' <em class="tab-lock">🔒</em>' : ''}</span></button>`;
+  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}</span></button>`;
+}
+
+function moreTabBtn() {
+  const current = mainTabOf(tab) === 'sleep' || mainTabOf(tab) === 'focus';
+  const locked = !S.premium;
+  const cls = [current ? 'active' : '', moreOpen ? 'open' : ''].filter(Boolean).join(' ');
+  return `<button class="tab-btn tab-btn-more ${cls}" data-act="more-toggle" aria-haspopup="true" aria-expanded="${moreOpen}">${ICONS.more}<span>More${locked ? ' <em class="tab-lock">🔒</em>' : ''}</span></button>`;
+}
+
+function moreDropup() {
+  const locked = !S.premium;
+  const items = [
+    { id: 'sleep', label: 'Sleep', sub: 'Score, alarm & sounds', icon: ICONS.sleep },
+    { id: 'focus', label: 'Focus', sub: 'Timer & app shield', icon: ICONS.focus },
+  ];
+  return `
+    <div class="dropup" role="menu" aria-label="More">
+      <div class="dropup-cap">${locked ? 'Premium tools' : 'More'}</div>
+      ${items.map((it) => `
+        <button class="dropup-item" data-act="tab" data-id="${it.id}" role="menuitem">
+          <span class="dropup-ico">${it.icon}</span>
+          <span class="dropup-txt"><b>${esc(it.label)}</b><small>${esc(it.sub)}</small></span>
+          ${locked ? '<span class="dropup-lock">🔒</span>' : '<span class="dropup-arr">›</span>'}
+        </button>`).join('')}
+    </div>`;
 }
 
 function sideNavBtn(id, label, icon, meta = '') {
@@ -2708,7 +2736,7 @@ function sideDrawer() {
 }
 
 function switchTab(next) {
-  if (!next || next === tab) return;
+  if (!next || next === tab) { if (moreOpen) { moreOpen = false; render(); } return; }
   const from = TAB_ORDER.indexOf(mainTabOf(tab));
   const to = TAB_ORDER.indexOf(mainTabOf(next));
   tabDirection = to >= from ? 'next' : 'prev';
@@ -2716,6 +2744,7 @@ function switchTab(next) {
   const update = () => {
     tab = next;
     navOpen = false;
+    moreOpen = false;
     openQA = null;
     appRoom = null;   // leaving Today always exits its rooms
     window.scrollTo(0, 0);
@@ -7359,6 +7388,8 @@ document.addEventListener('click', (e) => {
   switch (act) {
     case 'side-open': navOpen = true; render(); break;
     case 'side-close': navOpen = false; render(); break;
+    case 'more-toggle': moreOpen = !moreOpen; render(); break;
+    case 'more-close': moreOpen = false; render(); break;
     case 'tab': switchTab(id); break;
     case 'toggle': toggle(isNaN(+id) ? id : +id); break;
     case 'comeback': sheet = { type: 'comeback', n: 0 }; render(); track('comeback_opened'); break;
