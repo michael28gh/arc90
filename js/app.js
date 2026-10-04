@@ -3683,6 +3683,13 @@ function windowHour(hour) { return formatClockTime(`${String(hour % 24).padStart
 
 const LIFE_AREAS = { health: 'Health', mind: 'Mind', career_school: 'Career / school', money: 'Money', build: 'Build', people: 'People', spirit: 'Spirit' };
 
+// One area model: the goal's area wins, then the habit's own, then its library category.
+const CATEGORY_LIFE_AREA = { learn: 'career_school', work: 'career_school', move: 'health', eat: 'health', sleep: 'health', mind: 'mind', money: 'money', create: 'build', home: 'build', connect: 'people' };
+const FOCUS_LIFE_AREA = { fit: 'health', health: 'health', sleep: 'health', learn: 'career_school', lang: 'career_school', study: 'career_school', career: 'career_school', money: 'money', business: 'build', create: 'build', organize: 'build', calm: 'mind', digital: 'mind', read: 'mind', social: 'people' };
+function habitLifeArea(habit) {
+  return habitPurpose(habit).find((goal) => goal.life_area)?.life_area || habit.life_area || CATEGORY_LIFE_AREA[habit.cat] || null;
+}
+
 function habitPurpose(habit) {
   const goals = S.brain?.goals || [];
   const seen = new Set();
@@ -8546,7 +8553,7 @@ function finishOnboarding() {
   const firstGoalId = crypto.randomUUID();
   const visionId = ob.vision.trim() ? crypto.randomUUID() : null;
   if (visionId) S.brain.goals.push({ id: visionId, title: ob.vision.trim(), horizon: 'long', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
-  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'mid', parent_goal_id: visionId, status: 'active', created_at: new Date().toISOString() });
+  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'mid', parent_goal_id: visionId, status: 'active', life_area: FOCUS_LIFE_AREA[[...ob.cats][0]] || null, created_at: new Date().toISOString() });
   S.profile.arcGoalId = firstGoalId;
   S.habits.forEach((habit) => { habit.goal_id = firstGoalId; });
   const openDraft = !!ob.brainDump.trim();

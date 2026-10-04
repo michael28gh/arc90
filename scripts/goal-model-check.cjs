@@ -54,4 +54,20 @@ assert.doesNotMatch(app, /function obBrain\(/, 'capture lives in Arc, not onboar
 assert.match(app, /if \(visionId\) S\.brain\.goals\.push\(\{ id: visionId, title: ob\.vision\.trim\(\), horizon: 'long'/);
 assert.match(app, /horizon: 'mid', parent_goal_id: visionId/, 'the 90-day goal rolls up to the vision when one is given');
 assert.match(app, /if \(key === 'goal'\) btn\.disabled = !ob\.goal\.trim\(\);/, 'the goal step only needs a goal');
+// One area model: goal area, then habit area, then library category.
+const areaCode = app.slice(app.indexOf('const CATEGORY_LIFE_AREA'), app.indexOf('function habitPurpose(habit)')) + app.slice(app.indexOf('function habitPurpose(habit)'), app.indexOf('\n}\n', app.indexOf('function habitPurpose(habit)')) + 3);
+const area = { S: { brain: { goals: [{ id: 'g', status: 'active', life_area: 'money' }] } } };
+vm.createContext(area); vm.runInContext(areaCode, area);
+assert.equal(area.habitLifeArea({ goal_id: 'g', life_area: 'mind', cat: 'move' }), 'money');
+assert.equal(area.habitLifeArea({ life_area: 'mind', cat: 'move' }), 'mind');
+assert.equal(area.habitLifeArea({ cat: 'move' }), 'health');
+assert.equal(area.habitLifeArea({ cat: 'custom' }), null);
+assert.match(app, /life_area: FOCUS_LIFE_AREA\[\[\.\.\.ob\.cats\]\[0\]\]/, 'onboarding sets the goal area from the first focus area');
+
+// Morning priorities name the goal they serve.
+const ws = fs.readFileSync(path.join(__dirname, '../js/daily-workspace.js'), 'utf8');
+const pg = { S: { habits: [{ id: 'h', goal_id: 'g' }], tasks: [{ id: 't', goal_id: null }], brain: { goals: [{ id: 'g', status: 'active', title: 'I want to finish LVN school' }] } }, brainGoalLabel: t => t.replace(/^I want to /i, '') };
+vm.createContext(pg); vm.runInContext(ws.slice(ws.indexOf('function planningGoalOf('), ws.indexOf('function planningOptions(')), pg);
+assert.equal(pg.planningGoalOf({ kind: 'habit', id: 'h' }), 'finish LVN school');
+assert.equal(pg.planningGoalOf({ kind: 'task', id: 't' }), '');
 console.log('Goal model passed: mid-term arc goal, one-time safe migration, default links, synced titles, connected onboarding.');

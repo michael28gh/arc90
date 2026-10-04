@@ -48,6 +48,13 @@ function persistPlanningDrafts(period, date) {
   });
 }
 
+// The goal a priority serves, so the morning plan reads as goal work, not a to-do list.
+function planningGoalOf(p) {
+  const item = p.kind === 'habit' ? S.habits.find((h) => String(h.id) === String(p.id)) : p.kind === 'task' ? S.tasks.find((t) => String(t.id) === String(p.id)) : null;
+  const goal = item?.goal_id && (S.brain?.goals || []).find((g) => g.id === item.goal_id && g.status === 'active');
+  return goal ? (typeof brainGoalLabel === 'function' ? brainGoalLabel(goal.title) : goal.title) : '';
+}
+
 function planningOptions(date) {
   const draft = planningDraft('morning', date);
   const carried = S.planning.carry[date] || [];
@@ -87,7 +94,7 @@ function morningConsole(date, journal = false) {
       </label></div>
     <details class="planning-choices"><summary>Priorities <span id="priorityCount">${draft.priorities.length} / 3</span></summary>
       ${locked ? '<p>The priorities stay with this day\'s night review.</p>' : ''}
-      <div class="planning-choice-list">${options.length ? options.map((p) => `<label class="planning-choice"><input type="checkbox" data-planning-priority="${esc(p.key)}" data-date="${date}"${draft.priorities.some((v) => v.key === p.key) ? ' checked' : ''}${locked ? ' disabled' : ''}><span>${esc(p.title)}<small>${p.sourceDate ? 'Brought forward by you' : p.kind === 'habit' ? 'Habit' : 'Task'}</small></span></label>`).join('') : '<p>No habits or open tasks yet.</p>'}</div>
+      <div class="planning-choice-list">${options.length ? options.map((p) => `<label class="planning-choice"><input type="checkbox" data-planning-priority="${esc(p.key)}" data-date="${date}"${draft.priorities.some((v) => v.key === p.key) ? ' checked' : ''}${locked ? ' disabled' : ''}><span>${esc(p.title)}<small>${p.sourceDate ? 'Brought forward by you' : p.kind === 'habit' ? 'Habit' : 'Task'}${planningGoalOf(p) ? ` · ${esc(planningGoalOf(p))}` : ''}</small></span></label>`).join('') : '<p>No habits or open tasks yet.</p>'}</div>
     </details>
     <div class="planning-actions"><button class="btn" data-planning-act="morning-save" data-date="${date}">Save morning</button><span class="planning-draft-status">${S.planning.drafts?.morning?.[date] ? 'Draft saved on this device.' : saved?.savedAt ? 'Changes are not saved yet.' : 'Not saved yet.'}</span></div>
   </section>`;

@@ -121,7 +121,7 @@ function dashboardClock(hours) {
 
 function dashboardAreaScores(rows) {
   return Object.keys(LIFE_AREAS).map(area => {
-    const habits = S.habits.filter(h => habitPurpose(h).find(goal => goal.life_area)?.life_area === area || (!habitPurpose(h).some(goal => goal.life_area) && h.life_area === area));
+    const habits = S.habits.filter(h => typeof habitLifeArea === 'function' ? habitLifeArea(h) === area : habitPurpose(h).find(goal => goal.life_area)?.life_area === area || (!habitPurpose(h).some(goal => goal.life_area) && h.life_area === area));
     const planned = rows.filter(r => r.inArc).reduce((sum, r) => sum + habits.filter(h => dashboardHabitDue(h, r.key)).length, 0);
     const completed = rows.filter(r => r.inArc).reduce((sum, r) => sum + habits.filter(h => dashboardHabitDue(h, r.key) && isCompleted(h.id, r.key)).length, 0);
     return { area, planned, completed, rate: planned ? completed / planned : 0 };

@@ -616,6 +616,7 @@ function brainGoalSheet() {
   return `<div class="brain-detail brain-sheet"><header class="bs-head"><span class="bs-kind">${goal ? 'Goal' : 'New goal'}</span><h2>${goal ? 'Edit goal' : 'Add a goal'}</h2><p>Long-term goals are your vision. Mid and short-term goals are the steps that roll up to them.</p></header><p role="alert" class="bs-status">${esc(brainMessage)}</p>
     <label class="bs-field">Goal title<input id="brainGoalTitle" maxlength="80" value="${esc(form.title)}" placeholder="Finish LVN school"></label>
     <label class="bs-field">Horizon<select id="brainGoalHorizon"${linked ? ' disabled' : ''}>${brainOptions({ short: 'Short term', mid: 'Mid term', long: 'Long term' }, form.horizon)}</select></label>
+    ${typeof LIFE_AREAS === 'object' ? `<label class="bs-field">Life area<select id="brainGoalArea">${brainOptions({ '': 'Not set', ...LIFE_AREAS }, form.life_area || '')}</select></label>` : ''}
     ${form.horizon === 'long' ? '' : `<label class="bs-field">Supports<select id="brainGoalParent">${brainOptions({ '': 'No parent goal', ...Object.fromEntries(parents.map(g => [g.id, g.title])) }, form.parent_goal_id || '')}</select></label>`}
     <div class="bs-actions"><button class="btn" data-brain-act="goal-save">Save goal</button></div></div>`;
 }
@@ -623,7 +624,8 @@ function brainSaveGoal() {
   const title = document.getElementById('brainGoalTitle').value.trim();
   const horizon = document.getElementById('brainGoalHorizon').value;
   const parentId = (horizon !== 'long' && document.getElementById('brainGoalParent')?.value) || null;
-  sheet.form = { title, horizon, parent_goal_id: parentId };
+  const lifeArea = document.getElementById('brainGoalArea')?.value || null;
+  sheet.form = { title, horizon, parent_goal_id: parentId, life_area: lifeArea };
   if (!title || title.length > 80) { brainMessage = 'Use a goal title of 1 to 80 characters.'; return; }
   const parent = parentId && S.brain.goals.find(g => g.id === parentId && g.status === 'active');
   if (!['short', 'mid', 'long'].includes(horizon) || (parentId && (!parent || parent.horizon !== ({ short: 'mid', mid: 'long' })[horizon]))) { brainMessage = 'Choose a parent in the next horizon.'; return; }
@@ -639,7 +641,7 @@ function brainSaveGoal() {
       savedGoalId = id;
       const item = { temp_id: 'manual-goal', title, type: 'goal', horizon, parent_temp_id: null, parent_goal_id: parentId, frequency: null, confidence: 1, excerpt: title };
       S.brain.drafts.unshift({ id: dumpId, raw_text: title, status: 'sorted', created_at: now, items: [item], ids: { 'manual-goal': id } });
-      S.brain.goals.push({ id, title, horizon, parent_goal_id: parentId, status: 'active', created_at: now, source_dump_id: dumpId });
+      S.brain.goals.push({ id, title, horizon, parent_goal_id: parentId, status: 'active', life_area: lifeArea, created_at: now, source_dump_id: dumpId });
     }
   })) { if (savedGoalId && S.profile && savedGoalId === S.profile.arcGoalId) S.profile.goal = title; sheet = returnTo ? { ...returnTo, selectedGoalId: savedGoalId } : null; brainMessage = 'Goal saved.'; brainSelected = null; }
 }
