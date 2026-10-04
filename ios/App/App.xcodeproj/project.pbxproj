@@ -18,6 +18,8 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		A9C0000000000000000000B2 /* Arc90HealthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C0000000000000000000B1 /* Arc90HealthPlugin.swift */; };
 		A9C0000000000000000000B4 /* Arc90ViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A9C0000000000000000000B3 /* Arc90ViewController.swift */; };
+		A9C0000000000000000000B7 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A9C0000000000000000000B6 /* PrivacyInfo.xcprivacy */; };
+		A9C0000000000000000000B8 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A9C0000000000000000000B6 /* PrivacyInfo.xcprivacy */; };
 		D2B87DB3FE96B5DAA0CAA42F /* Arc90Widget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5C2CE0C4CC7B9245919471F9 /* Arc90Widget.swift */; };
 		FB1B14BBD67CCC3301D3B658 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 49ABB06141B520E57D73D196 /* Foundation.framework */; };
 /* End PBXBuildFile section */
@@ -64,6 +66,7 @@
 		A9C0000000000000000000B1 /* Arc90HealthPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Arc90HealthPlugin.swift; sourceTree = "<group>"; };
 		A9C0000000000000000000B3 /* Arc90ViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Arc90ViewController.swift; sourceTree = "<group>"; };
 		A9C0000000000000000000B5 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
+		A9C0000000000000000000B6 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		E310A44EE17B14749BEEBCBD /* Arc90WidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = Arc90WidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -123,6 +126,7 @@
 				A9C0000000000000000000B1 /* Arc90HealthPlugin.swift */,
 				A9C0000000000000000000B3 /* Arc90ViewController.swift */,
 				A9C0000000000000000000B5 /* App.entitlements */,
+				A9C0000000000000000000B6 /* PrivacyInfo.xcprivacy */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -238,6 +242,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A9C0000000000000000000B8 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,6 +251,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */,
+				A9C0000000000000000000B7 /* PrivacyInfo.xcprivacy in Resources */,
 				50B271D11FEDC1A000F3C39B /* public in Resources */,
 				504EC30F1FED79650016851F /* Assets.xcassets in Resources */,
 				50379B232058CBB4000EE86E /* capacitor.config.json in Resources */,
@@ -312,7 +318,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Arc90Widget/Arc90Widget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 9B5V7FR6PD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Arc90Widget/Info.plist;
@@ -461,7 +467,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 9B5V7FR6PD;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -485,7 +491,7 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = App/App.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 9B5V7FR6PD;
 				INFOPLIST_FILE = App/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
@@ -508,7 +514,7 @@
 				CLANG_ENABLE_OBJC_WEAK = NO;
 				CODE_SIGN_ENTITLEMENTS = Arc90Widget/Arc90Widget.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = 9B5V7FR6PD;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Arc90Widget/Info.plist;

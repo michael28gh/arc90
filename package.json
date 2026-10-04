@@ -6,10 +6,22 @@
   "scripts": {
     "dev": "python3 -m http.server 5180",
     "build": "node scripts/build.mjs",
-    "check": "node --check js/app.js && node --check js/data.js && node --check api/create-checkout-session.js && node --check api/health.js && node --check scripts/build.mjs && python3 -m json.tool manifest.webmanifest >/dev/null",
+    "preview": "node scripts/preview.mjs",
+    "check:adaptive": "node scripts/adaptive-day-check.cjs && node scripts/completion-time-check.cjs && node scripts/day-mode-check.cjs && node scripts/today-hierarchy-check.cjs",
+    "check:navigation": "node scripts/tab-navigation-check.cjs",
+    "check:focus": "node scripts/focus-tab-check.cjs",
+    "check:practice": "node scripts/practice-check.cjs",
+    "check:planning": "node --check js/daily-planning.js && node --check js/daily-workspace.js && node scripts/daily-planning-check.cjs",
+    "check:arc": "node --check js/brain-dump.js && node scripts/arc-workspace-check.cjs && node scripts/brain-core-check.cjs && node scripts/brain-map-check.cjs && node scripts/brain-links-check.cjs && node scripts/brain-cloud-check.cjs",
+    "check:guidance": "node scripts/guidance-check.cjs",
+    "check:support": "node scripts/day-support-check.cjs && node scripts/day-support-flow-check.cjs",
+    "check:preview": "node scripts/preview-access-check.cjs && node scripts/preview-access-flow-check.cjs",
+    "check:design": "node scripts/approved-design-check.cjs",
+    "check:launch": "node scripts/build.mjs && node scripts/live-update-check.cjs && node scripts/security-check.cjs && node scripts/auth-check.cjs && node scripts/auth-config-check.cjs && node scripts/privacy-check.cjs && python3 scripts/check-launch.py",
+    "check": "node --check js/app.js && node --check js/data.js && node scripts/habit-library-check.cjs && node --check api/create-checkout-session.js && node --check api/health.js && node --check scripts/build.mjs && python3 -m json.tool manifest.webmanifest >/dev/null",
     "deploy": "npx vercel",
     "deploy:prod": "npx vercel --prod",
-    "ios:sync": "npm run build && npx cap sync ios && cp dist/app.html ios/App/App/public/index.html",
+    "ios:sync": "npm run build && npx cap sync ios && node scripts/prepare-native-public.mjs",
     "ios:open": "npm run ios:sync && npx cap open ios"
   },
   "engines": {
@@ -18,9 +30,12 @@
   "dependencies": {
     "@capacitor/core": "^8.4.0",
     "@capacitor/ios": "^8.4.0",
+    "@capawesome/capacitor-live-update": "^8.4.2",
+    "d3-sankey": "^0.12.3",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "@capacitor/cli": "^8.4.0"
+    "@capacitor/cli": "^8.4.0",
+    "fflate": "^0.8.3"
   }
 }

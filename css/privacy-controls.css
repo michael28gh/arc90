@@ -1,0 +1,13 @@
+.privacy-consent,.privacy-settings{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0;color:#f5f7ff;box-sizing:border-box}
+.privacy-consent{position:fixed;z-index:10000;inset:auto 16px max(16px,env(safe-area-inset-bottom));margin:auto;max-width:620px;max-height:80dvh;overflow:auto;background:#15171c;border:1px solid #737983;border-radius:8px;padding:20px;box-shadow:0 8px 32px #0008}
+.privacy-consent[hidden]{display:none}
+.privacy-consent h2{font-size:19px;line-height:1.3;letter-spacing:0;margin:0 0 8px;color:#fff}
+.privacy-consent p{font-size:14px;line-height:1.5;margin:0 0 14px;color:#e0e3e8}
+.privacy-consent a{color:#8ae4d0;text-decoration:underline}
+.privacy-actions{display:flex;gap:12px;flex-wrap:wrap}
+.privacy-actions button{flex:1;min-height:44px;min-width:160px;border:1px solid #a1a8b2;border-radius:4px;background:#252930;color:#fff;padding:10px 14px;font:600 14px/1.4 inherit;cursor:pointer}
+.privacy-settings{position:fixed;z-index:9999;left:12px;bottom:max(12px,env(safe-area-inset-bottom));border:1px solid #737983;border-radius:4px;background:#15171c;padding:10px 12px;min-height:44px;font-size:12px;cursor:pointer}
+body:has(#app) .privacy-settings{bottom:calc(88px + env(safe-area-inset-bottom))}
+.privacy-actions button:focus-visible,.privacy-settings:focus-visible{outline:3px solid #8ae4d0;outline-offset:3px}
+.privacy-consent .privacy-storage:empty{display:none}
+.privacy-consent .privacy-storage{margin:12px 0 0}

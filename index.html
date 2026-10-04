@@ -5,41 +5,42 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Arc90 — Build your next 90 days</title>
   <meta name="description" content="Turn one meaningful goal into a realistic daily system. Track the habits that matter, see where you're falling behind, and build momentum for the next 90 days." />
+  <link rel="canonical" href="https://arc90.vercel.app/app" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Arc90: Build your next 90 days" />
+  <meta property="og:description" content="Track habits, focus sessions, and daily progress in a local-first 90-day planner." />
+  <meta property="og:url" content="https://arc90.vercel.app/app" />
+  <meta property="og:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
+  <meta property="og:image:alt" content="Arc90 habit and daily progress tracker" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Arc90: Build your next 90 days" />
+  <meta name="twitter:description" content="Track habits, focus sessions, and daily progress in a local-first 90-day planner." />
+  <meta name="twitter:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
 
   <!-- iOS home-screen app -->
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Arc90" />
-  <meta name="theme-color" content="#03040a" />
+  <meta name="theme-color" content="#111315" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
   <link rel="icon" href="icons/icon-180.png" />
   <link rel="manifest" href="manifest.webmanifest" />
 
-  <link rel="stylesheet" href="css/styles.css?v=100" />
-  <script defer src="/_vercel/insights/script.js"></script>
+  <link rel="stylesheet" href="css/styles.css?v=145" />
+  <link rel="stylesheet" href="css/privacy-controls.css" />
+  <link rel="stylesheet" href="css/adaptive-day.css" />
+  <link rel="stylesheet" href="css/approved-design.css?v=150" />
+  <link rel="stylesheet" href="css/daily-planning.css?v=159" />
+  <link rel="stylesheet" href="css/brain-dump.css?v=165" />
+  <link rel="stylesheet" href="css/progress-dashboard.css?v=162" />
+  <link rel="stylesheet" href="css/story-mode.css?v=147" />
+  <script defer src="js/privacy-controls.js"></script>
 </head>
 <body>
-  <div id="splash" aria-hidden="true">
-    <div class="splash-stage">
-      <svg class="splash-arc" viewBox="0 0 200 200" fill="none">
-        <defs><linearGradient id="splashGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ee4ff"/><stop offset="0.52" stop-color="#8f6bff"/><stop offset="1" stop-color="#c14cff"/></linearGradient></defs>
-        <circle cx="100" cy="100" r="90" stroke="rgba(220,224,255,.08)" stroke-width="6"/>
-        <circle class="splash-arc-fill" cx="100" cy="100" r="90" stroke="url(#splashGrad)" stroke-width="6" stroke-linecap="round" stroke-dasharray="565" stroke-dashoffset="565" transform="rotate(-90 100 100)"/>
-      </svg>
-      <div class="splash-mark">ARC<b>90</b></div>
-    </div>
-    <div class="splash-reflect">
-      <span class="splash-reflect-label">Daily reflection</span>
-      <blockquote id="splash-quote" class="splash-quote">Build your next 90 days.</blockquote>
-      <div id="splash-source" class="splash-source"></div>
-    </div>
-    <span class="splash-skip">tap to continue</span>
-  </div>
-
   <div id="app"></div>
 
-  <!-- shared SVG defs: signature Arc90 gradient (violet analytics glow) -->
+  <!-- shared SVG defs: restrained Arc90 progress gradients -->
   <svg width="0" height="0" style="position:absolute" aria-hidden="true">
     <defs>
       <!-- mono/white-black theme ring -->
@@ -55,15 +56,14 @@
         <stop offset="0%" stop-color="#c8c8c8"/>
         <stop offset="100%" stop-color="#ffffff"/>
       </linearGradient>
-      <!-- aurora theme ring: signature cyan -> violet -> magenta glow -->
+      <!-- dark theme ring: cool blue into sage -->
       <linearGradient id="ringGradDark" x1="0%" y1="0%" x2="100%" y2="100%">
-        <stop offset="0%" stop-color="#5ee4ff"/>
-        <stop offset="48%" stop-color="#8f6bff"/>
-        <stop offset="100%" stop-color="#c14cff"/>
+        <stop offset="0%" stop-color="#9ac9ed"/>
+        <stop offset="100%" stop-color="#b3dfbd"/>
       </linearGradient>
       <linearGradient id="areaGradDark" x1="0%" y1="0%" x2="0%" y2="100%">
-        <stop offset="0%" stop-color="#8f6bff" stop-opacity="0.36"/>
-        <stop offset="100%" stop-color="#c14cff" stop-opacity="0"/>
+        <stop offset="0%" stop-color="#b3dfbd" stop-opacity="0.24"/>
+        <stop offset="100%" stop-color="#b3dfbd" stop-opacity="0"/>
       </linearGradient>
       <!-- gold theme ring: ivory into champagne, reads as brushed metal -->
       <linearGradient id="ringGradGold" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -82,30 +82,25 @@
     </defs>
   </svg>
 
-  <script src="js/data.js?v=100"></script>
-  <script src="js/app.js?v=100"></script>
-  <script>
-    (function () {
-      var sp = document.getElementById('splash');
-      if (!sp) return;
-      try {
-        var q = (typeof reflectionQuote === 'function') ? reflectionQuote() : null;
-        if (q && q.quote) {
-          var qe = document.getElementById('splash-quote');
-          var se = document.getElementById('splash-source');
-          if (qe) qe.textContent = '“' + q.quote + '”';
-          if (se && q.source) se.textContent = '— ' + q.source;
-        }
-      } catch (e) { /* keep default copy */ }
-      var done = false;
-      function hide() {
-        if (done) return; done = true;
-        sp.classList.add('hide');
-        setTimeout(function () { if (sp.parentNode) sp.remove(); }, 400);
-      }
-      sp.addEventListener('click', hide);   // tap to continue early
-      setTimeout(hide, 4000);               // otherwise auto-dismiss at 4s
-    })();
-  </script>
+  <script src="js/data.js?v=164"></script>
+  <script src="js/auth.js?v=101"></script>
+  <script src="js/adaptive-day.js?v=139"></script>
+  <script src="js/live-update.js?v=139"></script>
+  <script src="js/day-support.js"></script>
+  <script src="js/preview-access.js"></script>
+  <script src="js/daily-planning.js?v=157"></script>
+  <script src="js/daily-workspace.js?v=161"></script>
+  <script src="js/vendor/d3-array.min.js"></script>
+  <script src="js/vendor/d3-path.min.js"></script>
+  <script src="js/vendor/d3-shape.min.js"></script>
+  <script src="js/vendor/d3-sankey.min.js"></script>
+  <script src="js/charts/purpose-flow.js?v=146"></script>
+  <script src="js/motion.js?v=163"></script>
+  <script src="js/brain-core.js?v=164"></script>
+  <script src="js/brain-dump.js?v=164"></script>
+  <script src="js/progress-insights.js?v=146"></script>
+  <script src="js/story-mode.js?v=148"></script>
+  <script src="js/progress-dashboard.js?v=162"></script>
+  <script src="js/app.js?v=165"></script>
 </body>
 </html>

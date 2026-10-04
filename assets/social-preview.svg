@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Arc90</title>
+  <desc id="desc">Build your next 90 days with a calm daily system.</desc>
+  <rect width="1200" height="630" fill="#111315"/>
+  <rect x="44" y="44" width="1112" height="542" rx="32" fill="#1c1f22" stroke="#353b40" stroke-width="2"/>
+  <g transform="translate(284 315)">
+    <circle r="150" fill="none" stroke="#25292d" stroke-width="42"/>
+    <path d="M106 -106 A150 150 0 1 0 106 106" fill="none" stroke="#b3dfbd" stroke-width="42" stroke-linecap="round"/>
+    <rect x="85" y="-127" width="42" height="42" rx="12" fill="#f2f4f6"/>
+    <circle r="24" fill="#9ac9ed"/>
+  </g>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif">
+    <text x="518" y="283" fill="#f2f4f6" font-size="82" font-weight="700" letter-spacing="0">ARC<tspan fill="#b3dfbd">90</tspan></text>
+    <text x="522" y="344" fill="#acb3bb" font-size="30" font-weight="500" letter-spacing="0">Build your next 90 days.</text>
+    <line x1="522" y1="392" x2="918" y2="392" stroke="#353b40" stroke-width="2"/>
+    <text x="522" y="438" fill="#919aa3" font-size="21" font-weight="500" letter-spacing="0">ONE GOAL  ·  DAILY REPS  ·  REAL MOMENTUM</text>
+  </g>
+</svg>

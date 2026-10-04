@@ -4,21 +4,10 @@ function sendJson(res, status, payload) {
   res.status(status).send(JSON.stringify(payload));
 }
 
-function siteUrl(req) {
-  const configured = process.env.SITE_URL;
-  if (configured && /^https?:\/\//.test(configured)) return configured.replace(/\/+$/, '');
-
-  const origin = req.headers.origin;
-  if (origin && /^https?:\/\//.test(origin)) return origin.replace(/\/+$/, '');
-
-  const host = req.headers['x-forwarded-host'] || req.headers.host;
-  const proto = req.headers['x-forwarded-proto'] || 'https';
-  return `${proto}://${host}`;
-}
+const { guard, siteUrl } = require('./_security');
 
 module.exports = async function handler(req, res) {
-  if (req.method === 'OPTIONS') return sendJson(res, 200, { ok: true });
-  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!guard(req, res, 'POST', 5)) return;
 
   const secretKey = process.env.STRIPE_SECRET_KEY;
   const priceId = process.env.STRIPE_PRICE_ID;
@@ -29,7 +18,8 @@ module.exports = async function handler(req, res) {
     });
   }
 
-  const baseUrl = siteUrl(req);
+  let baseUrl;
+  try { baseUrl = siteUrl(); } catch { return sendJson(res, 503, { error: 'Site not configured.' }); }
   const params = new URLSearchParams();
   params.set('mode', 'subscription');
   params.set('line_items[0][price]', priceId);
@@ -60,7 +50,7 @@ module.exports = async function handler(req, res) {
 
     if (!stripeRes.ok) {
       return sendJson(res, 502, {
-        error: payload.error && payload.error.message ? payload.error.message : 'Stripe Checkout failed.'
+        error: 'Stripe Checkout failed.'
       });
     }
 

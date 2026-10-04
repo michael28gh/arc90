@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Arc90 app icon</title>
+  <desc id="desc">An open sage arc around a centered point, representing today inside a ninety-day journey.</desc>
+  <rect width="1024" height="1024" fill="#111315"/>
+  <circle cx="512" cy="512" r="338" fill="none" stroke="#25292d" stroke-width="96"/>
+  <path d="M751 273 A338 338 0 1 0 751 751" fill="none" stroke="#b3dfbd" stroke-width="96" stroke-linecap="round"/>
+  <rect x="704" y="226" width="94" height="94" rx="28" fill="#f2f4f6"/>
+  <circle cx="512" cy="512" r="54" fill="#9ac9ed"/>
+</svg>

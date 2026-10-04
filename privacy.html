@@ -1,84 +1,61 @@
 <!DOCTYPE html>
-<!-- DRAFT — generated template, not legal advice. Review with a qualified attorney before launch. -->
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Arc90 Privacy Policy</title>
-  <meta name="robots" content="noindex" />
+  <meta name="description" content="How Arc90 handles local records, optional analytics, AI, payments, and reminders." />
+  <link rel="canonical" href="https://arc90.vercel.app/privacy" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="Arc90 Privacy Policy" />
+  <meta property="og:description" content="How Arc90 handles local records, optional analytics, AI, payments, and reminders." />
+  <meta property="og:url" content="https://arc90.vercel.app/privacy" />
+  <meta property="og:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:title" content="Arc90 Privacy Policy" />
+  <meta name="twitter:description" content="How Arc90 handles local records, optional analytics, AI, payments, and reminders." />
+  <meta name="twitter:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
+  <link rel="icon" href="/icons/icon-180.png" type="image/png" />
+  <link rel="apple-touch-icon" href="/icons/icon-180.png" />
+  <link rel="stylesheet" href="/css/privacy-controls.css" />
+  <script defer src="/js/privacy-controls.js"></script>
   <style>
-    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #03040a; color: #f5f7ff; line-height: 1.6; }
-    main { max-width: 760px; margin: 0 auto; padding: 48px 22px 72px; }
-    a { color: #9a78ff; }
-    h1 { font-size: 34px; line-height: 1.1; margin: 0 0 8px; }
-    h2 { margin-top: 30px; font-size: 18px; }
-    p, li { color: #b9c0d4; }
-    .muted { color: #7e879c; font-size: 14px; }
+    body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#101114;color:#f5f7ff;line-height:1.6}
+    main{max-width:760px;margin:auto;padding:40px 22px 100px;overflow-wrap:anywhere}
+    a{color:#8ae4d0}h1{font-size:34px;line-height:1.2;margin:24px 0 8px}h2{margin-top:30px;font-size:19px}
+    p,li{color:#d1d5dc}.muted{color:#a9b0bc;font-size:14px}nav{display:flex;gap:20px;flex-wrap:wrap}
   </style>
 </head>
-<body>
-  <main>
-    <a href="/index.html">← Back to Arc90</a>
-    <h1>Privacy Policy</h1>
-    <p class="muted">Last updated: July 15, 2026 · Effective date: [PLACEHOLDER: set the effective date when this policy is finalized and published]</p>
-    <p>Arc90 is a personal habit and momentum tracker. The current PWA stores your challenge, habits, logs, protocol notes, and settings on your device using browser storage.</p>
-
-    <h2>Data Stored On Your Device</h2>
-    <p>Your habit logs, health entries, protocol tracker entries, focus sessions, AI settings, and app preferences are stored locally on the device/browser you use. If you clear browser data or switch devices without exporting a backup, that data may be lost.</p>
-
-    <h2>Analytics</h2>
-    <p>Arc90 uses Vercel Analytics to understand aggregate product usage — page views and anonymous feature events (for example, "share opened"). These events never include your habit logs, journal entries, health data, or other personal content; that data stays on your device. Vercel processes analytics under its own privacy terms. Blocking analytics with a content blocker does not affect the app.</p>
-
-    <h2>Push Reminders</h2>
-    <p>If you enable reminder notifications, Arc90 stores a push delivery address (a browser-generated push endpoint) together with your reminder rhythm, time, and timezone offset so scheduled nudges can reach your device when the app is closed. No habit, journal, health, or other personal content is ever stored on the server or included in notifications. Turning reminders off deletes this registration.</p>
-
-    <h2>Payments</h2>
-    <p>Premium checkout is handled by Stripe. Arc90 does not store full payment card numbers. Stripe may process payment details, billing details, and transaction metadata under its own privacy terms. To keep Premium unlocked across sessions, Arc90 stores a minimal entitlement record on our server (via Supabase): your Stripe customer ID, the email used at checkout, and your subscription status. This record is used only to verify your purchase and is never sold or used for advertising.</p>
-
-    <h2>Email Updates (Marketing)</h2>
-    <p>If you opt in to Arc90 updates on the landing page or in the app, we store your email address, a consent flag, the consent timestamp, and the signup source in our database (Supabase). We only send product updates you opted in to, and every email will include an unsubscribe link. You can withdraw consent at any time by using that link or by emailing <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>, and we will remove your address from the list. We do not sell or share the email list.</p>
-
-    <h2>AI Connections</h2>
-    <p>If you connect an AI provider key inside Arc90, prompts you send to the coach may be sent directly from your device to that provider. Your key is stored locally on your device. Do not enter sensitive medical, financial, or emergency information into AI chat.</p>
-
-    <h2>Health And Protocol Information</h2>
-    <p>Arc90 is not a medical device and does not provide medical advice. Protocol, supplement, peptide, weight, water, and step tracking are self-reported wellness logs, unless you enable the optional Apple Health sync in the native iPhone app (described below).</p>
-
-    <h2>Apple Health (HealthKit) — Native iOS App</h2>
-    <p>The native Arc90 iPhone app can, only with your explicit permission through Apple's Health permission sheet, <b>read</b> data from Apple Health to fill your daily dashboard: steps, weight, sleep, resting heart rate, heart rate variability (HRV), VO2 max, dietary water, active energy, exercise time, walking/running distance, flights climbed, blood oxygen (SpO2), and respiratory rate.</p>
-    <ul>
-      <li>HealthKit access is <b>read-only</b>. Arc90 does not write to Apple Health today.</li>
-      <li>Health data read from HealthKit <b>stays on your device</b>. It is never uploaded to our servers, never included in analytics or notifications, and never shared with anyone.</li>
-      <li>We do not use HealthKit data for advertising or marketing, and we never sell it or disclose it to data brokers, advertising platforms, or any other third party.</li>
-      <li>You can revoke Arc90's Health access at any time in iOS Settings → Health → Data Access &amp; Devices (or in the Health app), and Arc90 will simply stop receiving that data.</li>
-    </ul>
-
-    <h2>Data Retention And Deletion</h2>
-    <p>Because Arc90 is local-first, most deletion is in your hands:</p>
-    <ul>
-      <li><b>On-device data</b> (habits, logs, journals, health entries, AI keys, settings): deleting the app, or clearing browser/site data for the web app, permanently removes it. We cannot recover it, so export a backup first if you want one.</li>
-      <li><b>Push reminder registration</b>: turning reminders off deletes your push endpoint and reminder schedule from our server.</li>
-      <li><b>Server-side data</b> (marketing email address, Stripe entitlement record): email a deletion request to <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> and we will delete it within [PLACEHOLDER: response window, e.g., 30 days — CCPA/GDPR set specific deadlines; confirm with counsel]. Note that deleting your entitlement record may remove your ability to restore a paid purchase, and Stripe retains transaction records under its own legal obligations.</li>
-    </ul>
-    <p>We retain server-side records only for as long as needed for the purpose you gave them to us (delivering reminders, verifying your purchase, or sending updates you opted in to), or as required by law.</p>
-
-    <h2>Your Rights (GDPR / CCPA Summary)</h2>
-    <p>Depending on where you live (for example the EU/UK under GDPR, or California under CCPA/CPRA), you may have the right to access, correct, delete, or receive a copy of personal data we hold about you, to object to or restrict certain processing, to withdraw consent, and to not be discriminated against for exercising these rights. Because Arc90 keeps almost all data on your device, the personal data we actually hold server-side is limited to what is described above (push registration, opt-in email, entitlement record). We do not sell or share personal information as defined by the CCPA/CPRA, and we do not use it for cross-context behavioral advertising.</p>
-    <p>To exercise any of these rights, email <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>. If you are in the EU/UK, you also have the right to lodge a complaint with your local data protection authority. [PLACEHOLDER: have counsel confirm GDPR/CCPA applicability and whether an EU/UK representative or additional disclosures (categories tables, "shine the light," verification procedures) are needed at current scale.]</p>
-
-    <h2>Service Providers</h2>
-    <p>Arc90 relies on a small set of processors: Vercel (hosting and anonymous analytics), Supabase (database for push registrations, opt-in emails, and entitlement records), and Stripe (payments). If you connect your own AI key, your chosen provider (for example Anthropic, OpenAI, or Google) receives the prompts you send, directly from your device, under its own terms. We do not use advertising networks or data brokers.</p>
-
-    <h2>Children's Privacy</h2>
-    <p>Arc90 is not directed at children. We do not knowingly collect personal information from children under 13 (or under 16 where a higher age applies, such as parts of the EEA). If you believe a child has provided us personal information (for example an email address), contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> and we will delete it. [PLACEHOLDER: confirm the minimum age policy with counsel and keep it consistent with the Terms of Service.]</p>
-
-    <h2>Changes To This Policy</h2>
-    <p>We may update this policy as Arc90 evolves (for example, when native App Store payments launch). We will update the "Last updated" date above and, for material changes, provide notice in the app or on the site before the changes take effect. Prior versions are available on request.</p>
-
-    <h2>Contact</h2>
-    <p>For privacy questions or requests, contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>.</p>
-
-    <p class="muted">This page is a draft template generated for review purposes. It is not legal advice. Review with a qualified attorney before launch.</p>
-  </main>
-</body>
+<body><main>
+<nav aria-label="Site"><a href="/">Arc90 home</a><a href="/app">Open app</a><a href="/terms">Terms</a></nav>
+<h1>Privacy Policy</h1>
+<p class="muted">Last updated: September 8, 2026</p>
+<p>Arc90 is a local-first habit, focus, and wellness tracker. Contact the developer at <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> with privacy questions or requests.</p>
+<h2>Local Records</h2>
+<p>Goals, profile details, habits, logs, journals, health entries, settings, and chat history are stored in browser or app storage. Proof photos use an on-device database. Local storage is not a cloud backup. Clearing site data, removing the app, or losing your device may lose your records. Exports and content you choose to share can leave the app. This version no longer accepts personal AI provider keys and removes the legacy AI key field from app records when loaded or imported.</p>
+<h2>Optional Account Sign-In</h2>
+<p>Basic tracking does not require an account. If you request an email sign-in code, your email is sent to Supabase Authentication. Supabase stores the account and manages code verification and sessions. The app keeps access and refresh tokens in session storage, with an in-memory fallback if storage is unavailable. Tokens are not included in app backups. Signing out clears the local session; it does not delete the server account. Contact the developer to request account deletion.</p>
+<h2>Hosting And Optional Analytics</h2>
+<p>Vercel hosts the website and API endpoints. Requests expose technical information such as an IP address and request details to hosting infrastructure, independently of optional analytics.</p>
+<p>On the production website, Vercel Web Analytics loads only after you choose "Allow analytics." Declining does not prevent using Arc90. The integration sends page views, not app feature events or habit, journal, health, or AI content. Query strings and URL fragments are removed from page-view URLs. Vercel can derive aggregate visit information such as device, browser, and approximate location from requests. See <a href="https://vercel.com/docs/analytics/privacy-policy">Vercel's analytics privacy information</a>.</p>
+<p>Your analytics choice is saved locally. Use "Privacy choices" to change or withdraw it; withdrawal stops subsequent analytics events but does not remove data already received by Vercel. Local and native builds do not load this analytics integration. Essential device storage for app records and your preference is separate from analytics consent.</p>
+<h2>Email Updates</h2>
+<p>When you check the email consent box and submit your address, Arc90 sends your email, consent flag, consent timestamp, and signup source to Supabase. Signup does not purchase or reserve a subscription price. The current signup endpoint saves subscriptions; it does not send newsletters. To withdraw email consent or request removal, email <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a>.</p>
+<h2>Push Reminders</h2>
+<p>If you enable web push notifications, the app sends a browser push endpoint and delivery keys, a generated client identifier, reminder mode, time, and timezone offset to an API backed by Supabase. These support generic scheduled reminders delivered through your browser's push service. Turning reminders off requests deletion of the registration; this needs a working network connection. Browser notification permission can also be revoked.</p>
+<h2>Payments</h2>
+<p>When web checkout is available, Stripe processes payment and billing details. Arc90 does not receive full card numbers. Stripe webhooks store purchase verification records in Supabase, including checkout email, Stripe customer and subscription identifiers, subscription status, and billing-period details. These allow the app to check Premium access. Payment availability depends on server configuration.</p>
+<h2>Optional AI Coaching</h2>
+<p>Live chat requires a verified account. When you send a message, the app sends recent conversation messages to the Arc90 server, which checks your session with Supabase and forwards the conversation to OpenAI. Profile fields, habit records and imported Health measurements are not automatically added to this request. Information you type or paste into chat is included, so avoid sharing sensitive details you do not want processed by the provider. The AI provider credential stays on the server, not in the app.</p>
+<p>The server uses an Upstash counter keyed by a hash of your account identifier to limit daily requests. The counter expires after 24 hours and does not contain chat text. Conversation history stays in local app storage until cleared; requests also pass through hosting and provider infrastructure under those services' retention practices. Clearing local chat does not erase information already processed by a provider.</p>
+<h2>Apple Health In The Native App</h2>
+<p>The native iOS integration requests permission to read steps, weight, sleep, resting heart rate, heart rate variability, VO2 max, water intake, active energy, exercise time, walking/running distance, flights climbed, blood oxygen, and respiratory rate. It does not request write access. Imported measurements are stored locally and are not attached to analytics, push reminders, or AI requests automatically. Measurements you type or paste into chat are sent as described above.</p>
+<p>You can change Health access in Apple's Health or Settings app. Revoking access does not remove records already imported into Arc90. Exports you choose to create may include health records. Arc90's current integrations do not send HealthKit measurements to advertising services.</p>
+<h2>Retention And Requests</h2>
+<p>You control locally stored records and exported copies. Server-side email, reminder, and entitlement records do not currently have an automatic expiry schedule. Contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> to request access, correction, deletion, or withdrawal of email consent. We may need information to identify the relevant record. Deleting a purchase record can affect restoration; deleting app data does not cancel a subscription. Payment and infrastructure providers may retain their own records under their policies and applicable obligations.</p>
+<p>Depending on your location and applicable law, you may have additional privacy rights, including making a complaint to a data protection authority. Contact us to raise a request. This policy does not claim certification under a privacy law.</p>
+<h2>Service Providers And Changes</h2>
+<p>The current integrations are Vercel (hosting and optional analytics), Supabase (authentication and database), Stripe (web payments), OpenAI (live chat), Upstash (request quotas), browser push services, and Apple Health on supported native devices. Processing may take place outside your country. No advertising pixel is included in the current site code. If you believe a child has submitted personal information, contact us to request review and removal.</p>
+<p>Changes to this page will be reflected in its update date. Review the data flows above before using an optional connected feature.</p>
+</main></body>
 </html>

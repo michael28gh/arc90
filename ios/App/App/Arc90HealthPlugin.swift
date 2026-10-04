@@ -12,11 +12,16 @@ public class Arc90HealthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "Arc90HealthPlugin"
     public let jsName = "Arc90Health"
     public let pluginMethods: [CAPPluginMethod] = [
+        CAPPluginMethod(name: "nativeInfo", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "sync", returnType: CAPPluginReturnPromise)
     ]
 
     private let store = HKHealthStore()
     private let daysBack = 14
+
+    @objc func nativeInfo(_ call: CAPPluginCall) {
+        call.resolve(["bridgeVersion": 1])
+    }
 
     private var dayFormatter: DateFormatter {
         let f = DateFormatter()

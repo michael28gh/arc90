@@ -1,0 +1,353 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Arc90 | Product Research &amp; Protocol Audit</title>
+  <meta name="description" content="An evidence-led Arc90 product strategy, 15-product comparison, five opportunities, and ten Protocol improvements. September 28, 2026.">
+  <style>
+    :root{color-scheme:dark;--bg:#111416;--surface:#1b2023;--ink:#f0f4f2;--muted:#afb9bd;--line:#394246;--sage:#b3dfbd;--blue:#9ac9ed;--amber:#e8be79;--red:#f1a5a0}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}button,select,input{font:inherit;color:inherit}a{color:var(--blue);text-underline-offset:3px}a:hover{color:var(--ink)}button,summary,select{cursor:pointer}button:focus-visible,summary:focus-visible,a:focus-visible,select:focus-visible{outline:3px solid var(--blue);outline-offset:4px}button{min-height:44px}main,header,.nav-inner,footer{max-width:1180px;margin:auto;padding:24px 28px}header{padding-bottom:18px;border-bottom:1px solid var(--line)}.brand{color:var(--sage);font-weight:750;font-size:14px}h1{font-size:28px;line-height:1.2;margin:10px 0}h2{font-size:23px;line-height:1.3;margin:0 0 14px}h3{font-size:19px;line-height:1.4;margin:0 0 10px}h4{font-size:16px;margin:22px 0 8px}p{margin:0 0 15px}small,.meta,.muted{color:var(--muted)}.meta{font-size:14px}.nav{border-bottom:1px solid var(--line)}.nav-inner{padding-top:0;padding-bottom:0;display:flex;gap:20px;overflow-x:auto}.tab{background:none;border:0;border-bottom:3px solid transparent;color:var(--muted);padding:12px 0;flex:none;white-space:nowrap}.tab[aria-selected="true"]{color:var(--sage);border-color:var(--sage)}[hidden]{display:none!important}.section{padding:24px 0;border-bottom:1px solid var(--line)}.section:first-child{padding-top:0}.section:last-child{border:0}.lead{font-size:21px;max-width:850px;line-height:1.45}.columns{display:grid;grid-template-columns:1fr 1fr;gap:30px}.columns>*{min-width:0}.callout{border-left:3px solid var(--sage);padding:8px 0 8px 18px;margin:22px 0}.warning{border-color:var(--amber)}.risk{color:var(--red)}.kicker{color:var(--sage);font-size:13px;font-weight:750;margin-bottom:8px}.badge{font-size:12px;padding:3px 7px;background:var(--surface);border:1px solid var(--line);border-radius:4px;white-space:nowrap}.p0{color:var(--red)}.p1{color:var(--amber)}.p2{color:var(--blue)}.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:6px}table{width:100%;border-collapse:collapse;min-width:740px;font-size:14px}th,td{text-align:left;vertical-align:top;padding:13px 15px;border-bottom:1px solid var(--line)}th{color:var(--sage);background:var(--surface)}tr:last-child td{border-bottom:0}td:first-child{font-weight:650;min-width:125px}.controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:18px}select{border:1px solid var(--line);border-radius:6px;padding:10px 34px 10px 12px;background:var(--surface);max-width:100%;min-height:44px}details{border-top:1px solid var(--line);padding:16px 0}summary{font-weight:650;min-height:44px;display:list-item;padding:8px 0}details p:last-child{margin-bottom:0}.idea{padding:26px 0;border-top:1px solid var(--line)}.idea:first-of-type{border-top:0}.example{font-size:18px;font-weight:550;padding:14px 0;color:var(--sage);border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:18px 0}.fact-list{margin:0;padding-left:22px}.fact-list li{margin:8px 0}dl{margin:0}dt{color:var(--sage);font-size:14px;font-weight:650;margin-top:16px}dd{margin:4px 0 0}code{font:13px/1.5 ui-monospace,SFMono-Regular,monospace;color:var(--blue);overflow-wrap:anywhere}.spec{background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:18px;white-space:pre-wrap;overflow-wrap:anywhere;font:14px/1.7 ui-monospace,SFMono-Regular,monospace}.index-link{display:inline-block;margin-right:12px}.source{font-size:14px;color:var(--muted)}.source a{margin-right:12px}footer{font-size:13px;color:var(--muted);border-top:1px solid var(--line)}.question{color:var(--amber)}.empty{padding:30px 0}.audit-item{padding:22px 0;border-top:1px solid var(--line)}.audit-item .source{margin-top:12px}.route{display:grid;grid-template-columns:repeat(5,1fr);gap:0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin:20px 0}.route>div{padding:16px 12px;border-right:1px solid var(--line)}.route>div:last-child{border:0}.route b{display:block}.route small{display:block;line-height:1.4;margin-top:7px}.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}@media(max-width:700px){main,header,.nav-inner,footer{padding-left:18px;padding-right:18px}.columns{grid-template-columns:1fr;gap:20px}.lead{font-size:19px}h1{font-size:25px}.route{grid-template-columns:1fr}.route>div{border-right:0;border-bottom:1px solid var(--line)}.nav-inner{gap:22px}.controls{align-items:flex-start;flex-direction:column}select{width:100%}}@media print{body{background:white;color:#161b1d}.nav,.controls{display:none}main,header,footer{max-width:none;padding:15px}.panel[hidden]{display:block!important}details>*{display:block!important}.table-wrap{overflow:visible}table{min-width:0}a,code,.kicker,dt,.brand,.example,.lead{color:#225637}h2,h3,h4{break-after:avoid}.idea,.audit-item{break-inside:avoid}.spec,th{background:#f0f3f2}.muted,.meta,small,.source,footer{color:#475256}.source a{overflow-wrap:anywhere}}
+  </style>
+</head>
+<body>
+<header>
+  <div class="brand">ARC90 / PRODUCT RESEARCH</div>
+  <h1>Arc90 Product Research</h1>
+  <p class="meta">September 28, 2026 &middot; Local v139 audit &middot; 15 adjacent products &middot; 5 proposals &middot; 10 Protocol improvements</p>
+</header>
+<nav class="nav" aria-label="Research sections">
+  <div class="nav-inner" role="tablist" aria-label="Research sections">
+    <button class="tab" id="tab-decision" role="tab" aria-controls="decision" aria-selected="true">Decision</button>
+    <button class="tab" id="tab-market" role="tab" aria-controls="market" aria-selected="false" tabindex="-1">Competitors</button>
+    <button class="tab" id="tab-ideas" role="tab" aria-controls="ideas" aria-selected="false" tabindex="-1">5 ideas</button>
+    <button class="tab" id="tab-protocol" role="tab" aria-controls="protocol" aria-selected="false" tabindex="-1">Protocol audit</button>
+    <button class="tab" id="tab-build" role="tab" aria-controls="build" aria-selected="false" tabindex="-1">Build plan</button>
+    <button class="tab" id="tab-method" role="tab" aria-controls="method" aria-selected="false" tabindex="-1">Evidence &amp; limits</button>
+  </div>
+</nav>
+<main>
+<section id="decision" class="panel" role="tabpanel" aria-labelledby="tab-decision" tabindex="0">
+  <div class="section">
+    <p class="kicker">THE RECOMMENDATION</p>
+    <p class="lead">Arc90 should become the app that turns your real-life constraints into a manageable day, then connects those actions to a meaningful 90-day outcome.</p>
+    <p>Not another place to collect numbers. Not an AI that invents a supplement regimen. A small, reliable action system: <strong>understand today, choose the next step, record it once, learn over time.</strong></p>
+    <div class="callout"><strong>Proposed product promise:</strong> A day you can keep. A change you can see.<br><span class="muted">Positioning hypothesis, not a proven competitive advantage or a medical outcome claim.</span></div>
+  </div>
+  <div class="section columns">
+    <div>
+      <h2>What is already crowded</h2>
+      <p>AI health coaches, readiness scores, supplement lists, streaks, and correlations are established features. Bevel even lists calendar integrations. WHOOP added custom journal behaviors on September 18, 2026.</p>
+      <p class="source"><a href="https://help.bevel.health/en/articles/11194113">Bevel's current feature list</a><a href="https://www.whoop.com/us/en/thelocker/custom-journal-behaviors-are-here/">WHOOP's September release</a></p>
+      <p>SuppCo already combines product information and stack analysis. Peptide Tracker already documents schedule versions and dose records. These set a quality baseline; copying their checklists is not a differentiator.</p>
+      <p class="source"><a href="https://supp.co/">SuppCo</a><a href="https://peptidetracker.ai/help/protocols-and-schedules/editing-a-schedule">Peptide Tracker schedule history</a></p>
+    </div>
+    <div>
+      <h2>Where we can compete</h2>
+      <p><strong>Execution clarity.</strong> One next action, with the reason it fits today. Fewer decisions and no dashboard homework.</p>
+      <p><strong>Trustworthy records.</strong> A dose log means exactly what happened, not an inferred symptom report or a resettable daily checkbox.</p>
+      <p><strong>Personal continuity.</strong> Turn recurring obstacles, weekly reviews, and actual goal outcomes into a plan that gets easier to use.</p>
+      <p class="muted">These are opportunities to validate. This research does not establish that no competitor offers a similar workflow.</p>
+    </div>
+  </div>
+  <div class="section">
+    <h2>Arc90 already has useful foundations</h2>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Already in source</th><th scope="col">What it currently does</th><th scope="col">What would actually be new</th></tr></thead>
+      <tbody>
+        <tr><td>Adaptive Day</td><td>Full / Busy / Recovery, essential habits, readiness-based suggestions.</td><td>Fit actions to actual calendar gaps and learned duration, with user-approved changes.</td></tr>
+        <tr><td>Capacity + best window</td><td>5 / 15 / 30 / 60-minute budgets; up to three minimum actions; completion-time patterns.</td><td>Goal-aware ordering, explicit uncertainty, scheduling conflicts and a feedback loop.</td></tr>
+        <tr><td>Comeback tools</td><td>Micro-actions, comeback bonuses and next-day recovery rate.</td><td>Remember which obstacle-specific response helped, not simply add another recovery score.</td></tr>
+        <tr><td>Proof Wall</td><td>Photos and notes, tags, dates and export.</td><td>Link evidence to a defined outcome, baseline, milestone and relevant work sessions.</td></tr>
+        <tr><td>Native foundations</td><td>HealthKit read bridge; Watch habit/water actions; widget source.</td><td>Medication event import, calendar consent, reliable cross-device Protocol events.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="source">Source: <code>js/adaptive-day.js</code>, <code>js/day-support.js</code>, <code>js/app.js:480, 657, 753, 1736, 3646</code>, <code>ios/App/App/Arc90HealthPlugin.swift:39</code>, <code>ios/Watch/Arc90WatchApp.swift</code>. Source presence is not proof of a shipped or working native integration.</p>
+  </div>
+  <div class="section">
+    <h2>First: repair Protocol's record integrity</h2>
+    <p class="risk">The current Protocol view is a lightweight daily checklist, not yet a dependable multi-dose tracker.</p>
+    <ul class="fact-list">
+      <li>Weekly and as-needed items enter the same daily denominator as daily items.</li>
+      <li>A morning entry followed by an evening entry leaves only the evening entry.</li>
+      <li>A quick check-in writes a "no symptoms" value the user did not report.</li>
+      <li>Adding a new item today can lower yesterday's percentage.</li>
+    </ul>
+    <p class="muted">These are code-backed findings, not design preferences. No app fixes were applied during this audit.</p>
+  </div>
+</section>
+
+<section id="market" class="panel" role="tabpanel" aria-labelledby="tab-market" tabindex="0">
+  <div class="section">
+    <h2>15 products that shape user expectations</h2>
+    <p>Direct Protocol competitors and adjacent health, habit, sleep and focus tools. "Opportunity" is our product hypothesis, not an assertion that a competitor lacks the feature. Vendor claims describe functionality, not independently verified effectiveness.</p>
+    <div class="controls"><label for="market-filter">Product category</label><select id="market-filter"><option value="all">All 15 products</option><option value="protocol">Protocol &amp; health records</option><option value="signals">Health &amp; sleep signals</option><option value="execution">Habits &amp; execution</option></select></div>
+    <div class="table-wrap"><table><thead><tr><th scope="col">Product</th><th scope="col">Verified focus</th><th scope="col">Arc90 opportunity to test</th></tr></thead><tbody id="market-rows"></tbody></table></div>
+  </div>
+  <div class="section">
+    <h2>Competitor brief</h2>
+    <div class="controls"><label for="competitor-select">Choose a product</label><select id="competitor-select"></select></div>
+    <article id="competitor-detail" aria-live="polite"></article>
+  </div>
+  <div class="section">
+    <h2>Current movement, not invented release dates</h2>
+    <p><strong>WHOOP:</strong> September 18, 2026 custom journal release. <strong>Bevel:</strong> feature ledger edited September 24, 2026, listing calendar connections and broader health functionality. That edit date does not prove every listed feature shipped that week.</p>
+    <p class="source"><a href="https://www.whoop.com/us/en/thelocker/custom-journal-behaviors-are-here/">WHOOP announcement</a><a href="https://help.bevel.health/en/articles/11194113">Bevel ledger</a></p>
+    <p>For the other products, this report verifies current public feature descriptions rather than inventing a last-90-days launch. No comparative user-satisfaction or market-share ranking is claimed.</p>
+  </div>
+</section>
+
+<section id="ideas" class="panel" role="tabpanel" aria-labelledby="tab-ideas" tabindex="0">
+  <h2>Five ideas worth implementing</h2>
+  <p>Five connected capabilities, not five new tabs. Each proposal distinguishes the existing Arc90 foundation from the new work.</p>
+  <article class="idea">
+    <p class="kicker">01 / THE FLAGSHIP</p><h3>A day that actually fits</h3>
+    <p>Upgrade Adaptive Day from a mode switch into a small, capacity-aware plan. The app should offer the next useful action you can realistically do, not eight obligations that ignore the rest of your life.</p>
+    <div class="example">Illustrative UI: "You have 25 minutes free. One study block moves this week's milestone forward." <span class="muted">Start / Adjust</span></div>
+    <div class="columns"><dl>
+      <dt>Presentation</dt><dd>One compact row inside Today's Arc. Tap for two alternatives and a short "Why this?" explanation. Replanning replaces this row; it does not add a new dashboard.</dd>
+      <dt>Variables</dt><dd>Available minutes, user energy check-in, goal priority, minimum/full habit duration, actual session duration, deadlines, recent completion windows, data freshness.</dd>
+      <dt>Connections</dt><dd>Optional read-only calendar access; existing Focus timer; Apple Health for optional context. Manual availability remains fully usable without a wearable.</dd>
+    </dl><dl>
+      <dt>What is genuinely new here</dt><dd>Arc90 already has modes, capacity selection and best-window logic. Add structured durations and conflict-aware planning tied to the user's 90-day milestone. Never silently change medication timing or amounts.</dd>
+      <dt>Competition reality</dt><dd>Sunsama already timeboxes work; RISE forecasts energy; Bevel has calendar integrations. Our hypothesis is that a smaller, goal-linked daily interaction earns preference, not that calendar plus health is novel.</dd>
+      <dt>First version / test</dt><dd>Manual availability plus one milestone, no predictive AI. Measure time to first meaningful action, plan acceptance and completion, and whether users feel the plan was realistic. Add calendar access only after the manual workflow helps.</dd>
+    </dl></div>
+    <p class="source"><a href="https://www.sunsama.com/features/timeboxing">Sunsama timeboxing</a><a href="https://help.risescience.com/hc/en-us/articles/40672503374871-How-does-RISE-predict-my-Energy-Schedule">RISE energy model</a><a href="https://help.bevel.health/en/articles/11194113">Bevel integrations</a></p>
+  </article>
+  <article class="idea">
+    <p class="kicker">02 / PROTOCOL DIFFERENTIATION</p><h3>A Protocol Passport, not a bigger stack</h3>
+    <p>Give every item a reliable identity: what it is, why the user tracks it, whose instructions were recorded, what was actually logged and what is still unknown. Keep the daily screen extremely simple.</p>
+    <div class="example">Illustrative UI: "Morning &middot; 2 scheduled items" with product name, recorded amount, time and a clear Taken action. Source and history are one tap deeper.</div>
+    <div class="columns"><dl>
+      <dt>Presentation</dt><dd>Now / Later / Logged sections, followed by a collapsed Library. Product detail opens a sheet with Plan, History and Evidence. No giant percentage ring or confetti for consuming substances.</dd>
+      <dt>Variables</dt><dd>Product and ingredient identity, amount plus unit, label serving versus recorded regimen, schedule version, scheduled/actual time, source, optional stock count, batch/expiry and review date.</dd>
+      <dt>Connections</dt><dd>Begin with manual entry and a user-reviewed label photo. Later, optionally read authorized Apple Health medication events and match them without duplicate logging. The current Arc90 bridge does not implement these medication APIs.</dd>
+    </dl><dl>
+      <dt>What is genuinely new here</dt><dd>Replace date-only toggles with occurrence-level events and provenance. Add an honest record of plan changes and a readable export. Inventory is secondary, never an incentive to finish a container or reorder.</dd>
+      <dt>Competition reality</dt><dd>Apple, Medisafe, SuppCo and specialist peptide trackers already cover much of this territory. Arc90's opportunity is to connect reliable records to the whole day and goal review while staying less demanding to use.</dd>
+      <dt>First version / test</dt><dd>Schedule engine, editable history, undo, clear status, source labels and export first. Test wrong-day logging, duplicate taps, corrections and a two-occurrence day. Dose-error rate must be zero in deterministic tests before health insights depend on these records.</dd>
+    </dl></div>
+    <p class="source"><a href="https://developer.apple.com/videos/play/wwdc2025/321/">Apple's read medication and dose-event APIs</a><a href="https://support.apple.com/en-us/105064">Apple Medications</a><a href="https://supp.co/">SuppCo</a></p>
+    <div class="callout warning"><strong>Peptides are not one interchangeable category.</strong> Do not assign a generic once-daily plan, dose, cycle, or reconstitution instruction. Record the person's existing professional instructions. Evidence cards need a dated, jurisdiction-specific source and must distinguish product approval, compounding status, research evidence and quality. They are different questions. <a href="https://www.fda.gov/drugs/human-drug-compounding/certain-bulk-drug-substances-use-compounding-may-present-significant-safety-risks">FDA safety context</a></div>
+  </article>
+  <article class="idea">
+    <p class="kicker">03 / LEARNING WITHOUT MORE LOGGING</p><h3>One question at a time</h3>
+    <p>A guided personal learning loop: pick a low-risk behavior and one outcome that matters to the goal, reuse existing records, then show what the data can and cannot tell us.</p>
+    <div class="example">Illustrative question: "Do my phone-free study blocks lead to more practice questions completed?" Not: "This supplement caused a 20% recovery boost."</div>
+    <div class="columns"><dl>
+      <dt>Presentation</dt><dd>One active question in Arc, with a small Today action when relevant. Review shows raw observations, coverage and competing explanations before a keep / revise / stop decision.</dd>
+      <dt>Variables</dt><dd>Behavior timestamps, goal outcome, weekday, workload, sleep coverage, missing entries, disruptions and plan changes. Separate not logged from no; preselect same-day or next-day outcomes.</dd>
+      <dt>Connections</dt><dd>Focus session records, habit events, optional HealthKit context and one user-chosen outcome metric. No request to fill out a 30-question daily form.</dd>
+    </dl><dl>
+      <dt>What is genuinely new here</dt><dd>Arc90 has descriptive patterns, not a complete question-to-action-to-review workflow with comparable baseline periods. Build that workflow before a large correlation engine.</dd>
+      <dt>Competition reality</dt><dd>Bearable already offers experiments; WHOOP, Oura, Bevel and Guava surface associations. The difference to test is lower effort and a direct link to the chosen 90-day outcome. Do not market causality from observational data.</dd>
+      <dt>First version / test</dt><dd>One behavioral question, one outcome, a descriptive review. Show "not enough comparable data" when appropriate. Validate analysis with statistical expertise before publishing confidence claims. Measure review usefulness and decisions retained at follow-up, not the number of insights generated.</dd>
+    </dl></div>
+    <p class="source"><a href="https://bearable.app/support/tips/health-experiments-a-guide-to-learning-how-your-habits-impact-your-health/">Bearable experiments</a><a href="https://guavahealth.com/health-insights">Guava correlations</a></p>
+    <p class="muted">Do not randomize, skip, start or change medications, peptides or prescribed regimens as an app experiment. Protocol observations can be exported for clinician review, without treatment recommendations.</p>
+  </article>
+  <article class="idea">
+    <p class="kicker">04 / REMEMBER WHAT MAKES THINGS EASIER</p><h3>A personal friction playbook</h3>
+    <p>Make the app remember why a plan became difficult and which practical adjustment the user chose. Future difficult days should require less explaining, not a longer conversation with an AI coach.</p>
+    <div class="example">Illustrative UI: "Last time work ran late, you chose a 5-minute review. Use that version today?" <span class="muted">Use / Change</span></div>
+    <div class="columns"><dl>
+      <dt>Presentation</dt><dd>Offer Time / Energy / Distracted / Unclear after a user asks for help. Store a short, editable if-then plan. Optional journal extraction proposes a memory for approval; private writing is never silently turned into a profile. Prefer on-device processing and require explicit consent before any cloud analysis.</dd>
+      <dt>Variables</dt><dd>User-selected obstacle, chosen response, context, acceptance, next action and whether it helped. Treat retrospective success as a useful memory, not proof the suggestion caused it.</dd>
+      <dt>Connections</dt><dd>Existing journal and comeback tools, optional calendar busy time, Focus and a future Watch action. No inferred location or employer monitoring.</dd>
+    </dl><dl>
+      <dt>What is genuinely new here</dt><dd>Arc90 already provides comeback micro-actions and recovery rate. Add context-specific memory and feedback, with view/edit/delete controls. Do not add another generic comeback card or shame-based notification.</dd>
+      <dt>Competition reality</dt><dd>Gentler Streak already treats activity and recovery flexibly, and AI coaches have memory. The opportunity is a transparent, user-owned library of working responses tied to actual obstacles.</dd>
+      <dt>First version / test</dt><dd>Explicit if-then rules work without an LLM. Measure accepted useful responses, time to return after a disrupted day, notification dismissal and perceived guilt. A smaller target must not be counted as the original full target.</dd>
+    </dl></div>
+    <p class="source"><a href="https://docs.gentler.app/understanding-your-activity-path/what-is-the-activity-path">Gentler Streak's adaptive path</a><a href="https://support.ouraring.com/hc/en-us/articles/39512345699219-Oura-Advisor">Oura Advisor memory controls</a></p>
+  </article>
+  <article class="idea">
+    <p class="kicker">05 / THE REASON TO STAY FOR 90 DAYS</p><h3>An outcome-linked Arc</h3>
+    <p>Separate doing the work from achieving the goal. An attractive 90-day grid shows consistency; it does not prove a user learned more, saved money, improved a skill or finished a project.</p>
+    <div class="example">Illustrative weekly review: "You kept 5 study sessions. Your recorded practice score moved from 62 to 70. What should we keep next week?" No causal claim.</div>
+    <div class="columns"><dl>
+      <dt>Presentation</dt><dd>Keep the Arc as the visual identity. Add a restrained outcome line and milestone markers with attached evidence. Tap a milestone for a session, note or artifact. A weekly review replaces several disconnected charts.</dd>
+      <dt>Variables</dt><dd>One outcome definition, baseline, unit, direction, review cadence, milestone target, proof source, actions and actual results. Keep missing measurements visibly missing.</dd>
+      <dt>Connections</dt><dd>Link existing Proof Wall notes/photos and Focus sessions. Start with manual goal results; defer bank, employer and medical-record integrations. Share only items the user explicitly selects.</dd>
+    </dl><dl>
+      <dt>What is genuinely new here</dt><dd>Proof Wall and the 90-day grid already exist. Add a real relation between each proof item, milestone and goal measure. Never manufacture a successful outcome from completed checkboxes.</dd>
+      <dt>Competition reality</dt><dd>Streaks tracks habits and statistics; health tools track health trends; work tools track tasks. A cross-domain, evidence-backed 90-day review is a positioning opportunity, not a verified exclusive feature.</dd>
+      <dt>First version / test</dt><dd>One goal metric, three milestones and weekly evidence selection. Measure useful weekly reviews, repeat goal-setting and outcome follow-up. Never rank users by medication adherence or expose health records on a public share card.</dd>
+    </dl></div>
+    <p class="source"><a href="https://streaksapp.com/">Streaks</a><a href="https://www.sunsama.com/daily-planning">Sunsama planning and review</a></p>
+  </article>
+</section>
+
+<section id="protocol" class="panel" role="tabpanel" aria-labelledby="tab-protocol" tabindex="0">
+  <h2>Protocol audit: ten improvements</h2>
+  <p>Reviewed the local v139 Protocol screen at a phone-sized viewport, followed the primary add/detail flow, inspected the data model and event handlers, and ran isolated tests against the actual source functions. No real health records were modified; UI testing used the separate localhost QA profile.</p>
+  <p><span class="badge p0">P0: record integrity</span> <span class="badge p1">P1: usable core workflow</span> <span class="badge p2">P2: differentiation</span></p>
+  <article class="audit-item"><h3>1. Show what is due, not everything in the library <span class="badge p0">P0</span></h3>
+    <p><strong>Finding:</strong> Daily, Weekly and As needed all enter today's total. The interface can suggest that an optional item is an unfinished obligation.</p>
+    <p><strong>Improve:</strong> Generate scheduled occurrences from weekdays, intervals, times and effective dates. Keep optional use in a separate group with no missed-dose penalty. Distinguish upcoming, due, recorded skipped, taken and unlogged; unlogged does not prove not taken.</p>
+    <p><strong>Test:</strong> One logged daily item plus one weekly item not due and one as-needed item should show 1/1 scheduled, not 1/3. Current source reproduces the 1/3 result.</p>
+    <p class="source"><code>js/app.js:2042</code>, <code>js/app.js:7317</code>, <code>js/app.js:7387</code>. Benchmark: <a href="https://support.apple.com/en-us/105064">Apple Medications scheduling</a></p>
+  </article>
+  <article class="audit-item"><h3>2. Make day and night separate records <span class="badge p0">P0</span></h3>
+    <p><strong>Finding:</strong> "Day + night" is a display category, but <code>upsertProtocolLog</code> removes previous logs for the same date. Morning and evening are not independently retained.</p>
+    <p><strong>Improve:</strong> Store an occurrence ID, plan-version ID, scheduled time, actual time, timezone, amount/unit snapshot, source and status. The visible checklist represents occurrences, not just products.</p>
+    <p><strong>Test:</strong> Record two scheduled occurrences on the same day; both must remain. Test repeated taps, midnight, daylight saving, timezone travel and offline reconciliation. Current source retains only the second entry.</p>
+    <p class="source"><code>js/app.js:2082</code>, <code>js/app.js:7408</code>, <code>js/app.js:9133</code>. Benchmark: <a href="https://peptidetracker.ai/help/getting-started/adding-your-first-protocol">Peptide Tracker's occurrence-level workflow</a></p>
+  </article>
+  <article class="audit-item"><h3>3. Separate intake, symptoms and corrections <span class="badge p0">P0</span></h3>
+    <p><strong>Finding:</strong> Quick logging writes <code>symptoms: ['none']</code> without asking. Tapping again deletes all of that day's entries, including any detailed symptom notes. The signal text can then imply reassurance.</p>
+    <p><strong>Improve:</strong> Intake logs must not create symptom claims. Default to "Not assessed." Make symptom logging optional and separately timestamped. Provide a visible Undo for the specific action and a correction history. Corrections and user-requested deletion are different operations.</p>
+    <p><strong>Test:</strong> A quick log cannot report "feeling fine." Undoing it must preserve separate symptom entries. A recorded severe symptom must remain visible after an intake correction.</p>
+    <p class="source"><code>js/app.js:2060</code>, <code>js/app.js:9126</code>, <code>js/app.js:9141</code>. No clinician assessment or emergency-triage validation was performed.</p>
+  </article>
+  <article class="audit-item"><h3>4. Make reminders real and inspectable <span class="badge p1">P1</span></h3>
+    <p><strong>Finding:</strong> The form says "Reminder time," but no per-protocol scheduling consumer was found. App reminders operate on the global habit schedule and tasks, not each protocol's time.</p>
+    <p><strong>Improve:</strong> Show permission status, next scheduled reminder and a test action. Use supported native notifications for offline iPhone delivery; keep web support honestly labeled. Snooze, cancellation, plan edits and timezone changes must update the schedule without duplicates.</p>
+    <p><strong>Test:</strong> Foreground/background, app closed, denied permission, reboot, offline, travel and an edited plan on a real iPhone. Until implemented, rename the field "Planned time" and do not promise a notification.</p>
+    <p class="source"><code>js/app.js:7533</code>, <code>js/app.js:9106</code>, <code>checkReminders()</code>, <code>syncPushSubscription()</code>. This is a source finding, not a physical-device notification test.</p>
+  </article>
+  <article class="audit-item"><h3>5. Use a quick setup review, then allow editing and archiving <span class="badge p1">P1</span></h3>
+    <p><strong>Finding:</strong> Tapping a template immediately creates an item with generic defaults. The main detail view is read-only. The add form's "close" control sets <code>protoAddOpen = true</code>, so it stays open; this was reproduced in the UI.</p>
+    <p><strong>Improve:</strong> Template tap opens a short review: identity, existing instructions, schedule, start date, reminder choice. Offer Edit, Pause in Arc90, Archive and Undo. Clarify that pausing tracking is not medical advice to stop treatment. Preserve history and detect duplicates.</p>
+    <p><strong>Test:</strong> Cancel makes no changes; Close closes; a plan edit affects future occurrences only; archive preserves old entries. Warn before destructive deletion and offer export.</p>
+    <p class="source"><code>js/app.js:9071</code>, <code>js/app.js:9073</code>, <code>js/app.js:7435</code>, <code>js/app.js:9125</code>.</p>
+  </article>
+  <article class="audit-item"><h3>6. Replace the dashboard with a calm daily list <span class="badge p1">P1</span></h3>
+    <p><strong>Finding:</strong> The empty screen offers 12 starter tiles, another template entry, a percentage, manual add, export and a full sleep module. After setup it repeats the count in a "Signal" paragraph. Category emoji and card nesting do not match the calmer Today design.</p>
+    <p><strong>Improve:</strong> Date + Add at the top. Compact Now / Later / Logged rows, with product, recorded amount, time and status. Collapse the Library below the active plan. Keep Sleep in its own Lab destination; link a small relevant signal instead of embedding the entire module.</p>
+    <p><strong>Visual spec:</strong> Approximately 64-72px rows with wrapping, 44px minimum interactive targets, 16-18px library icons, 8px or smaller corners, neutral surfaces, sage for recorded completion, amber only for actionable uncertainty. A short check transition and optional haptic, with reduced-motion support. No color-only status.</p>
+    <p class="source"><code>js/app.js:6977</code>, <code>js/app.js:7317</code>, <code>js/app.js:7352</code>. Design judgment based on the observed current phone-sized layout.</p>
+  </article>
+  <article class="audit-item"><h3>7. Show an honest history, not a misleading pulse <span class="badge p0">P0</span></h3>
+    <p><strong>Finding:</strong> Historical percentages divide by today's item count. An isolated test changed yesterday from 100% to 50% by adding an unlogged item today. Zero-value bars still have an 8% height.</p>
+    <p><strong>Improve:</strong> A 7/30-day dose timeline using the plan active on each date. Distinguish taken, recorded skipped, unlogged and not scheduled. Zero means zero; unavailable history is not failure. Optional usage sits outside scheduled adherence.</p>
+    <p><strong>Test:</strong> Add, edit and archive today without rescoring the past. Expose dates and counts to screen readers, plus a text list beneath the chart. Describe this as recorded adherence, not proof of consumption or effectiveness.</p>
+    <p class="source"><code>js/app.js:2087</code>, <code>js/app.js:7369</code>. Benchmark: <a href="https://peptidetracker.ai/help/protocols-and-schedules/editing-a-schedule">Forward-only schedule edits</a></p>
+  </article>
+  <article class="audit-item"><h3>8. Build an evidence-aware library, not a "popular stack" <span class="badge p2">P2</span></h3>
+    <p><strong>Finding:</strong> A generic peptide template defaults to a daily morning plan. Category names and free-text amounts do not identify exact products or ingredient overlap.</p>
+    <p><strong>Improve:</strong> Search by ingredient, exact product or a custom recorded plan. For vitamins/supplements, separate label serving from the user's entered amount and support reviewed ingredient totals. For peptides and medications, record professional instructions without guessing frequency or dose. Keep regulatory status, clinical evidence and product quality separate, with sources and review dates.</p>
+    <p><strong>Boundary:</strong> Start with a small, reviewed library. A duplicate-ingredient flag is not a comprehensive interaction check. Never display "safe together" based on an incomplete database; use clinician/pharmacist review for medication decisions.</p>
+    <p class="source"><code>js/data.js:356</code>, <code>js/app.js:7510</code>. <a href="https://ods.od.nih.gov/factsheets/WYNTK-Consumer/">NIH supplement labels, combinations and recordkeeping</a><a href="https://www.fda.gov/drugs/human-drug-compounding/certain-bulk-drug-substances-use-compounding-may-present-significant-safety-risks">FDA compounding safety context</a></p>
+  </article>
+  <article class="audit-item"><h3>9. Record once across Today, Protocol and Apple devices <span class="badge p2">P2</span></h3>
+    <p><strong>Finding:</strong> Protocol water/sleep routines and the actual health counters can describe the same activity without a shared event. Watch source displays the next protocol, but its protocol action requests a snapshot rather than logging a dose.</p>
+    <p><strong>Improve:</strong> Give linked activities one source event and origin. A completed water goal can reference the glass counter without inventing extra water. Later, support explicit Watch actions and authorized HealthKit medication reads with deduplication and visible sync status.</p>
+    <p><strong>Test:</strong> Two offline devices replaying the same event must not double the count. Handle edited and deleted imported events. Never silently merge substances by similar names. No direct Oura/WHOOP connection is claimed here.</p>
+    <p class="source"><code>js/app.js:9299</code>, <code>ios/Watch/Arc90WatchApp.swift:227</code>, <code>ios/App/App/Arc90HealthPlugin.swift:39</code>. <a href="https://developer.apple.com/videos/play/wwdc2025/321/">Apple medication read authorization and event updates</a></p>
+  </article>
+  <article class="audit-item"><h3>10. Make review and export genuinely useful <span class="badge p1">P1</span></h3>
+    <p><strong>Finding:</strong> The text export says it contains no dosing information, then includes the recorded dose/amount. It lacks occurrence times and plan-version history. The primary Protocol details do not expose the legacy symptom-entry flow. Several form labels are not associated with inputs, and selection state is not expressed on the quick-log buttons.</p>
+    <p><strong>Improve:</strong> A readable detail/history sheet with accessible labels and states. Offer date-filtered CSV and a clear print/PDF report with an export preview, chosen fields, actual timestamps, units, sources, corrections, symptom entries and missing-data labels. Keep basic export free.</p>
+    <p><strong>Test:</strong> Screen-reader and large-text flows; correct local dates; export round-trip; old logs without times must remain "time unknown." Health details must be excluded from social sharing unless explicitly selected. A report records observations; it does not diagnose.</p>
+    <p class="source"><code>js/app.js:10039</code>, <code>js/app.js:7510</code>, <code>js/app.js:8138</code>. <a href="https://bearable.app/support/common-questions/bearable-free-vs-premium-features/">Bearable's free export benchmark</a></p>
+  </article>
+  <div class="section">
+    <h3>Proposed Protocol structure</h3>
+    <pre class="spec">Protocols                     [date]  [+]
+
+NOW
+Product name   Recorded amount   08:00   [Taken]
+Product name   Recorded amount   08:30   [Taken]
+
+LATER
+Product name   Recorded amount   20:00
+
+LOGGED TODAY                              [expand]
+OPTIONAL / AS NEEDED                       [expand]
+7-day recorded history                    [details]
+LIBRARY                                   [expand]
+
+Item sheet: Plan | History | Evidence
+Taken is one tap. Skip / edit / notes are secondary.
+Unknown is a valid state, never a fabricated success.</pre>
+  </div>
+</section>
+
+<section id="build" class="panel" role="tabpanel" aria-labelledby="tab-build" tabindex="0">
+  <div class="section"><h2>One coherent product, not more tabs</h2>
+    <p>Keep the current five-destination structure. Improve the contents rather than ask users to learn another navigation redesign.</p>
+    <div class="route"><div><b>Today</b><small>Next action, compact habits, water, mood and journal.</small></div><div><b>Arc</b><small>Milestones, outcome evidence and the weekly review.</small></div><div><b>Habits</b><small>Manage routines and minimum/full versions.</small></div><div><b>Lab</b><small>Focus, Protocol, Sleep, health signals and deeper guidance.</small></div><div><b>You</b><small>Account, connections, permissions, export and appearance.</small></div></div>
+    <p>Use a stable visual grammar: one clear page heading, unframed sections, compact rows, visible status, progressive disclosure and one primary action per context. Keep charts consistent in axis labels, date ranges, empty states and meaning. Motion should confirm an action without delaying the next one.</p>
+  </div>
+  <div class="section"><h2>Priority and scope</h2><div class="table-wrap"><table><thead><tr><th scope="col">Order</th><th scope="col">Build</th><th scope="col">Relative effort / dependency</th><th scope="col">Release gate</th></tr></thead><tbody>
+    <tr><td>0. Repair</td><td>Occurrence model, schedule history, truthful symptoms, undo, add/edit flow.</td><td>Medium; migrate existing date-only records as legacy records with unknown times. Do not reconstruct doses.</td><td>Deterministic protocol tests, backup/restore, phone UI and accessibility checks.</td></tr>
+    <tr><td>1. Make Today useful</td><td>A day that fits, starting with explicit available time and one milestone.</td><td>Medium; reuse current Adaptive Day and Focus. Calendar comes later.</td><td>Users understand the recommendation and can override it in one step.</td></tr>
+    <tr><td>2. Make Protocol dependable</td><td>Passport detail, native reminders, history/export and compact layout.</td><td>Medium to large; native notification testing and product identity required.</td><td>No wrong-day/duplicate logs, no false reminder promise, no silent data loss.</td></tr>
+    <tr><td>3. Make progress meaningful</td><td>Outcome-linked Arc plus an explicit friction playbook.</td><td>Medium; reuse Proof Wall and current comeback tools.</td><td>Weekly review distinguishes action counts from outcomes and preserves privacy.</td></tr>
+    <tr><td>4. Add learning</td><td>One-question behavioral learning loop.</td><td>Large; reliable history, sufficient coverage, statistical review and consent boundaries.</td><td>Missing-data, confounding and inconclusive cases pass before insights appear.</td></tr>
+  </tbody></table></div><p class="meta">Effort categories are comparative judgments, not calendar estimates or delivery promises. Audit only: none of these proposed features was implemented in this research pass.</p></div>
+  <div class="section columns"><div><h2>What users might pay for</h2><p>Propose charging for useful synthesis: deeper goal planning, multi-goal reviews and optional rich integrations. Keep reliable basic logs, correction, data portability and essential safety information available without payment.</p><p>Bevel's free feature breadth and Bearable's free tracking/export raise the bar for a subscription based only on reminders and charts.</p><p class="source"><a href="https://help.bevel.health/en/articles/11194113">Bevel access model</a><a href="https://bearable.app/support/common-questions/bearable-free-vs-premium-features/">Bearable tiers</a></p><p class="muted">Do not pick a price before testing repeated value and willingness to pay. Geographic offers and checkout prices were not exhaustively compared.</p></div><div><h2>What not to build first</h2><ul class="fact-list"><li>A giant supplement marketplace or affiliate-driven stack recommendations.</li><li>Automated peptide dosing, titration, reconstitution or medical treatment decisions.</li><li>A new composite score without an understandable decision attached.</li><li>A social leaderboard based on health records or substance consumption.</li><li>A chat box as the primary interface for tasks that need one tap.</li><li>More animated cards that make the daily screen longer.</li></ul></div></div>
+  <div class="section"><h2>Validate with actual users next</h2><p>This is desk research plus a hands-on audit of our app, not completed field interviews. Recruit a small directional sample of busy goal-setters, people already tracking clinician-directed routines and wearable users. Include people without a wearable and users of larger text.</p><ol class="fact-list"><li>Ask them to plan a disrupted day, log a scheduled occurrence, correct a mistake and find last week's history. Observe without explaining.</li><li>Compare the current and proposed Prototype flows in alternating order. Measure task success, time, wrong-item taps and confidence in the record.</li><li>Run a short diary pilot with voluntary, minimal data collection. Track daily effort, useful next actions and whether the weekly review changes a plan.</li><li>Ask what they would replace, what they would keep alongside Arc90 and whether the proposed paid value matters. Do not extrapolate a small qualitative sample into market share.</li></ol><p><strong>Working success targets, not observed results:</strong> daily logging in a few taps; no record corruption in the test matrix; lower time-to-action; fewer dismissals; a weekly review users can explain in their own words. Health claims need separate clinical and regulatory assessment.</p></div>
+</section>
+
+<section id="method" class="panel" role="tabpanel" aria-labelledby="tab-method" tabindex="0">
+  <div class="section"><h2>What was verified</h2><ul class="fact-list"><li>Arc90 local build v139, source-level Protocol behavior, phone-sized browser layout and the template/manual-add path.</li><li>Isolated source-function reproductions: daily denominator 1/3, two same-day logs reduced to one, historical score 100% to 50% after adding an item.</li><li>Primary product/help pages for 15 adjacent products, accessed September 28, 2026. Earlier Protocol inspection was refreshed against the current source.</li><li>Official Apple developer/support, NIH and FDA references for integration and health-data boundaries.</li></ul></div>
+  <div class="section"><h2>What was not verified</h2><ul class="fact-list"><li>No independent clinical validation, regulatory legal review, representative market survey or completed customer interviews.</li><li>No paid-account hands-on comparison, physical iPhone/Watch build test, notification delivery test, or proof that any competitor feature improves outcomes.</li><li>No exhaustive regional pricing study, vendor API partnership check or confirmation that every vendor feature is available to every subscription and country.</li><li>No formal WCAG certification. Accessibility findings are targeted source/UI observations; full keyboard, screen-reader and native Dynamic Type testing remains necessary.</li></ul><p>Local model/code presence is not the same as successful native deployment. Competitor documentation is first-party product evidence and may contain marketing claims; it is not neutral proof of performance. A feature not found in these pages is <strong>unknown</strong>, not absent.</p></div>
+  <div class="section"><h2>Source register</h2><div id="source-register"></div></div>
+  <div class="section"><h2>Decision rule</h2><p>Do not claim "we beat everyone." Aim to win a specific repeated job: <strong>helping a busy person follow a realistic plan, maintain trustworthy records and see meaningful 90-day progress with less daily effort.</strong> Reliability is the entry requirement. The integrated workflow is the differentiation hypothesis.</p></div>
+</section>
+</main>
+<footer>Research and recommendations only. No production deployment, medical regimen changes or app-source modifications were made for this report. Local source references are relative to /Users/michael28gh/Projects/arc90.</footer>
+<script>
+  const sources = {
+    bevel: ['Bevel: connected health coach', 'https://www.bevel.health/'],
+    bevelVersions: ['Bevel: current feature ledger (edited Sep 24, 2026)', 'https://help.bevel.health/en/articles/11194113'],
+    bevelInsights: ['Bevel: Journal Insights', 'https://help.bevel.health/en/articles/13319041'],
+    oura: ['Oura: Advisor (updated Jun 11, 2026)', 'https://support.ouraring.com/hc/en-us/articles/39512345699219-Oura-Advisor'],
+    ouraTags: ['Oura: using tags', 'https://support.ouraring.com/hc/en-us/articles/360038676993-Using-Tags'],
+    whoop: ['WHOOP: custom journal behaviors (Sep 18, 2026)', 'https://www.whoop.com/us/en/thelocker/custom-journal-behaviors-are-here/'],
+    gentler: ['Gentler Streak: Activity Path', 'https://docs.gentler.app/understanding-your-activity-path/what-is-the-activity-path'],
+    rise: ['RISE: energy schedule model (May 22, 2026)', 'https://help.risescience.com/hc/en-us/articles/40672503374871-How-does-RISE-predict-my-Energy-Schedule'],
+    sleep: ['Sleep Cycle: current product page', 'https://sleepcycle.com/'],
+    bearable: ['Bearable: health experiments', 'https://bearable.app/support/tips/health-experiments-a-guide-to-learning-how-your-habits-impact-your-health/'],
+    bearablePlans: ['Bearable: free vs premium (Jul 23, 2025)', 'https://bearable.app/support/common-questions/bearable-free-vs-premium-features/'],
+    guava: ['Guava: health insights', 'https://guavahealth.com/health-insights'],
+    apple: ['Apple Support: Medications', 'https://support.apple.com/en-us/105064'],
+    medicationAPI: ['Apple Developer: HealthKit Medications API (WWDC25)', 'https://developer.apple.com/videos/play/wwdc2025/321/'],
+    streaks: ['Streaks: product features', 'https://streaksapp.com/'],
+    sunsama: ['Sunsama: timeboxing', 'https://www.sunsama.com/features/timeboxing'],
+    sunsamaPlanning: ['Sunsama: daily planning', 'https://www.sunsama.com/daily-planning'],
+    opal: ['Opal: focus rules and timers', 'https://opalapp.com/'],
+    suppco: ['SuppCo: product, library and access model', 'https://supp.co/'],
+    peptide: ['Peptide Tracker: first protocol', 'https://peptidetracker.ai/help/getting-started/adding-your-first-protocol'],
+    peptideHistory: ['Peptide Tracker: schedule edits preserve history', 'https://peptidetracker.ai/help/protocols-and-schedules/editing-a-schedule'],
+    medisafe: ['Medisafe: medication management', 'https://medisafe.com/download-the-app'],
+    medisafeHelp: ['Medisafe: current help center and regional paid-access notice', 'https://help-center.medisafe.com/en/'],
+    nih: ['NIH ODS: supplement labels, safety and recordkeeping', 'https://ods.od.nih.gov/factsheets/WYNTK-Consumer/'],
+    fda: ['FDA: bulk drug substances with potential significant safety risks', 'https://www.fda.gov/drugs/human-drug-compounding/certain-bulk-drug-substances-use-compounding-may-present-significant-safety-risks']
+  };
+  const competitors = [
+    {name:'Bevel',group:'signals',focus:'Recovery, sleep, nutrition, health records and an AI coach; calendar integrations are listed.',opening:'A smaller, outcome-first daily plan rather than a broad health dashboard.',position:'The closest broad product comparator in this set.',strength:'Its documented scope is already wide. Matching the feature list would spread Arc90 thin.',test:'Can a new user choose and start a meaningful next action with fewer decisions?',access:'Free base; Intelligence, Biological Age and Health Records are listed as Pro. Exact regional prices not verified.',sources:['bevel','bevelVersions','bevelInsights']},
+    {name:'Oura',group:'signals',focus:'Wearable-based context, customizable tags and personalized Advisor conversations.',opening:'Work without a required ring and connect context to a user-approved goal action.',position:'A strong reference for making personal health data understandable.',strength:'It has established sensing and data interpretation. Arc90 should not claim superior physiological measurement.',test:'Does a recommendation explain its data source and let the user disagree easily?',access:'Advisor requires Gen3 or newer and an active membership; hardware is separate from Arc90\'s software-only path.',sources:['oura','ouraTags']},
+    {name:'WHOOP',group:'signals',focus:'Recovery behavior analysis, including custom journal behaviors created with AI.',opening:'Connect behavior observations to useful life-goal decisions with less manual input.',position:'A performance and recovery benchmark, not just a band.',strength:'Custom behavior tracking is already shipped, so it is not a novel Arc90 pitch.',test:'Can a user tell association from causation and see an actionable, modest next step?',access:'Hardware/member ecosystem. Exact tier prices and regional offers not audited.',sources:['whoop']},
+    {name:'Gentler Streak',group:'signals',focus:'Activity Path balances training and recovery with user context such as sick or injured status.',opening:'Apply a supportive, low-pressure experience to a whole 90-day goal, not only activity.',position:'A reference for a more humane relationship with daily goals.',strength:'Rest-aware design is not an unoccupied market.',test:'Does the app help after a disrupted day without pressuring extra work?',access:'Subscription details not price-audited; assess the relevant App Store offer before purchase.',sources:['gentler']},
+    {name:'RISE',group:'signals',focus:'Predicts daily energy peaks and dips using sleep-related data; predictions have stated limits.',opening:'Turn a usable time window into one scheduled goal action, with an honest manual fallback.',position:'A focused sleep-to-day-planning comparator.',strength:'Energy forecasting itself is established. Arc90 needs to demonstrate better task fit, not promise a better body model.',test:'Does the suggested task still make sense when the user feels different from the forecast?',access:'Pricing and trial conditions not verified in the cited model documentation.',sources:['rise']},
+    {name:'Sleep Cycle',group:'signals',focus:'Sleep trends and a Sleep Score organized around duration, quality and routine; Smart Alarm entry point.',opening:'Use sleep as context for daily commitments rather than duplicate a specialist sleep app.',position:'A sleep-specific reference.',strength:'Its product is centered on sleep; competing on measurement would be a separate, costly undertaking.',test:'Can a poor-sleep day produce a realistic plan without presenting a diagnosis?',access:'A trial is advertised, but page text contains different trial lengths. Do not quote a definitive offer without checkout verification.',sources:['sleep']},
+    {name:'Bearable',group:'protocol',focus:'Symptoms, mood, medication tracking, correlations and guided/custom health experiments.',opening:'Reduce tracking burden and close the loop into a user-approved behavior and goal review.',position:'A direct benchmark for personal longitudinal records.',strength:'Experiments and customizable outcomes already exist.',test:'Can users reach a useful review without adding many new daily questions?',access:'Free tracking, reminders and CSV export; premium adds broader analysis and longer report windows.',sources:['bearable','bearablePlans']},
+    {name:'Guava',group:'protocol',focus:'Connects health records, devices, lifestyle logs and user-visible correlations.',opening:'A narrower daily-execution experience; do not try to rebuild a complete patient record system.',position:'A serious data-connection and visit-preparation comparator.',strength:'Health aggregation and correlations are already central features.',test:'Can Arc90 explain one relevant pattern while keeping source and uncertainty visible?',access:'Free and premium options; automatic correlation scanning and other limits differ by plan.',sources:['guava']},
+    {name:'Apple Medications',group:'protocol',focus:'Medication/supplement schedules, logging, reminders, archive and list export across supported Apple devices.',opening:'Complement the system record with richer goal context and reliable, permissioned import.',position:'The native usability baseline for any iPhone Protocol tracker.',strength:'Arc90 must match trustworthy scheduling and correction before competing on polish.',test:'Can a user record and correct one occurrence without losing the rest of the day?',access:'Built into supported Apple platforms; certain features are region-dependent. No Arc90-like standalone subscription.',sources:['apple','medicationAPI']},
+    {name:'Streaks',group:'execution',focus:'Custom habits, non-daily schedules, Health integration, statistics and Watch interactions.',opening:'Make goal outcomes and useful recovery from disruptions more important than a chain of checkmarks.',position:'A strong benchmark for fast, focused habit interaction.',strength:'Compact check-off interactions and Watch support are established.',test:'Can Arc90 remain as easy to operate while showing something more meaningful than completion?',access:'Exact App Store price not verified. No numerical price comparison is made.',sources:['streaks']},
+    {name:'Sunsama',group:'execution',focus:'Realistic daily planning, calendar timeboxing and historical task-duration estimates.',opening:'Bridge personal routine context to goal execution in a compact mobile-first flow.',position:'A work-planning reference, not a health tracker.',strength:'Calendar-aware realistic planning is already a clear product proposition.',test:'Does Arc90 combine constraints into a useful action without becoming a full task manager?',access:'The cited page advertises a 14-day trial; recurring prices not audited.',sources:['sunsama','sunsamaPlanning']},
+    {name:'Opal',group:'execution',focus:'App-blocking rules, focus timers and milestone rewards; current positioning includes a wellbeing score.',opening:'Tie a protected session to a specific 90-day milestone, not just fewer screen minutes.',position:'A focused distraction-management comparator.',strength:'Blocking reliability is the baseline; animation is not a substitute.',test:'Can the user see what their protected time produced and trust the actual native blocking state?',access:'Exact free/paid boundaries and current prices not verified in this comparison.',sources:['opal']},
+    {name:'SuppCo',group:'protocol',focus:'Supplement product information, stack analysis, quality-oriented information, scheduling and intake tracking.',opening:'Prioritize clear existing-plan records and whole-day context rather than more recommended products.',position:'A direct competitor for vitamins and supplements.',strength:'A large supplement catalog and stack scoring are not new ideas.',test:'Can a user distinguish a label fact, a personal instruction and uncertain evidence?',access:'The site describes free access with optional Pro tools. Numeric prices not audited.',sources:['suppco']},
+    {name:'Peptide Tracker',group:'protocol',focus:'Compound-specific plans, multiple schedules, actual dose records and inventory; edits preserve history.',opening:'Reliable tracking integrated with habits and goal review, without turning medical routines into a game.',position:'A specialist workflow comparator at peptidetracker.ai; not a recommendation to use any compound.',strength:'Schedule integrity and inventory are expected features, not differentiators by themselves.',test:'Does the user understand the recorded plan without the app supplying an unrequested regimen?',access:'Pricing not verified. This report assesses the published workflow, not clinical safety or effectiveness.',sources:['peptide','peptideHistory']},
+    {name:'Medisafe',group:'protocol',focus:'Medication reminders, caregiver support, progress reports and interaction alerts.',opening:'A personal-goal companion for users who need more than reminder management, not a replacement for established safety tooling.',position:'A medication-management benchmark.',strength:'Shared support and dependable reminder workflows are already offered.',test:'Which part of the job would a user choose Arc90 for while keeping their trusted medication system?',access:'Regional ambiguity: the marketing page says free, while Help states paid access outside the U.S. Verify the user\'s regional offer; no universal free-price claim.',sources:['medisafe','medisafeHelp']}
+  ];
+  function sourceLinks(keys){return keys.map(key=>{const [title,url]=sources[key];return `<a href="${url}">${title}</a>`;}).join(' ');}
+  const rows=document.getElementById('market-rows');
+  const chooser=document.getElementById('competitor-select');
+  const detail=document.getElementById('competitor-detail');
+  function showCompetitor(index){const c=competitors[index];detail.replaceChildren();const title=document.createElement('h3');title.textContent=c.name;detail.append(title);const intro=document.createElement('p');intro.textContent=c.position;detail.append(intro);const dl=document.createElement('dl');[['Documented strengths',c.strength],['Arc90 opportunity hypothesis',c.opening],['Question to validate with users',c.test],['Access and pricing confidence',c.access]].forEach(([label,value])=>{const dt=document.createElement('dt');dt.textContent=label;const dd=document.createElement('dd');dd.textContent=value;dl.append(dt,dd);});detail.append(dl);const links=document.createElement('p');links.className='source';links.innerHTML=sourceLinks(c.sources);detail.append(links);}
+  function renderMarket(){const filter=document.getElementById('market-filter').value;rows.replaceChildren();competitors.forEach((c,index)=>{if(filter!=='all'&&c.group!==filter)return;const tr=document.createElement('tr');const name=document.createElement('td');const button=document.createElement('button');button.type='button';button.className='tab';button.textContent=c.name;button.setAttribute('aria-label',`Read ${c.name} brief`);button.addEventListener('click',()=>{chooser.value=String(index);showCompetitor(index);chooser.focus();});name.append(button);const fact=document.createElement('td');fact.append(document.createTextNode(c.focus+' '));const link=document.createElement('a');link.href=sources[c.sources[0]][1];link.textContent='Source';fact.append(link);const opening=document.createElement('td');opening.textContent=c.opening;tr.append(name,fact,opening);rows.append(tr);});}
+  competitors.forEach((c,index)=>{const option=document.createElement('option');option.value=String(index);option.textContent=c.name;chooser.append(option);});
+  chooser.addEventListener('change',()=>showCompetitor(Number(chooser.value)));document.getElementById('market-filter').addEventListener('change',renderMarket);renderMarket();showCompetitor(0);
+  const register=document.getElementById('source-register');const list=document.createElement('ol');Object.values(sources).forEach(([title,url])=>{const item=document.createElement('li');const link=document.createElement('a');link.href=url;link.textContent=title;item.append(link);list.append(item);});register.append(list);
+  const tabs=[...document.querySelectorAll('[role="tab"]')];
+  function activate(id,focus=false){if(!tabs.some(tab=>tab.getAttribute('aria-controls')===id))id='decision';tabs.forEach(tab=>{const active=tab.getAttribute('aria-controls')===id;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;document.getElementById(tab.getAttribute('aria-controls')).hidden=!active;if(active&&focus)tab.focus();});history.replaceState(null,'','#'+id);}
+  tabs.forEach((tab,index)=>{tab.addEventListener('click',()=>activate(tab.getAttribute('aria-controls')));tab.addEventListener('keydown',event=>{let next=index;if(event.key==='ArrowRight')next=(index+1)%tabs.length;else if(event.key==='ArrowLeft')next=(index+tabs.length-1)%tabs.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=tabs.length-1;else return;event.preventDefault();activate(tabs[next].getAttribute('aria-controls'),true);});});
+  activate(location.hash.slice(1)||'decision');window.addEventListener('hashchange',()=>activate(location.hash.slice(1)));
+</script>
+</body>
+</html>

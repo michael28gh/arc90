@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Arc90 Progress Gallery</title>
+<link rel="stylesheet" href="/css/styles.css"><link rel="stylesheet" href="/css/approved-design.css"><link rel="stylesheet" href="/css/progress-dashboard.css"><link rel="stylesheet" href="/css/story-mode.css">
+<style>body{overflow:auto;background:var(--bg)}.gallery-controls{display:flex;flex-wrap:wrap;gap:12px;align-items:center;max-width:900px;margin:auto;padding:16px;color:var(--tx-2);font-size:12px;background:var(--bg)}.gallery-controls select{color:var(--tx);background:var(--card);border:1px solid var(--line);padding:8px;border-radius:6px}#app{width:100%;max-width:900px;padding:16px;margin:auto;min-height:0}#app .topbar{padding:0}.gallery-controls label{display:flex;gap:6px;align-items:center}#galleryStatus{display:block;text-align:center;color:var(--tx-2);font-size:12px}.pd-overlay{z-index:100}</style>
+</head><body>
+<div class="gallery-controls"><strong>Arc90 · Sample data</strong><label>Theme<select id="galleryTheme"><option value="dark">Dark</option><option value="light">Light</option></select></label><label>Data<select id="galleryData"><option value="populated">60 days</option><option value="empty">Empty</option></select></label><label><input id="galleryMotion" type="checkbox">Reduce motion</label></div>
+<main id="app"></main><output id="galleryStatus">Nothing is saved to your account.</output>
+<script src="/js/vendor/d3-array.min.js"></script><script src="/js/vendor/d3-path.min.js"></script><script src="/js/vendor/d3-shape.min.js"></script><script src="/js/vendor/d3-sankey.min.js"></script><script src="/js/brain-core.js"></script><script src="/js/charts/purpose-flow.js"></script><script src="/js/motion.js"></script>
+<script>
+const demo = /* DEMO_DATA */;
+let S = structuredClone(demo);
+const LIFE_AREAS = { health:'Health',mind:'Mind',career_school:'Career / school',money:'Money',build:'Build',people:'People',spirit:'Spirit' };
+const ICONS = { expand:'↗', more:'...' }, TOOL_GROUPS = [];
+let moreOpen = false;
+const todayKey = () => '2026-08-29';
+const dkey = date => date.toLocaleDateString('en-CA');
+const startDate = () => new Date(S.profile.start + 'T00:00:00');
+const addDays = (date,n) => { const next=new Date(date);next.setDate(next.getDate()+n);return next; };
+const dlog = key => S.log[key] || {};
+const statusOf = (id,key) => (dlog(key).done || []).includes(id) ? 'done' : (dlog(key).skip || []).includes(id) ? 'skip' : null;
+const isCompleted = (id,key) => statusOf(id,key) === 'done';
+const scheduledFor = (habit,key) => habit.rhythm !== 'weekdays' || new Date(key+'T12:00:00').getDay()%6 !== 0;
+const habitPurpose = habit => {const result=[],seen=new Set();let id=habit.goal_id;while(id&&!seen.has(id)&&result.length<5){seen.add(id);const goal=S.brain.goals.find(g=>g.id===id);if(!goal)break;result.push(goal);id=goal.parent_goal_id;}return result;};
+const esc = value => String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const momentum = () => S.habits.length ? 74 : 0;
+const vitality = () => ({score:S.habits.length ? 86 : null});
+const todayCompletion = () => {const today=dlog(todayKey());return {done:(today.done || []).length,total:S.habits.filter(habit=>scheduledFor(habit,todayKey())).length};};
+const dayStreak = () => {let streak=0;for(let i=0;i<90;i++){const key=dkey(addDays(new Date(todayKey()+'T12:00:00'),-i));const day=dlog(key);if(!(day.done || []).length){if(i)break;continue;}streak++;}return streak;};
+const dayNumber = () => Math.max(1,Math.min(90,Math.round((new Date(todayKey()+'T00:00:00')-startDate())/86400000)+1)), brandbar = () => '';
+const historicalRateFor = key => { const log=S.log[key] || {}, due=log.scheduledIds || []; return due.length ? due.filter(id=>(log.done || []).includes(id)).length/due.length : null; };
+const app = document.getElementById('app');
+function render(entering=false){app.innerHTML=viewDashboard();Arc90Motion.observeCharts(app,entering);}
+</script><script src="/js/progress-insights.js"></script><script src="/js/story-mode.js"></script><script src="/js/progress-dashboard.js"></script>
+<script>
+render(true);
+document.getElementById('galleryTheme').addEventListener('change',event=>{document.documentElement.dataset.theme=event.target.value;});
+document.getElementById('galleryData').addEventListener('change',event=>{S=structuredClone(demo);if(event.target.value==='empty'){S.habits=[];S.log={};S.brain.goals=[];S.profile.start=todayKey();}render(true);});
+document.getElementById('galleryMotion').addEventListener('change',event=>{document.documentElement.dataset.motion=event.target.checked?'reduced':'';render(true);});
+document.addEventListener('click',event=>{const button=event.target.closest('[data-act="tab"]');if(button)document.getElementById('galleryStatus').textContent='In the app this opens '+button.dataset.id+'. This gallery uses sample data.';});
+</script></body></html>

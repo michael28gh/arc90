@@ -3,10 +3,19 @@
   "appName": "Arc90",
   "webDir": "dist",
   "bundledWebRuntime": false,
-  "backgroundColor": "#03040a",
+  "backgroundColor": "#111315",
   "ios": {
-    "backgroundColor": "#03040a",
+    "backgroundColor": "#111315",
     "contentInset": "never",
     "scheme": "Arc90"
+  },
+  "plugins": {
+    "LiveUpdate": {
+      "autoBlockRolledBackBundles": true,
+      "autoDeleteBundles": true,
+      "autoUpdateStrategy": "none",
+      "publicKey": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqKsmY6z6E6QMBklbg+Q0Q0GjPYvFaVsnuCEOsPzMu446MpWryAsD/uKJOcGAdsDwOYHqEQOVl5xk5j46EiYnx/ZTA7SEWNl1JpXlv0CXugePw/KDbDCpx7w2JvDQ95rob4IKB9UK+Di8axZwKyBllDQsYhIay/LeD4A1Fkt/brU5D/yklo8OLgpI9sQghfYCpNXnPKmTOM8gUWdqb98jTnsdqIiYt5Z+KdnxAgsTqZY5jE0aOJu+Gha2FzDWw7a/eiUBf2Y7whSI9BCV5+6k1dQgVIc1DPAd7i8O+jxzqFORxeoVv2dfjiPgIVFu0nze+me0s9f38IskiXDG/0Jo1QIDAQAB\n-----END PUBLIC KEY-----",
+      "readyTimeout": 10000
+    }
   }
 }

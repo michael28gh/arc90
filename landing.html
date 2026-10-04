@@ -10,26 +10,28 @@
   <meta property="og:type" content="website" />
   <meta property="og:title" content="Arc90: Build your next 90 days" />
   <meta property="og:description" content="One goal. 90 days. A daily system that outlasts motivation. Local-first and private." />
-  <meta property="og:image" content="https://arc90.vercel.app/marketing/arc90-hero-1.png" />
-  <meta property="og:url" content="https://arc90.vercel.app/landing" />
+  <link rel="canonical" href="https://arc90.vercel.app/" />
+  <meta property="og:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
+  <meta property="og:image:alt" content="Arc90 habit and daily progress tracker" />
+  <meta property="og:url" content="https://arc90.vercel.app/" />
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="Arc90: Build your next 90 days" />
   <meta name="twitter:description" content="One goal. 90 days. A daily system that outlasts motivation." />
-  <meta name="twitter:image" content="https://arc90.vercel.app/marketing/arc90-hero-1.png" />
+  <meta name="twitter:image" content="https://arc90.vercel.app/assets/social-preview.jpg" />
 
-  <meta name="theme-color" content="#03040a" />
+  <meta name="theme-color" content="#111315" />
   <link rel="icon" href="icons/icon-180.png" />
   <link rel="apple-touch-icon" href="icons/icon-180.png" />
 
   <style>
     :root{
-      --bg:#04050a; --bg-2:#070810; --card:#11121c; --card-2:#181a28;
+      --bg:#111315; --bg-2:#15181b; --card:#1c1f22; --card-2:#25292d;
       --line:rgba(220,224,255,.10); --line-2:rgba(220,224,255,.18);
-      --tx:#f7f7ff; --tx-2:#b8bbd4; --tx-3:#7e8198;
-      --accent:#8f6bff; --accent-2:#a986ff; --accent-3:#5ee4ff;
-      --mint:#5ee4c2; --amber:#ffbd6b;
-      --grad:linear-gradient(135deg,#5ee4ff,#8f6bff 52%,#c14cff);
-      --glow:rgba(143,107,255,.30);
+      --tx:#f2f4f6; --tx-2:#acb3bb; --tx-3:#919aa3;
+      --accent:#b3dfbd; --accent-2:#b3dfbd; --accent-3:#9ac9ed;
+      --mint:#b3dfbd; --amber:#ffbd6b;
+      --grad:linear-gradient(135deg,#9ac9ed,#b3dfbd 52%,#7cad87);
+      --glow:rgba(179,223,189,.30);
       --maxw:1120px;
     }
     *{box-sizing:border-box;margin:0;padding:0}
@@ -43,12 +45,12 @@
     .wrap{max-width:var(--maxw);margin:0 auto;padding:0 22px;position:relative;z-index:1}
     .grad-text{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 
-    /* animated aurora / mesh background */
-    .aurora{position:fixed;inset:-20% -10% 0;z-index:-2;pointer-events:none;filter:blur(70px);opacity:.85}
+    /* Keep the page atmosphere neutral so the product render carries the hero. */
+    .aurora{display:none}
     .aurora i{position:absolute;border-radius:50%;mix-blend-mode:screen;animation:drift 22s ease-in-out infinite}
-    .aurora .a1{width:46vw;height:46vw;left:52%;top:-12%;background:radial-gradient(circle,#8f6bff,transparent 62%)}
-    .aurora .a2{width:40vw;height:40vw;left:-8%;top:6%;background:radial-gradient(circle,#5ee4ff,transparent 62%);animation-delay:-7s}
-    .aurora .a3{width:38vw;height:38vw;left:62%;top:38%;background:radial-gradient(circle,#c14cff,transparent 62%);animation-delay:-13s}
+    .aurora .a1{width:46vw;height:46vw;left:52%;top:-12%;background:radial-gradient(circle,#b3dfbd,transparent 62%)}
+    .aurora .a2{width:40vw;height:40vw;left:-8%;top:6%;background:radial-gradient(circle,#9ac9ed,transparent 62%);animation-delay:-7s}
+    .aurora .a3{width:38vw;height:38vw;left:62%;top:38%;background:radial-gradient(circle,#7cad87,transparent 62%);animation-delay:-13s}
     @keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(4%,5%) scale(1.08)}66%{transform:translate(-4%,-3%) scale(.95)}}
     /* fine grain */
     body::after{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.04;
@@ -58,13 +60,13 @@
     .nav{position:sticky;top:0;z-index:20;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
       background:color-mix(in srgb,var(--bg) 72%,transparent);border-bottom:1px solid var(--line)}
     .nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px}
-    .brand{font-weight:900;letter-spacing:.16em;font-size:15px}
-    .brand b{color:var(--accent-2)}
+    .brand{display:flex;align-items:center;gap:9px;font-weight:760;letter-spacing:.16em;font-size:15px}
+    .brand img{display:block;width:24px;height:24px;border-radius:5px}
     .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;font-weight:800;
       border:0;cursor:pointer;border-radius:999px;padding:13px 22px;font-size:14.5px;
       transition:transform .15s ease,filter .2s ease,box-shadow .2s ease}
     .btn:active{transform:scale(.97)}
-    .btn-primary{background:var(--grad);color:#07080c;box-shadow:0 12px 34px -12px var(--glow)}
+    .btn-primary{background:var(--grad);color:#182019;box-shadow:0 12px 34px -12px var(--glow)}
     .btn-primary:hover{filter:brightness(1.08);box-shadow:0 16px 40px -12px var(--glow);transform:translateY(-1px)}
     .btn-ghost{background:color-mix(in srgb,var(--card-2) 60%,transparent);color:var(--tx);border:1px solid var(--line-2);
       -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
@@ -75,8 +77,8 @@
     .hero{padding:54px 0 30px}
     .hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:30px;align-items:center;min-height:62vh}
     .eyebrow{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:800;letter-spacing:.12em;
-      text-transform:uppercase;color:var(--accent-2);background:rgba(143,107,255,.10);
-      border:1px solid rgba(143,107,255,.30);padding:7px 13px;border-radius:999px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+      text-transform:uppercase;color:var(--accent-2);background:rgba(179,223,189,.10);
+      border:1px solid rgba(179,223,189,.30);padding:7px 13px;border-radius:999px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
     h1{font-size:clamp(40px,6.4vw,66px);line-height:1.02;font-weight:900;letter-spacing:-.03em;margin:18px 0}
     .hero p.sub{font-size:17.5px;color:var(--tx-2);max-width:32ch}
     .cta-row{display:flex;gap:12px;flex-wrap:wrap;margin-top:28px}
@@ -88,13 +90,12 @@
     .hero-stage{position:relative;height:min(560px,72vw);perspective:1300px;display:flex;align-items:center;justify-content:center;
       --px:0px;--py:0px}
     .arc-ring{position:absolute;width:118%;max-width:min(560px,90vw);aspect-ratio:1;animation:spin 34s linear infinite;
-      filter:drop-shadow(0 0 26px rgba(143,107,255,.35))}
+      filter:drop-shadow(0 0 26px rgba(179,223,189,.35))}
     @keyframes spin{to{transform:rotate(360deg)}}
-    .stage-orb{position:absolute;width:54%;aspect-ratio:1;border-radius:50%;filter:blur(46px);opacity:.55;
-      background:radial-gradient(circle,#8f6bff,transparent 65%)}
+    .stage-orb,.arc-ring{display:none}
     .phone-float{position:relative;z-index:2;transform:perspective(1300px) rotateY(-14deg) rotateX(5deg) translate(var(--px),var(--py));
       transform-style:preserve-3d;animation:float 6s ease-in-out infinite}
-    .phone-float img{width:min(270px,52vw);border-radius:30px;border:1px solid var(--line-2);
+    .phone-float img{width:min(270px,52vw);height:auto;border-radius:30px;border:1px solid var(--line-2);
       box-shadow:0 50px 110px -34px rgba(0,0,0,.85),0 0 90px -34px var(--glow)}
     @keyframes float{0%,100%{transform:perspective(1300px) rotateY(-14deg) rotateX(5deg) translateY(0)}50%{transform:perspective(1300px) rotateY(-14deg) rotateX(5deg) translateY(-14px)}}
     .chip{position:absolute;z-index:3;display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:16px;
@@ -106,7 +107,7 @@
     .chip .fl{font-size:20px}
     .chip-streak{left:-2%;top:20%;transform:translate(calc(var(--px)*-1.6),calc(var(--py)*-1.6))}
     .chip-ready{right:-2%;bottom:18%;animation-delay:-3.5s;transform:translate(calc(var(--px)*1.6),calc(var(--py)*1.6))}
-    .chip-ready .ring{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:900;color:#07080c;
+    .chip-ready .ring{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:900;color:#182019;
       background:conic-gradient(var(--mint) 74%,rgba(255,255,255,.12) 0)}
     .chip-ready .ring i{width:26px;height:26px;border-radius:50%;background:var(--card);display:grid;place-items:center;font-style:normal;color:var(--tx)}
     @keyframes floatC{0%,100%{margin-top:0}50%{margin-top:-12px}}
@@ -132,12 +133,12 @@
       border:1px solid var(--line);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);
       box-shadow:0 24px 60px -36px rgba(0,0,0,.8);transition:transform .25s ease,border-color .25s ease,box-shadow .25s ease}
     .card::before{content:'';position:absolute;inset:0 0 auto;height:1px;border-radius:22px 22px 0 0;
-      background:linear-gradient(90deg,transparent,rgba(143,107,255,.6),rgba(94,228,255,.6),transparent)}
-    .card:hover{transform:translateY(-7px);border-color:rgba(143,107,255,.4);box-shadow:0 40px 80px -40px var(--glow)}
+      background:linear-gradient(90deg,transparent,rgba(179,223,189,.6),rgba(154,201,237,.6),transparent)}
+    .card:hover{transform:translateY(-7px);border-color:rgba(179,223,189,.4);box-shadow:0 40px 80px -40px var(--glow)}
     .card .ico{width:44px;height:44px;border-radius:13px;display:grid;place-items:center;font-size:22px;
-      background:rgba(143,107,255,.12);border:1px solid var(--line-2)}
+      background:rgba(179,223,189,.12);border:1px solid var(--line-2)}
     .card h3{font-size:16.5px;font-weight:850;margin:14px 0 6px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-    .tag-premium{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-2,#a986ff);border:1px solid currentColor;border-radius:999px;padding:2px 8px;opacity:.85}
+    .tag-premium{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--accent-2,#b3dfbd);border:1px solid currentColor;border-radius:999px;padding:2px 8px;opacity:.85}
     .card p{font-size:13.5px;color:var(--tx-2);line-height:1.5}
 
     /* steps */
@@ -145,7 +146,7 @@
     .step{display:flex;gap:16px;align-items:flex-start;padding:20px 0;border-bottom:1px solid var(--line)}
     .step:last-child{border-bottom:0}
     .step .n{counter-increment:s;flex:none;width:42px;height:42px;border-radius:13px;display:grid;place-items:center;
-      font-weight:900;font-size:17px;color:#07080c;background:var(--grad);box-shadow:0 10px 26px -12px var(--glow)}
+      font-weight:900;font-size:17px;color:#182019;background:var(--grad);box-shadow:0 10px 26px -12px var(--glow)}
     .step .n::before{content:counter(s)}
     .step h3{font-size:17.5px;font-weight:850}
     .step p{color:var(--tx-2);font-size:14px;margin-top:3px}
@@ -154,11 +155,11 @@
     .pricing{display:grid;grid-template-columns:1fr 1.15fr;gap:18px;margin-top:36px}
     .plan{border:1px solid var(--line);border-radius:24px;padding:28px;background:color-mix(in srgb,var(--card) 62%,transparent);
       -webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px)}
-    .plan.featured{border-color:rgba(143,107,255,.45);position:relative;overflow:hidden;
-      background:linear-gradient(180deg,rgba(143,107,255,.14),transparent 58%),color-mix(in srgb,var(--card) 72%,transparent);
+    .plan.featured{border-color:rgba(179,223,189,.45);position:relative;overflow:hidden;
+      background:linear-gradient(180deg,rgba(179,223,189,.14),transparent 58%),color-mix(in srgb,var(--card) 72%,transparent);
       box-shadow:0 40px 90px -50px var(--glow)}
     .plan.featured::before{content:'FOUNDING OFFER';position:absolute;top:18px;right:-36px;transform:rotate(45deg);
-      background:var(--grad);color:#07080c;font-size:10px;font-weight:900;letter-spacing:.1em;padding:6px 42px}
+      background:var(--grad);color:#182019;font-size:10px;font-weight:900;letter-spacing:.1em;padding:6px 42px}
     .plan .pname{font-size:13px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--tx-2)}
     .price{display:flex;align-items:baseline;gap:6px;margin:12px 0}
     .price b{font-size:50px;font-weight:900;letter-spacing:-.03em}
@@ -188,7 +189,7 @@
     .disclaim{font-size:11.5px;color:var(--tx-3);max-width:70ch;margin-top:14px;line-height:1.5}
 
     /* scroll reveal */
-    [data-reveal]{opacity:0;transform:translateY(22px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+    [data-reveal]{opacity:1;transform:none;transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
     [data-reveal].in{opacity:1;transform:none}
     [data-reveal][data-d="1"]{transition-delay:.08s}[data-reveal][data-d="2"]{transition-delay:.16s}[data-reveal][data-d="3"]{transition-delay:.24s}
     @media (prefers-reduced-motion:reduce){
@@ -200,7 +201,7 @@
       .hero-grid{grid-template-columns:1fr;text-align:center;min-height:0}
       .hero p.sub{max-width:none;margin-inline:auto}
       .cta-row,.trust{justify-content:center}
-      .hero-stage{order:-1;height:min(440px,86vw);margin-bottom:8px}
+      .hero-stage{height:min(440px,86vw);margin-bottom:8px}
       .g3{grid-template-columns:1fr 1fr}
       .pricing{grid-template-columns:1fr}
       .plan.featured::before{display:none}
@@ -223,9 +224,9 @@
       outline:none;-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
       min-width:0;transition:border-color .2s ease,box-shadow .2s ease}
     .wf-input::placeholder{color:var(--tx-3)}
-    .wf-input:focus{border-color:rgba(143,107,255,.6);box-shadow:0 0 0 3px rgba(143,107,255,.14)}
+    .wf-input:focus{border-color:rgba(179,223,189,.6);box-shadow:0 0 0 3px rgba(179,223,189,.14)}
     .wf-btn{flex:none;padding:14px 20px;border-radius:14px;border:0;cursor:pointer;font-weight:800;
-      font-size:14px;font-family:inherit;background:var(--grad);color:#07080c;white-space:nowrap;
+      font-size:14px;font-family:inherit;background:var(--grad);color:#182019;white-space:nowrap;
       box-shadow:0 14px 36px -14px var(--glow);transition:filter .18s ease,transform .15s ease,box-shadow .18s ease}
     .wf-btn:hover{filter:brightness(1.07);transform:translateY(-1px);box-shadow:0 20px 48px -16px var(--glow)}
     .wf-btn:active{transform:scale(.98)}
@@ -233,8 +234,8 @@
     .wf-trust span{display:inline-flex;align-items:center;gap:5px}
     .wf-success{display:flex;align-items:center;gap:12px;
       color:var(--mint);font-weight:700;font-size:15px;padding:14px 16px;
-      background:rgba(94,228,194,.08);border:1px solid rgba(94,228,194,.24);border-radius:14px}
-    .wf-check{width:28px;height:28px;border-radius:50%;background:rgba(94,228,194,.16);
+      background:rgba(179,223,189,.08);border:1px solid rgba(179,223,189,.24);border-radius:14px}
+    .wf-check{width:28px;height:28px;border-radius:50%;background:rgba(179,223,189,.16);
       display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
     @media(max-width:860px){
       .wf-row{flex-direction:column}
@@ -246,21 +247,22 @@
     /* bottom waitlist (compact reminder) */
     .waitlist{padding:72px 0;position:relative}
     .waitlist::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
-      background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(143,107,255,.10),transparent 70%)}
+      background:radial-gradient(ellipse 80% 60% at 50% 50%,rgba(179,223,189,.10),transparent 70%)}
     .waitlist-inner{position:relative;z-index:1;max-width:500px;margin:0 auto;text-align:center}
     .waitlist-h{font-size:clamp(22px,4vw,30px);font-weight:900;letter-spacing:-.02em;
       background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
       margin-bottom:6px}
     .waitlist-sub{font-size:14px;color:var(--tx-3);margin-bottom:20px}
   </style>
-  <script defer src="/_vercel/insights/script.js"></script>
+  <link rel="stylesheet" href="css/privacy-controls.css" />
+  <script defer src="js/privacy-controls.js"></script>
 </head>
 <body>
   <div class="aurora"><i class="a1"></i><i class="a2"></i><i class="a3"></i></div>
 
   <nav class="nav">
     <div class="wrap">
-      <div class="brand">ARC<b>90</b></div>
+      <div class="brand"><img src="assets/arc90-mark.svg" alt="" width="24" height="24" /> <span>ARC90</span></div>
       <a class="btn btn-ghost" href="/app">Open app →</a>
     </div>
   </nav>
@@ -268,37 +270,38 @@
   <header class="hero">
     <div class="wrap hero-grid">
       <div class="hero-copy" data-reveal>
-        <h1>Build your next <span class="grad-text">90 days.</span></h1>
+        <h1>Arc90 <span class="grad-text">Habit Tracker</span></h1>
         <p class="sub">One goal. 90 days. A daily system that outlasts motivation. Track the reps that matter, see exactly where you're slipping, and recover before a bad day becomes a quit.</p>
 
+        <div class="cta-row"><a class="btn btn-primary" href="/app">Start your 90 days free</a></div>
         <div class="hero-form" id="waitlist">
           <p class="hero-form-label">App Store launch coming soon</p>
           <form id="waitlistForm" novalidate>
-            <input type="text" name="hp" id="wfHp" style="position:absolute;left:-9999px;opacity:0;pointer-events:none" tabindex="-1" autocomplete="off" />
-            <div class="wf-success" id="waitlistSuccess" style="display:none">
+            <input type="text" name="hp" id="wfHp" aria-hidden="true" aria-label="Leave empty" style="position:absolute;left:-9999px;opacity:0;pointer-events:none" tabindex="-1" autocomplete="off" />
+            <div class="wf-success" id="waitlistSuccess" role="status" style="display:none">
               <span class="wf-check">✓</span>
-              <span>You're on the list. Founding price locked in.</span>
+              <span>You're on the list for Arc90 updates.</span>
             </div>
             <div class="wf-row" id="wfFormRow">
-              <input type="email" id="waitlistEmail" class="wf-input" placeholder="your@email.com" autocomplete="email" required />
-              <button type="submit" class="wf-btn" id="waitlistBtn">Get early access</button>
+              <input type="email" id="waitlistEmail" name="email" class="wf-input" aria-label="Email address for launch updates" aria-describedby="wfError" placeholder="your@email.com" autocomplete="email" maxlength="254" required />
+              <button type="submit" class="btn btn-ghost" id="waitlistBtn">Email me updates</button>
             </div>
-            <p id="wfError" style="display:none;color:#f25c75;font-size:13px;margin-top:8px"></p>
+            <label style="display:flex;align-items:flex-start;gap:8px;margin-top:12px;font-size:13px"><input type="checkbox" id="waitlistConsent" required style="margin-top:4px" /> <span>I want Arc90 launch and product emails. I can withdraw by emailing the developer. <a href="/privacy" style="text-decoration:underline">Privacy policy</a></span></label>
+            <p id="wfError" role="alert" style="display:none;color:#f25c75;font-size:13px;margin-top:8px"></p>
             <div class="wf-trust">
-              <span><i class="dot"></i> No spam</span>
-              <span><i class="dot"></i> First to know when we launch</span>
-              <span><i class="dot"></i> Founding price locked for you</span>
+              <span><i class="dot"></i> Optional launch updates</span>
+              <span><i class="dot"></i> No purchase or price reservation</span>
             </div>
           </form>
         </div>
       </div>
 
-      <div class="hero-stage" aria-hidden="true">
+      <div class="hero-stage">
         <div class="stage-orb"></div>
-        <svg class="arc-ring" viewBox="0 0 320 320" fill="none">
+        <svg class="arc-ring" aria-hidden="true" viewBox="0 0 320 320" fill="none">
           <defs>
             <linearGradient id="ag" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0" stop-color="#5ee4ff"/><stop offset=".5" stop-color="#8f6bff"/><stop offset="1" stop-color="#c14cff"/>
+              <stop offset="0" stop-color="#9ac9ed"/><stop offset=".5" stop-color="#b3dfbd"/><stop offset="1" stop-color="#7cad87"/>
             </linearGradient>
           </defs>
           <circle cx="160" cy="160" r="142" stroke="rgba(220,224,255,.07)" stroke-width="9"/>
@@ -307,7 +310,7 @@
         </svg>
         <div class="chip chip-streak"><span class="fl">🔥</span><span><b>22</b><small>day streak</small></span></div>
         <div class="chip chip-ready"><span class="ring"><i>74</i></span><span><b>Primed</b><small>readiness</small></span></div>
-        <div class="phone-float"><img src="marketing/arc90-trio-vertical.png" alt="Arc90 app screens" loading="eager" /></div>
+        <div class="phone-float"><img src="marketing/arc90-trio-vertical.webp" alt="Arc90 habit tracking and daily progress screens" width="960" height="1720" loading="eager" fetchpriority="high" /></div>
       </div>
     </div>
   </header>
@@ -317,7 +320,7 @@
       <div class="stat"><b class="grad-text">90</b><span>day arc, one goal</span></div>
       <div class="stat"><b class="grad-text">100+</b><span>habit templates</span></div>
       <div class="stat"><b class="grad-text">5</b><span>challenge tracks</span></div>
-      <div class="stat"><b class="grad-text">0</b><span>accounts &amp; trackers</span></div>
+      <div class="stat"><b class="grad-text">Local-first</b><span>optional sign-in &amp; opt-in analytics</span></div>
     </div>
   </div>
 
@@ -351,7 +354,7 @@
       <div class="grid g3">
         <div class="card" data-reveal data-d="1"><div class="ico">🎯</div><h3>Momentum Score</h3><p>A weighted read of your real consistency: recent days count more, and one rest day can't sink it.</p></div>
         <div class="card" data-reveal data-d="2"><div class="ico">📊</div><h3>Command Center</h3><p>A biometric-style dashboard: readiness ring, daily load gauge, and your sleep, focus &amp; vitals at a glance.</p></div>
-        <div class="card" data-reveal data-d="3"><div class="ico">🛡️</div><h3>Focus shield <span class="tag-premium">Premium</span></h3><p>Block the apps that steal your first 20 minutes. Flip on the all-day lock when you need to lock in.</p></div>
+        <div class="card" data-reveal data-d="3"><div class="ico">🛡️</div><h3>Focus sessions <span class="tag-premium">Premium</span></h3><p>A timer and in-app focus shield help structure your session. Web focus does not block other apps; native blocking requires a supported integration and device permissions.</p></div>
         <div class="card" data-reveal data-d="1"><div class="ico">😌</div><h3>Feel-after check-ins</h3><p>Log how each rep leaves you: more energy, calmer, better mood. Build the habits that actually pay off.</p></div>
         <div class="card" data-reveal data-d="2"><div class="ico">🌙</div><h3>Sleep &amp; recovery <span class="tag-premium">Premium</span></h3><p>Sleep Score, Smart Alarm, spatial sounds, and meditations that turn bedtime into a system.</p></div>
         <div class="card" data-reveal data-d="3"><div class="ico">🧬</div><h3>Protocol tracker</h3><p>Track supplements, medication, training, and body signals in one place. Tracking only, never advice.</p></div>
@@ -373,11 +376,11 @@
   <section class="block" id="pricing" style="padding-top:0">
     <div class="wrap">
       <h2 data-reveal>Start free. Go founder when you're ready.</h2>
-      <p class="lead" data-reveal>Arc90 is free to start with no account. Founding Premium is a launch price for early users. Lock it in now.</p>
+      <p class="lead" data-reveal>Start tracking locally for free. Optional connected features use sign-in. Check the app and checkout for current Premium availability and billing details.</p>
       <div class="pricing">
         <div class="plan" data-reveal data-d="1">
           <div class="pname">Free</div>
-          <div class="price"><b>$0</b><span>forever</span></div>
+          <div class="price"><b>$0</b><span>to start</span></div>
           <ul>
             <li>Your 90-day arc &amp; Momentum Score</li>
             <li>Up to 8 active habits</li>
@@ -394,11 +397,11 @@
             <li>Command Center &amp; Axis dashboards</li>
             <li>Forge Mode 7-day recovery plans</li>
             <li>Full Sleep toolkit: Sleep Score, Smart Alarm, sounds &amp; meditations</li>
-            <li>Full Focus toolkit: timer, app-blocking shield &amp; all-day lock</li>
+            <li>Focus timer &amp; in-app focus shield; web does not block other apps</li>
             <li>Weekly reviews &amp; advanced exports</li>
           </ul>
-          <a class="btn btn-primary" href="/app">Get Founding Premium</a>
-          <div class="save">Founding price for early members · lock it in before launch · cancel anytime</div>
+          <a class="btn btn-ghost" href="/app">View Premium in app</a>
+          <div class="save">Confirm price and renewal details at checkout. <a href="/terms">Billing terms</a></div>
         </div>
       </div>
     </div>
@@ -408,10 +411,10 @@
     <div class="wrap">
       <h2 data-reveal>Good to know</h2>
       <div style="margin-top:20px" data-reveal>
-        <details open><summary>Do I need an account?</summary><p>No. Arc90 is local-first: your goals, habits, and health data live on your device, not our servers.</p></details>
-        <details><summary>Is my data private?</summary><p>Yes. Everything stays on your device, and your health data is never used for ads. Export a backup anytime.</p></details>
+        <details open><summary>Do I need an account?</summary><p>Basic tracking works locally without an account. Optional email sign-in supports connected features such as AI and purchase restoration.</p></details>
+        <details><summary>What leaves my device?</summary><p>Core tracking records are local. Optional sign-in, AI, email updates, payments, and reminders send the information needed for those features. Website analytics runs only if you allow it. See the <a href="/privacy">Privacy Policy</a> for details.</p></details>
         <details><summary>Is this medical or dosing advice?</summary><p>No. The Protocol tracker records your routine, reminders, symptoms, and notes only. Arc90 never recommends doses or treatment. Always follow a licensed healthcare professional.</p></details>
-        <details><summary>Can I cancel?</summary><p>Yes, anytime. Founding Premium is a yearly launch price for early users with no lock-in.</p></details>
+        <details><summary>How do I handle billing?</summary><p>Review the price and renewal terms before checkout. Contact <a href="mailto:michael28gh@gmail.com">michael28gh@gmail.com</a> for web cancellation or refund requests. Deleting app data does not cancel a subscription. See <a href="/terms">Terms</a>.</p></details>
         <details><summary>How do I get it on my iPhone?</summary><p>Open Arc90 in Safari, tap Share, then “Add to Home Screen” for the full-screen app. A native App Store version is on the way.</p></details>
       </div>
     </div>
@@ -421,9 +424,9 @@
   <section class="waitlist">
     <div class="wrap">
       <div class="waitlist-inner" data-reveal>
-        <h2 class="waitlist-h">Still on the fence? Lock in the founding price now.</h2>
-        <p class="waitlist-sub">$49/year goes up at launch. Drop your email and we'll hold your spot.</p>
-        <a class="btn btn-primary" href="#waitlist" onclick="document.getElementById('waitlistEmail').focus();return false;" style="padding:15px 28px;font-size:15px">Secure my founding price</a>
+        <h2 class="waitlist-h">Follow the App Store launch.</h2>
+        <p class="waitlist-sub">Join optional email updates. No purchase or price reservation.</p>
+        <a class="btn btn-ghost" href="#waitlist">Join email updates</a>
       </div>
     </div>
   </section>
@@ -432,7 +435,7 @@
     <div class="wrap">
       <h2 data-reveal>Your next 90 days start today.</h2>
       <p data-reveal>One goal. A few daily reps. A system that keeps you going.</p>
-      <a class="btn btn-primary" href="/app" style="padding:17px 32px;font-size:16px" data-reveal>Start your 90 days free</a>
+      <a class="btn btn-ghost" href="/app" style="padding:17px 32px;font-size:16px" data-reveal>Open Arc90</a>
     </div>
   </section>
 
@@ -440,8 +443,8 @@
     <div class="wrap">
       <div>© 2026 Arc90 · Build your next 90 days</div>
       <div style="display:flex;gap:18px">
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/terms">Terms</a>
         <a href="mailto:michael28gh@gmail.com">Contact</a>
       </div>
     </div>
@@ -450,10 +453,10 @@
 
   <script>
     (function(){
-      var io = new IntersectionObserver(function(es){
+      var io = typeof IntersectionObserver === 'function' ? new IntersectionObserver(function(es){
         es.forEach(function(e){ if(e.isIntersecting){ e.target.classList.add('in'); io.unobserve(e.target); } });
-      }, { threshold: .12 });
-      document.querySelectorAll('[data-reveal]').forEach(function(el){ io.observe(el); });
+      }, { threshold: .12 }) : null;
+      document.querySelectorAll('[data-reveal]').forEach(function(el){ if (io) io.observe(el); });
       var stage = document.querySelector('.hero-stage');
       if (stage && window.matchMedia('(hover:hover) and (pointer:fine)').matches) {
         window.addEventListener('mousemove', function(e){
@@ -472,34 +475,51 @@
       if (form) {
         form.addEventListener('submit', function(e) {
           e.preventDefault();
-          var email = document.getElementById('waitlistEmail').value.trim();
+          if (submitBtn.disabled) return;
+          var input = document.getElementById('waitlistEmail');
+          var email = input.value.trim();
+          input.value = email;
+          var consent = document.getElementById('waitlistConsent');
           var hp = document.getElementById('wfHp').value;
-          if (!email || !email.includes('@')) return;
+          if (!input.checkValidity() || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+            errEl.textContent = 'Enter a valid email address.';
+            errEl.style.display = 'block';
+            input.setAttribute('aria-invalid', 'true');
+            input.focus();
+            return;
+          }
+          input.removeAttribute('aria-invalid');
+          if (!consent.checked) {
+            errEl.textContent = 'Check the box if you want email updates.';
+            errEl.style.display = 'block';
+            consent.focus();
+            return;
+          }
           submitBtn.disabled = true;
           submitBtn.textContent = 'Saving…';
           errEl.style.display = 'none';
           fetch('/api/subscribe', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: email, consent: true, source: 'landing', hp: hp })
+            body: JSON.stringify({ email: email, consent: consent.checked, source: 'landing', hp: hp })
           })
           .then(function(r) { return r.json().then(function(d) { return { ok: r.ok, data: d }; }); })
           .then(function(res) {
-            if (res.ok) {
+            if (res.ok && res.data && res.data.ok === true) {
               formRow.style.display = 'none';
               success.style.display = 'flex';
             } else {
               errEl.textContent = res.data.error || 'Something went wrong. Try again.';
               errEl.style.display = 'block';
               submitBtn.disabled = false;
-              submitBtn.textContent = 'Get early access';
+              submitBtn.textContent = 'Email me updates';
             }
           })
           .catch(function() {
             errEl.textContent = 'Network error. Please try again.';
             errEl.style.display = 'block';
             submitBtn.disabled = false;
-            submitBtn.textContent = 'Get early access';
+            submitBtn.textContent = 'Email me updates';
           });
         });
       }

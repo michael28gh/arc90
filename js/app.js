@@ -33,7 +33,9 @@ function defaultFocusState() {
     active: null,
     unlocks: [],
     seq: 0,
-    allDayLock: { on: false, date: '' },
+    allDayLock: { on: false, date: '', status: 'off', confirmed: false, requestId: '', pendingAction: '' },
+    pendingNativeStop: null,
+    pendingCompletion: null,
   };
 }
 
@@ -41,11 +43,14 @@ function defaultState() {
   return {
     onboarded: false,
     premium: false,
-    theme: 'dark',
+    theme: 'auto',
+    preferences: { dayStartHour: 4, reducedMotion: false, shareNames: false, trackers: { water: false, mood: false } },
     profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null },
-    ai: { provider: 'anthropic', key: '' },
+    ai: { provider: 'anthropic' },
     aiChat: [],                  // [{role:'user'|'assistant', content}]
     habits: [],                  // [{id, emoji, name, cat, min}]
+    adaptive: { date: '', mode: 'full', essentialIds: [], dismissed: {} },
+    daySupport: { date: '', capacity: null, friction: '', picks: [] },
     customSeq: 0,
     log: {},                     // { 'YYYY-MM-DD': {done:[], min:[], skip:[]} }
     health: { water: {}, weight: {}, steps: {}, sleep: {}, rhr: {}, hrv: {}, vo2: {}, settings: { waterGoal: 8, stepGoal: 8000, sleepGoal: 7, wakeTarget: '07:00', sleepOnset: 14 } },
@@ -61,17 +66,48 @@ function defaultState() {
     tasks: [],                   // [{id, title, due:'YYYY-MM-DDTHH:MM'|'', remind:bool, done:bool, notified:bool, created}]
     taskSeq: 0,
     journal: {},                 // { 'YYYY-MM-DD': text }
+    planning: Arc90Planning.normalize(),
+    brain: Arc90Brain.normalize(),
     pushClientId: '',            // anonymous id for the Web Push registration
     cardStyle: 'analyst',        // share-card style: analyst | certificate | quote | clear
   };
 }
 
+// Optional Today trackers. Saved choices win; older data turns a tracker on only if it was
+// used in the last 14 days, so nobody loses a habit they rely on. Never reads S: it runs
+// inside load(), before S exists.
+function normalizeTrackers(data) {
+  const saved = data.preferences?.trackers;
+  if (saved && typeof saved === 'object') return { water: saved.water === true, mood: saved.mood === true };
+  const since = new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10);
+  const water = Object.entries(data.health?.water || {}).some(([key, value]) => key >= since && Number(value) > 0);
+  const mood = Object.entries(data.log || {}).some(([key, day]) => key >= since && typeof day?.mood === 'string' && day.mood !== '');
+  return { water, mood };
+}
+
 function normalizeState(data) {
   if (!data || typeof data !== 'object') throw new Error('Backup is not a valid Arc90 data file.');
   const s = Object.assign(defaultState(), data);
+  s.theme = ['auto', 'dark', 'light'].includes(data.theme) ? data.theme :
+    ['mono', 'gold', 'green', 'red'].includes(data.theme) ? 'dark' : 'auto';
+  s.preferences = {
+    dayStartHour: Number.isInteger(data.preferences?.dayStartHour) && data.preferences.dayStartHour >= 0 && data.preferences.dayStartHour <= 23 ? data.preferences.dayStartHour : 4,
+    reducedMotion: data.preferences?.reducedMotion === true,
+    shareNames: data.preferences?.shareNames === true,
+    trackers: normalizeTrackers(data),
+  };
   s.profile = Object.assign(defaultState().profile, data.profile || {});
-  s.ai = Object.assign(defaultState().ai, data.ai || {});
+  // Never retain credentials from older local data or imported backups.
+  s.ai = { provider: ['anthropic', 'openai', 'gemini'].includes(data.ai?.provider) ? data.ai.provider : 'anthropic' };
   s.reminders = Object.assign(defaultState().reminders, data.reminders || {});
+  s.daySupport = Arc90DaySupport.normalize(data.daySupport);
+  const adaptive = data.adaptive || {};
+  s.adaptive = {
+    date: /^\d{4}-\d{2}-\d{2}$/.test(adaptive.date || '') ? adaptive.date : '',
+    mode: ['full', 'busy', 'recovery'].includes(adaptive.mode) ? adaptive.mode : 'full',
+    essentialIds: Array.isArray(adaptive.essentialIds) ? adaptive.essentialIds.map(String).slice(0, 100) : [],
+    dismissed: adaptive.dismissed && typeof adaptive.dismissed === 'object' && !Array.isArray(adaptive.dismissed) ? adaptive.dismissed : {},
+  };
   if (s.reminders.mode === '5h') s.reminders.mode = '4h';
   s.health = Object.assign(defaultState().health, data.health || {});
   s.health.settings = Object.assign(defaultState().health.settings, (data.health && data.health.settings) || {});
@@ -87,12 +123,8 @@ function normalizeState(data) {
   for (const m of ['rhr', 'hrv', 'vo2', 'kcal', 'exercise', 'distance', 'flights', 'spo2', 'resp']) s.health[m] = s.health[m] && typeof s.health[m] === 'object' ? s.health[m] : {};
   s.weeklyReviews = data.weeklyReviews && typeof data.weeklyReviews === 'object' ? data.weeklyReviews : {};
   s.product = Object.assign(defaultState().product, data.product || {});
-  // One-time v3 brand migration: monochrome editorial becomes the default look.
-  // (The old purple "dark" is retired; its slot is now the optional Gold theme.)
-  if (!s.product.themeV3) {
-    if (s.theme === 'dark' || s.theme === 'auto') s.theme = 'mono';
-    s.product.themeV3 = true;
-  }
+  // Retired appearance names use the current dark palette on every load.
+  s.product.themeV3 = true;
   s.log = data.log && typeof data.log === 'object' ? data.log : {};
   for (const k of Object.keys(s.log)) {
     if (Array.isArray(s.log[k])) s.log[k] = { done: s.log[k], min: [], skip: [] };
@@ -101,7 +133,7 @@ function normalizeState(data) {
   }
   s.habits = Array.isArray(data.habits) ? data.habits.map((h) => ({ rhythm: 'daily', emoji: '•', name: 'Untitled habit', cat: 'custom', min: '2-minute version', ...h })) : [];
   s.aiChat = Array.isArray(data.aiChat) ? data.aiChat : [];
-  s.focus = normalizeFocusState(data.focus || {});
+  s.focus = normalizeFocusState(data.focus || {}, s.preferences.dayStartHour);
   s.protocols = Array.isArray(data.protocols) ? data.protocols.map((p) => ({
     id: p.id,
     name: p.name || 'Untitled protocol',
@@ -123,9 +155,15 @@ function normalizeState(data) {
     done: !!t.done,
     notified: !!t.notified,
     created: t.created || 0,
+    goal_id: typeof t.goal_id === 'string' ? t.goal_id : null,
+    horizon: ['short', 'mid', 'long'].includes(t.horizon) ? t.horizon : 'short',
+    source_dump_id: t.source_dump_id || null,
   })) : [];
-  s.taskSeq = Number(data.taskSeq) || 0;
+  s.taskSeq = Number.isSafeInteger(Number(data.taskSeq)) && Number(data.taskSeq) >= 0 ? Number(data.taskSeq) : 0;
   s.journal = data.journal && typeof data.journal === 'object' ? data.journal : {};
+  s.practices = data.practices && typeof data.practices === 'object' && !Array.isArray(data.practices) ? data.practices : {};
+  s.planning = Arc90Planning.normalize(data.planning);
+  s.brain = Arc90Brain.normalize(data.brain);
   s.cardStyle = ['analyst', 'certificate', 'quote', 'clear'].includes(data.cardStyle) ? data.cardStyle : 'analyst';
   return s;
 }
@@ -149,33 +187,85 @@ let protoAddOpen = false;
 let protoUrgent = false;
 let protocolTemplatesOpen = false;
 let sleepEditKey = null;          // which day the sleep form is editing (null = today)
+let focusSettingsOpen = false;
+let focusLength = { mode: '', minutes: 25 };
+let practiceDate = null;
+let practiceSaveFailed = false;
 
 let ob = null;
 function freshOb() {
-  return { step: 0, name: '', occs: new Set(), occCustom: '', goal: '', motivation: '', cats: new Set(), picked: new Set(), customs: [], remMode: 'daily', remTime: '08:00' };
+  return { step: 0, name: '', occs: new Set(), occCustom: '', goal: '', motivation: '', brainDump: '', cats: new Set(), picked: new Set(), customs: [], remMode: 'daily', remTime: '08:00' };
 }
 
 function load() {
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) {
-      return normalizeState(JSON.parse(raw));
+      const parsed = JSON.parse(raw);
+      if (parsed.ai && Object.prototype.hasOwnProperty.call(parsed.ai, 'key')) {
+        delete parsed.ai.key;
+        localStorage.setItem(KEY, JSON.stringify(parsed));
+      }
+      return normalizeState(parsed);
     }
   } catch (e) { /* corrupted -> fresh */ }
   return defaultState();
 }
-function save() { localStorage.setItem(KEY, JSON.stringify(S)); }
+function save() {
+  captureTodaySchedule();
+  if (S.ai) delete S.ai.key;
+  localStorage.setItem(KEY, JSON.stringify(S));
+}
+
+function captureTodaySchedule() {
+  if (!S.onboarded || !S.profile.start || !Array.isArray(S.habits) || !S.habits.length) return false;
+  const k = todayKey();
+  const ids = S.habits.filter((h) => scheduledFor(h, k)).map((h) => String(h.id));
+  const current = Array.isArray(S.log[k]?.scheduledIds) ? S.log[k].scheduledIds.map(String) : null;
+  if (current && current.length === ids.length && current.every((id, index) => id === ids[index])) return false;
+  S.log[k] = { ...dlog(k), scheduledIds: ids };
+  return true;
+}
+
+function invalidField(input, message) {
+  if (input) {
+    input.setAttribute('aria-invalid', 'true');
+    input.setCustomValidity(message);
+    input.focus();
+    input.reportValidity();
+  }
+  showNudge(message);
+  return false;
+}
+
+function validNumberField(input, { min = 0, max = Infinity, integer = false } = {}) {
+  if (!input) return false;
+  input.setCustomValidity('');
+  input.removeAttribute('aria-invalid');
+  const raw = input.value.trim();
+  if (!raw && !input.validity.badInput) return true; // Empty clears the log.
+  const value = Number(raw);
+  if (input.validity.badInput || !Number.isFinite(value) || value < min || value > max || (integer && !Number.isInteger(value))) {
+    return invalidField(input, `Enter ${integer ? 'a whole number' : 'a number'} ${Number.isFinite(max) ? `between ${min} and ${max}` : `of at least ${min}`}, or leave blank to clear.`);
+  }
+  return true;
+}
 
 /* ---------------- date helpers ---------------- */
 
 const DAY_MS = 86400000;
 function dkey(d) { return d.toLocaleDateString('en-CA'); }
-function todayKey() { return dkey(new Date()); }
+function operationalDate(date = new Date(), dayStartHour = S.preferences?.dayStartHour || 0) {
+  const at = new Date(date);
+  if (at.getHours() < dayStartHour) at.setDate(at.getDate() - 1);
+  return at;
+}
+function todayKey() { return dkey(operationalDate()); }
 function atMidnight(d) { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; }
 function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
 function startDate() { return atMidnight(new Date(S.profile.start + 'T00:00:00')); }
 function dayNumber() {
-  const n = Math.round((atMidnight(new Date()) - startDate()) / DAY_MS) + 1;
+  const n = Math.round((atMidnight(operationalDate()) - startDate()) / DAY_MS) + 1;
   return Math.max(1, Math.min(90, n));
 }
 function elapsedDays() { return dayNumber(); }
@@ -188,6 +278,7 @@ const RHYTHMS = {
   weekends: { label: 'Weekends', short: 'Sat-Sun', days: [0, 6] },
   mwf: { label: 'Mon / Wed / Fri', short: 'M/W/F', days: [1, 3, 5] },
   tuethu: { label: 'Tue / Thu', short: 'T/Th', days: [2, 4] },
+  weekly: { label: 'Weekly (Sunday)', short: 'Weekly', days: [0] },
 };
 
 const FOCUS_APP_SUGGESTIONS = ['Instagram', 'TikTok', 'YouTube', 'X', 'Reddit', 'Discord', 'Safari', 'Messages'];
@@ -213,8 +304,30 @@ function focusEntryKey(kind, value) {
   return focusEntry(kind, value).toLowerCase();
 }
 
-function normalizeFocusState(data) {
+function normalizeAllDayFocusLock(value) {
+  if (!value || typeof value !== 'object') {
+    return { on: false, date: '', status: 'off', confirmed: false, requestId: '', pendingAction: '' };
+  }
+  const confirmed = value.confirmed === true;
+  const on = confirmed && !!value.on;
+  const status = value.status === 'requested'
+    ? 'failed'
+    : value.status === 'failed'
+      ? 'failed'
+      : on && value.status === 'active' ? 'active' : 'off';
+  return {
+    on,
+    date: value.date || '',
+    status,
+    confirmed,
+    requestId: '',
+    pendingAction: '',
+  };
+}
+
+function normalizeFocusState(data, dayStartHour = 4) {
   const base = Object.assign(defaultFocusState(), data || {});
+  const fallbackDate = dkey(operationalDate(new Date(), dayStartHour));
   const normalizeList = (kind, arr) => {
     const seen = new Set();
     const out = [];
@@ -241,7 +354,7 @@ function normalizeFocusState(data) {
     })) : [],
     sessions: Array.isArray(base.sessions) ? base.sessions.map((s, i) => ({
       id: s.id || `fs${i + 1}`,
-      date: s.date || todayKey(),
+      date: s.date || fallbackDate,
       startedAt: s.startedAt || new Date().toISOString(),
       label: s.label || 'Focus session',
       minutes: Math.max(1, Number(s.minutes) || 30),
@@ -258,17 +371,32 @@ function normalizeFocusState(data) {
       strict: !!base.active.strict,
       targets: Array.isArray(base.active.targets) ? base.active.targets : [],
       unlocks: Math.max(0, Number(base.active.unlocks) || 0),
+      habitId: base.active.habitId == null ? null : String(base.active.habitId),
+      goalDate: /^\d{4}-\d{2}-\d{2}$/.test(base.active.goalDate || '') ? base.active.goalDate : fallbackDate,
+      targetStatus: base.active.targetStatus === 'min' ? 'min' : 'done',
+      protection: base.active.protection && typeof base.active.protection === 'object' ? {
+        status: base.active.protection.status === 'active' ? 'active' : base.active.protection.status === 'requested' ? 'failed' : 'off',
+        requestId: '',
+      } : { status: 'off', requestId: '' },
     } : null,
     unlocks: Array.isArray(base.unlocks) ? base.unlocks.map((u, i) => ({
       id: u.id || `fu${i + 1}`,
-      date: u.date || todayKey(),
+      date: u.date || fallbackDate,
       reason: u.reason || 'Manual unlock',
       label: u.label || '',
     })) : [],
     seq: Math.max(0, Number(base.seq) || 0),
-    allDayLock: base.allDayLock && typeof base.allDayLock === 'object'
-      ? { on: !!base.allDayLock.on, date: base.allDayLock.date || '' }
-      : { on: false, date: '' },
+    pendingCompletion: base.pendingCompletion && /^\d{4}-\d{2}-\d{2}$/.test(base.pendingCompletion.date || '') ? {
+      habitId: String(base.pendingCompletion.habitId), date: base.pendingCompletion.date,
+      status: base.pendingCompletion.status === 'min' ? 'min' : 'done',
+      label: String(base.pendingCompletion.label || 'Focus session').slice(0, 200),
+    } : null,
+    allDayLock: normalizeAllDayFocusLock(base.allDayLock),
+    pendingNativeStop: base.pendingNativeStop && typeof base.pendingNativeStop === 'object' ? {
+      requestId: '',
+      status: 'failed',
+      label: String(base.pendingNativeStop.label || 'Previous focus session').slice(0, 200),
+    } : null,
   };
 }
 
@@ -286,7 +414,7 @@ function scheduledFor(h, k) {
 
 function dlog(k) {
   const v = S.log[k];
-  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', intention: '', feels: {} };
+  const base = { done: [], min: [], skip: [], energy: 0, mood: '', win: '', note: '', intention: '', feels: {}, completedAt: {}, completionHours: {}, scheduledIds: null };
   if (!v) return base;
   if (Array.isArray(v)) return { ...base, done: v };
   return {
@@ -300,6 +428,9 @@ function dlog(k) {
     win: v.win || '',
     note: v.note || '',
     intention: v.intention || '',
+    completedAt: v.completedAt && typeof v.completedAt === 'object' && !Array.isArray(v.completedAt) ? v.completedAt : {},
+    completionHours: v.completionHours && typeof v.completionHours === 'object' && !Array.isArray(v.completionHours) ? v.completionHours : {},
+    scheduledIds: Array.isArray(v.scheduledIds) ? v.scheduledIds.map(String) : null,
   };
 }
 function statusOf(id, k) {
@@ -313,6 +444,14 @@ function setStatus(id, k, status) {
   const l = dlog(k);
   for (const key of ['done', 'min', 'skip']) l[key] = l[key].filter((x) => x !== id);
   if (status) l[status].push(id);
+  // Timing hints use real check-off times, never guessed times for edited history.
+  if (status === 'done' || status === 'min') {
+    if (k === todayKey() && !l.completedAt[id]) {
+      const now = new Date();
+      l.completedAt[id] = now.toISOString();
+      l.completionHours[id] = now.getHours();
+    }
+  } else { delete l.completedAt[id]; delete l.completionHours[id]; }
   S.log[k] = l;
   save();
 }
@@ -355,7 +494,7 @@ function rateFor(k) {
 }
 
 function avgRate(nDays) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const span = Math.min(nDays, elapsedDays());
   let sum = 0, n = 0;
   for (let i = 0; i < span; i++) {
@@ -369,7 +508,7 @@ function avgRate(nDays) {
    60% last-7-days + 40% whole challenge. Rest days excluded, one miss can't sink it,
    and coming back the day after a miss earns a bonus — recovery is rewarded, not punished. */
 function comebackBonusAsOf(back) {
-  const ref = addDays(atMidnight(new Date()), -back);
+  const ref = addDays(atMidnight(operationalDate()), -back);
   if (!dayCompleted(dkey(ref))) return 0;             // only rewards showing up that day
   for (let i = 1; i <= 3; i++) {                      // scan recent days for a miss to recover from
     const k = dkey(addDays(ref, -i));
@@ -388,7 +527,7 @@ function momentum() { return momentumAsOf(0); }
 function momentumDelta() { return momentumAsOf(0) - momentumAsOf(1); }
 
 function habitRate(id, n) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const span = Math.min(n, elapsedDays());
   let hit = 0, sched = 0;
   for (let i = 0; i < span; i++) {
@@ -425,7 +564,7 @@ function strongestHabit() {
 function categoryRate(catId, days, offset = 0) {
   const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
   if (!ids.length) return null;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let hit = 0, sched = 0;
   for (let i = offset; i < offset + days && i < elapsedDays(); i++) {
     const k = dkey(addDays(today, -i));
@@ -462,7 +601,7 @@ function weakSpots() {
 function worstDayLabel(catId) {
   const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
   if (!ids.length) return null;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const dow = Array.from({ length: 7 }, () => ({ hit: 0, sched: 0 }));
   for (let i = 0; i < Math.min(28, elapsedDays()); i++) {
     const d = addDays(today, -i), k = dkey(d);
@@ -494,7 +633,7 @@ function observationFor(w) {
 
 function catSparkDots(catId, days) {
   const ids = S.habits.filter((h) => (h.cat || 'custom') === catId).map((h) => h.id);
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let out = '';
   for (let i = days - 1; i >= 0; i--) {
     if (i >= elapsedDays()) { out += '<i class="wsd off"></i>'; continue; }
@@ -523,7 +662,7 @@ function weakSpotCard() {
   const pct = Math.round(w.rate * 100);
   const arrow = w.trend === 'up' ? '↑' : w.trend === 'down' ? '↓' : '→';
   const tlabel = w.trend === 'up' ? 'improving' : w.trend === 'down' ? 'slipping' : 'holding';
-  const more = !S.premium
+  const more = !hasPremiumAccess()
     ? `<button class="ws-more locked" data-act="paywall">Unlock full pattern history →</button>`
     : (spots.length > 1 ? `<button class="ws-more" data-act="tab" data-id="progress">See all ${spots.length} patterns →</button>` : '');
   return `
@@ -660,7 +799,7 @@ function arcAddProofPhoto(input) {
   const file = input.files && input.files[0];
   input.value = '';
   if (!file) return;
-  if (!S.premium && proofPhotoCount() >= PROOF_FREE_PHOTOS) { gate('proof-limit'); return; }
+  if (!hasPremiumAccess() && proofPhotoCount() >= PROOF_FREE_PHOTOS) { gate('proof-limit'); return; }
   downscaleImage(file).then((blob) => {
     const id = proofId('p');
     return idbPut(id, blob).then(() => {
@@ -699,7 +838,7 @@ function delProof(id) {
 }
 
 function proofDayLabel(p) {
-  const y = dkey(addDays(atMidnight(new Date()), -1));
+  const y = dkey(addDays(atMidnight(operationalDate()), -1));
   if (p.day === todayKey()) return 'Today';
   if (p.day === y) return 'Yesterday';
   try { return fmtDate(dateFromKey(p.day)); } catch (e) { return ''; }
@@ -749,7 +888,7 @@ function sheetProofWall() {
   const grid = items.length
     ? `<div class="proof-grid">${items.map(proofTile).join('')}</div>`
     : `<div class="proof-empty"><div class="pe-ico">🧱</div><b>${all.length ? 'Nothing under this filter' : 'No proof yet'}</b><span>${all.length ? 'Try another tag.' : 'Add your first photo or win — small evidence compounds into undeniable proof.'}</span></div>`;
-  const capNote = !S.premium ? `<div class="proof-cap">${proofPhotoCount()}/${PROOF_FREE_PHOTOS} free photos used · <button class="inline-link" data-act="paywall">unlimited with Premium</button></div>` : '';
+  const capNote = !hasPremiumAccess() ? `<div class="proof-cap">${proofPhotoCount()}/${PROOF_FREE_PHOTOS} free photos used · <button class="inline-link" data-act="paywall">unlimited with Premium</button></div>` : '';
   return `
     <div class="proof-sheet">
       <div class="proof-head">
@@ -843,10 +982,10 @@ function buildStoryCanvas() {
 
   // background: vertical depth gradient + one focal glow behind the ring
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.45, '#08090f'); bg.addColorStop(1, '#050609');
+  bg.addColorStop(0, '#111315'); bg.addColorStop(0.45, '#0d0f11'); bg.addColorStop(1, '#080a0b');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const glow = ctx.createRadialGradient(cx, 936, 0, cx, 936, 720);
-  glow.addColorStop(0, 'rgba(143,107,255,0.20)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  glow.addColorStop(0, 'rgba(179,223,189,0.16)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2;
   storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
@@ -860,7 +999,7 @@ function buildStoryCanvas() {
   ctx.textAlign = 'left';
   ctx.fillStyle = INK; ctx.fillText('ARC', x0, 230);
   const wm = ctx.createLinearGradient(x0 + wArc, 0, x0 + wArc + wNine, 0);
-  wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  wm.addColorStop(0, '#9ac9ed'); wm.addColorStop(1, '#b3dfbd');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wArc, 230);
   ctx.textAlign = 'center';
 
@@ -881,15 +1020,15 @@ function buildStoryCanvas() {
   ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
-  rg.addColorStop(0, '#5ee4ff'); rg.addColorStop(0.5, '#8f6bff'); rg.addColorStop(1, '#c14cff');
+  rg.addColorStop(0, '#9ac9ed'); rg.addColorStop(1, '#b3dfbd');
   ctx.save();
-  ctx.shadowColor = 'rgba(143,107,255,0.5)'; ctx.shadowBlur = 38;
+  ctx.shadowColor = 'rgba(179,223,189,0.32)'; ctx.shadowBlur = 38;
   ctx.strokeStyle = rg; ctx.beginPath(); ctx.arc(cx, ry, r, a0, a1); ctx.stroke();
   ctx.restore();
   // leading "activity dot" at the arc tip
   ctx.save();
-  ctx.shadowColor = 'rgba(193,76,255,0.7)'; ctx.shadowBlur = 24;
-  ctx.fillStyle = '#ecdcff';
+  ctx.shadowColor = 'rgba(154,201,237,0.46)'; ctx.shadowBlur = 24;
+  ctx.fillStyle = '#e4f2e7';
   ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 14, 0, 2 * Math.PI); ctx.fill();
   ctx.restore();
   // ring center — measure the numeral's ink box and center it exactly on the ring middle (ry)
@@ -925,7 +1064,7 @@ function buildStoryCanvas() {
 
   // footer — clean brand sign-off
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS;
+  ctx.fillStyle = '#b3dfbd'; ctx.font = '700 40px ' + SANS;
   ctx.fillText('arc90', cx, 1838);
 
   return c;
@@ -944,26 +1083,26 @@ function buildQuoteCanvas() {
   const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif';
   const INK = '#f4f5ff', MUTE = 'rgba(221,225,255,0.56)';
   const bg = ctx.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#0c0e18'); bg.addColorStop(0.5, '#08090f'); bg.addColorStop(1, '#050609');
+  bg.addColorStop(0, '#111315'); bg.addColorStop(0.5, '#0d0f11'); bg.addColorStop(1, '#080a0b');
   ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
   const glow = ctx.createRadialGradient(cx, 880, 0, cx, 880, 760);
-  glow.addColorStop(0, 'rgba(143,107,255,0.18)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
+  glow.addColorStop(0, 'rgba(179,223,189,0.14)'); glow.addColorStop(1, 'rgba(7,8,12,0)');
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
   ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 2; storyRoundRect(ctx, 40, 40, W - 80, H - 80, 54); ctx.stroke();
   ctx.textBaseline = 'alphabetic';
   ctx.font = '800 60px ' + SANS;
   const wA = ctx.measureText('ARC').width, w9 = ctx.measureText('90').width, x0 = cx - (wA + w9) / 2;
   ctx.textAlign = 'left'; ctx.fillStyle = INK; ctx.fillText('ARC', x0, 200);
-  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#8f6bff'); wm.addColorStop(1, '#c14cff');
+  const wm = ctx.createLinearGradient(x0 + wA, 0, x0 + wA + w9, 0); wm.addColorStop(0, '#9ac9ed'); wm.addColorStop(1, '#b3dfbd');
   ctx.fillStyle = wm; ctx.fillText('90', x0 + wA, 200);
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(143,107,255,0.45)'; ctx.font = '800 240px Georgia, "Times New Roman", serif'; ctx.fillText('“', cx, 600);
+  ctx.fillStyle = 'rgba(179,223,189,0.42)'; ctx.font = '800 240px Georgia, "Times New Roman", serif'; ctx.fillText('“', cx, 600);
   ctx.fillStyle = INK; ctx.font = '600 66px ' + SANS;
   const lines = wrapCanvasText(ctx, book.quote, W - 240).slice(0, 7);
   const lh = 92; let y = 940 - (lines.length - 1) * lh / 2;
   for (const ln of lines) { ctx.fillText(ln, cx, y); y += lh; }
   ctx.fillStyle = MUTE; ctx.font = 'italic 500 42px ' + SANS; ctx.fillText('— ' + book.source, cx, y + 46);
-  ctx.fillStyle = '#a78bff'; ctx.font = '700 40px ' + SANS; ctx.fillText('arc90', cx, 1838);
+  ctx.fillStyle = '#b3dfbd'; ctx.font = '700 40px ' + SANS; ctx.fillText('arc90', cx, 1838);
   return c;
 }
 function openQuoteShare() {
@@ -980,26 +1119,43 @@ function cardTheme() {
   const t = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   const P = {
     mono:  { bg: ['#141414', '#0b0b0b', '#050505'], glow: 'rgba(255,255,255,0.10)', border: 'rgba(255,255,255,0.08)', ink: '#f4f4f4', mute: 'rgba(244,244,244,0.58)', faint: 'rgba(244,244,244,0.42)', track: 'rgba(255,255,255,0.10)', grad: ['#d6d6d6', '#f4f4f4', '#c8c8c8'], accent: '#f2f2f2', on: '#000000', ringGlow: 'rgba(255,255,255,0.30)', tick: '#ffffff', dim: 'rgba(255,255,255,0.07)' },
-    dark:  { bg: ['#0c0e18', '#08090f', '#050609'], glow: 'rgba(143,107,255,0.20)', border: 'rgba(255,255,255,0.05)', ink: '#f4f5ff', mute: 'rgba(221,225,255,0.58)', faint: 'rgba(221,225,255,0.42)', track: 'rgba(221,225,255,0.10)', grad: ['#5ee4ff', '#8f6bff', '#c14cff'], accent: '#8f6bff', on: '#ffffff', ringGlow: 'rgba(143,107,255,0.5)', tick: '#ecdcff', dim: 'rgba(221,225,255,0.09)' },
+    dark:  { bg: ['#111315', '#0d0f11', '#080a0b'], glow: 'rgba(179,223,189,0.16)', border: 'rgba(255,255,255,0.07)', ink: '#f2f4f6', mute: 'rgba(242,244,246,0.62)', faint: 'rgba(242,244,246,0.44)', track: 'rgba(242,244,246,0.10)', grad: ['#9ac9ed', '#b3dfbd', '#8fc99d'], accent: '#b3dfbd', on: '#182019', ringGlow: 'rgba(179,223,189,0.32)', tick: '#e4f2e7', dim: 'rgba(242,244,246,0.08)' },
     gold:  { bg: ['#12100c', '#0a0908', '#050505'], glow: 'rgba(227,194,125,0.14)', border: 'rgba(255,255,255,0.05)', ink: '#f4f1ea', mute: 'rgba(244,241,234,0.58)', faint: 'rgba(244,241,234,0.42)', track: 'rgba(244,241,234,0.10)', grad: ['#f6ecd6', '#e9cf94', '#e3c27d'], accent: '#e3c27d', on: '#191204', ringGlow: 'rgba(227,194,125,0.45)', tick: '#f6ecd6', dim: 'rgba(244,241,234,0.09)' },
-    light: { bg: ['#ffffff', '#f1f1f1', '#e6e6e6'], glow: 'rgba(0,0,0,0.035)', border: 'rgba(0,0,0,0.14)', ink: '#141414', mute: 'rgba(17,17,17,0.66)', faint: 'rgba(17,17,17,0.54)', track: 'rgba(0,0,0,0.14)', grad: ['#555555', '#222222', '#111111'], accent: '#141414', on: '#ffffff', ringGlow: 'rgba(0,0,0,0.18)', tick: '#111111', dim: 'rgba(0,0,0,0.08)' },
+    light: { bg: ['#f7f8fa', '#f7f8fa', '#f7f8fa'], glow: 'transparent', border: '#cbd2d8', ink: '#20272c', mute: '#56616a', faint: '#66727c', track: '#cbd2d8', grad: ['#28613c', '#28613c', '#28613c'], accent: '#28613c', on: '#ffffff', ringGlow: 'transparent', tick: '#28613c', dim: '#e9edf1' },
     green: { bg: ['#08150e', '#050b08', '#030604'], glow: 'rgba(52,211,153,0.17)', border: 'rgba(180,255,214,0.08)', ink: '#eafff4', mute: 'rgba(234,255,244,0.58)', faint: 'rgba(234,255,244,0.42)', track: 'rgba(180,255,214,0.12)', grad: ['#6ee7b7', '#34d399', '#10b981'], accent: '#34d399', on: '#04140d', ringGlow: 'rgba(52,211,153,0.45)', tick: '#eafff4', dim: 'rgba(180,255,214,0.08)' },
     red:   { bg: ['#170709', '#0a0405', '#060203'], glow: 'rgba(255,93,108,0.17)', border: 'rgba(255,205,210,0.08)', ink: '#fff0f1', mute: 'rgba(255,240,241,0.58)', faint: 'rgba(255,240,241,0.42)', track: 'rgba(255,205,210,0.12)', grad: ['#ff8f7a', '#ff5d6c', '#e23950'], accent: '#ff5d6c', on: '#1a0306', ringGlow: 'rgba(255,93,108,0.45)', tick: '#fff0f1', dim: 'rgba(255,205,210,0.08)' },
   };
-  return P[t] || P.dark;
+  return t === 'mono' ? P.dark : (P[t] || P.dark);
+}
+
+function todayShareLayout() {
+  const ringY = 540, ringRadius = 175, ringStroke = 28;
+  const statsY = ringY + ringRadius + ringStroke / 2 + 44;
+  const statsHeight = 100;
+  const reflectionLabelY = statsY + statsHeight + 44;
+  return { ringY, ringRadius, ringStroke, statsY, statsHeight, reflectionLabelY, quoteY: reflectionLabelY + 64 };
+}
+
+function todayCompletion() {
+  const date = todayKey();
+  const scheduled = actionable(date);
+  const habits = adaptiveMode() === 'recovery'
+    ? scheduled.filter((habit) => !adaptiveTarget(habit).optional)
+    : scheduled;
+  const total = habits.length;
+  const done = habits.filter((habit) => isCompleted(habit.id, date)).length;
+  const frac = total ? done / total : 0;
+  return { scheduled, habits, total, done, frac, pct: Math.round(frac * 100) };
 }
 
 function buildTodayCanvas() {
   const W = 1080, cx = W / 2;
+  const layout = todayShareLayout();
   const P = cardTheme();
   const c = document.createElement('canvas'); c.width = W; c.height = 400;
   const ctx = c.getContext('2d');
   const k = todayKey();
-  const act = actionable(k);
-  const total = act.length;
-  const done = act.filter((h) => isCompleted(h.id, k)).length;
-  const pct = total ? Math.round((done / total) * 100) : 0;
-  const frac = total ? done / total : 0;
+  const { habits: act, total, done, pct, frac } = todayCompletion();
   const SANS = '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif';
   const SERIF = 'Georgia, "Times New Roman", serif';
   const cap = (s) => s.split('').join(' ');
@@ -1018,7 +1174,7 @@ function buildTodayCanvas() {
   const MAXH = 20;
   const shown = act.slice(0, MAXH);
   const extra = act.length - shown.length;
-  const reflBottom = 876 + qLines.length * (qf + 16);
+  const reflBottom = layout.quoteY + qLines.length * (qf + 16);
   const sourceY = reflBottom + 14;
   const habitsLabelY = sourceY + 80;
   const habitRow0 = habitsLabelY + 58;
@@ -1057,8 +1213,8 @@ function buildTodayCanvas() {
   }
 
   // today ring
-  const ry = 540, r = 175;
-  ctx.lineCap = 'round'; ctx.lineWidth = 28;
+  const ry = layout.ringY, r = layout.ringRadius;
+  ctx.lineCap = 'round'; ctx.lineWidth = layout.ringStroke;
   ctx.strokeStyle = P.track; ctx.beginPath(); ctx.arc(cx, ry, r, 0, 2 * Math.PI); ctx.stroke();
   const a0 = -Math.PI / 2, a1 = a0 + 2 * Math.PI * frac;
   const rg = ctx.createLinearGradient(cx - r, ry - r, cx + r, ry + r);
@@ -1069,14 +1225,14 @@ function buildTodayCanvas() {
     ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 22; ctx.fillStyle = P.tick;
     ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 11, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
   }
-  const ps = pct + '%';
+  const ps = total ? pct + '%' : 'Rest';
   let nf = 116;
   ctx.font = '800 ' + nf + 'px ' + SANS;
   while (ctx.measureText(ps).width > 272 && nf > 72) { nf -= 4; ctx.font = '800 ' + nf + 'px ' + SANS; }
   ctx.fillStyle = P.ink; ctx.textBaseline = 'middle';
   ctx.fillText(ps, cx, ry - 26);
   ctx.textBaseline = 'alphabetic';
-  ctx.fillStyle = P.mute; ctx.font = '700 31px ' + SANS; ctx.fillText(`${done} of ${total} today`, cx, ry + 86);
+  ctx.fillStyle = P.mute; ctx.font = '700 31px ' + SANS; ctx.fillText(total ? `${done} of ${total} today` : 'Nothing due today', cx, ry + 86);
 
   // stat row — streak · readiness · momentum (the full story for anyone who sees the card)
   {
@@ -1087,7 +1243,7 @@ function buildTodayCanvas() {
       [rd === null ? `Day ${dayNumber()}` : String(rd), rd === null ? 'OF 90' : 'READINESS'],
       [momentum() + '%', 'MOMENTUM'],
     ];
-    const tw = 280, th = 100, gap = 20, tx0 = cx - (tw * 3 + gap * 2) / 2, ty = 668;
+    const tw = 280, th = layout.statsHeight, gap = 20, tx0 = cx - (tw * 3 + gap * 2) / 2, ty = layout.statsY;
     tiles.forEach(([val, lab], i) => {
       const x = tx0 + i * (tw + gap);
       ctx.fillStyle = P.dim; storyRoundRect(ctx, x, ty, tw, th, 24); ctx.fill();
@@ -1098,12 +1254,12 @@ function buildTodayCanvas() {
   }
 
   // daily reflection
-  ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.fillText(cap('DAILY REFLECTION'), cx, 812);
+  ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.fillText(cap('DAILY REFLECTION'), cx, layout.reflectionLabelY);
   ctx.fillStyle = P.ink; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
-  let qy = 876;
+  let qy = layout.quoteY;
   for (const line of qLines) { ctx.fillText(line, cx, qy); qy += qf + 16; }
-  ctx.fillStyle = P.accent; ctx.font = '600 27px ' + SANS;
-  ctx.fillText('— ' + book.source, cx, qy + 14);
+  ctx.fillStyle = P.accent;
+  cardFittedText(ctx, '— ' + book.source, cx, qy + 14, 860, 27, SANS, '600');
 
   // today's habits — ALL of them: completed checked, missed unchecked
   ctx.textAlign = 'left';
@@ -1130,7 +1286,7 @@ function buildTodayCanvas() {
   const gpct = Math.round((dayNumber() / 90) * 100);
   ctx.fillStyle = P.faint; ctx.font = '700 22px ' + SANS; ctx.textAlign = 'left'; ctx.fillText(cap('90-DAY FIELD'), 110, fieldLabelY);
   ctx.fillStyle = P.mute; ctx.font = '600 26px ' + SANS; ctx.textAlign = 'right'; ctx.fillText(`${gpct}% of the arc`, W - 110, fieldLabelY);
-  const start = startDate(), todayMid = atMidnight(new Date());
+  const start = startDate(), todayMid = atMidnight(operationalDate());
   for (let i = 0; i < 90; i++) {
     const d = addDays(start, i), kk = dkey(d), col = i % cols, row = Math.floor(i / cols);
     const x = gx + col * cell, yy = gy + row * cell;
@@ -1154,19 +1310,25 @@ function buildTodayCanvas() {
 
 // Shared inputs for the alternate share-card styles.
 function cardCommon() {
-  const k = todayKey();
-  const act = actionable(k);
-  const total = act.length;
-  const done = act.filter((h) => isCompleted(h.id, k)).length;
+  const { total, done, pct, frac } = todayCompletion();
   return {
     P: cardTheme(),
     SANS: '-apple-system, "Helvetica Neue", "Segoe UI", Arial, sans-serif',
     SERIF: 'Georgia, "Times New Roman", serif',
     firstName: (S.profile.name || '').trim().split(' ')[0] || 'You',
     day: dayNumber(), stk: dayStreak(),
-    total, done, pct: total ? Math.round((done / total) * 100) : 0, frac: total ? done / total : 0,
+    total, done, pct, frac,
     book: reflectionQuote(),
   };
+}
+function cardFittedText(ctx, text, x, y, maxWidth, size, family, weight = '600') {
+  const minimum = Math.min(size, 24);
+  ctx.font = `${weight} ${size}px ${family}`;
+  while (ctx.measureText(text).width > maxWidth && size > minimum) {
+    size -= 1;
+    ctx.font = `${weight} ${size}px ${family}`;
+  }
+  ctx.fillText(storyTruncate(ctx, text, maxWidth), x, y);
 }
 function cardBg(ctx, W, H, P, gy) {
   const bg = ctx.createLinearGradient(0, 0, 0, H);
@@ -1214,20 +1376,20 @@ function cardBigClear() {
     ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 24; ctx.fillStyle = P.tick;
     ctx.beginPath(); ctx.arc(cx + r * Math.cos(a1), ry + r * Math.sin(a1), 13, 0, 2 * Math.PI); ctx.fill(); ctx.restore();
   }
-  ctx.fillStyle = P.faint; ctx.font = '700 23px ' + SANS; ctx.fillText(cap('COMPLETE'), cx, ry - 62);
-  const psv = pct + '%'; let nf = 128; ctx.font = '800 ' + nf + 'px ' + SANS;
+  ctx.fillStyle = P.faint; ctx.font = '700 23px ' + SANS; ctx.fillText(cap(total ? 'COMPLETE' : 'TODAY'), cx, ry - 62);
+  const psv = total ? pct + '%' : 'Rest'; let nf = 128; ctx.font = '800 ' + nf + 'px ' + SANS;
   while (ctx.measureText(psv).width > 300 && nf > 82) { nf -= 4; ctx.font = '800 ' + nf + 'px ' + SANS; }
   ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; ctx.fillText(psv, cx, ry + 20); ctx.textBaseline = 'alphabetic';
 
   // status pill
   const rdBC = vitality().score;
-  const pill = [`${done} of ${total} today`, stk > 1 ? `${stk}-day streak` : null, rdBC !== null ? `Readiness ${rdBC}` : null]
+  const pill = [total ? `${done} of ${total} today` : 'Nothing due today', stk > 1 ? `${stk}-day streak` : null, rdBC !== null ? `Readiness ${rdBC}` : null]
     .filter(Boolean).join('   ·   ');
   ctx.font = '700 30px ' + SANS;
-  const pw = ctx.measureText(pill).width + 64, ph = 68, px = cx - pw / 2, py = 962;
+  const pw = Math.min(W - 160, ctx.measureText(pill).width + 64), ph = 68, px = cx - pw / 2, py = 962;
   ctx.fillStyle = P.dim; storyRoundRect(ctx, px, py, pw, ph, 34); ctx.fill();
   ctx.strokeStyle = P.border; ctx.lineWidth = 1.5; storyRoundRect(ctx, px, py, pw, ph, 34); ctx.stroke();
-  ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; ctx.fillText(pill, cx, py + ph / 2 + 2); ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = P.ink; ctx.textBaseline = 'middle'; cardFittedText(ctx, pill, cx, py + ph / 2 + 2, pw - 48, 30, SANS, '700'); ctx.textBaseline = 'alphabetic';
 
   ctx.fillStyle = P.faint; ctx.font = '600 24px ' + SANS;
   ctx.fillText(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), cx, H - 84);
@@ -1237,7 +1399,7 @@ function cardBigClear() {
 // QUOTE — the daily reflection as the hero, built to be shared as wisdom
 function cardQuote() {
   const W = 1080, cx = W / 2;
-  const { P, SANS, SERIF, firstName, day, pct, book } = cardCommon();
+  const { P, SANS, SERIF, firstName, day, total, pct, book } = cardCommon();
   const c = document.createElement('canvas'); c.width = W; c.height = 400;
   const ctx = c.getContext('2d');
   let qf = 62; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
@@ -1252,10 +1414,10 @@ function cardQuote() {
   ctx.fillStyle = P.accent; ctx.font = '800 210px ' + SERIF; ctx.fillText('“', cx, 360);
   ctx.fillStyle = P.ink; ctx.font = 'italic 600 ' + qf + 'px ' + SERIF;
   let y = quoteTop; for (const ln of lines) { ctx.fillText(ln, cx, y); y += lineH; }
-  ctx.fillStyle = P.accent; ctx.font = '600 36px ' + SANS; ctx.fillText('— ' + book.source, cx, y + 34);
+  ctx.fillStyle = P.accent; cardFittedText(ctx, '— ' + book.source, cx, y + 34, 840, 36, SANS);
   ctx.strokeStyle = P.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 90, y + 120); ctx.lineTo(cx + 90, y + 120); ctx.stroke();
   cardWordmark(ctx, cx, y + 210, P, SANS, 40);
-  ctx.fillStyle = P.mute; ctx.font = '600 28px ' + SANS; ctx.fillText(`${firstName}  ·  Day ${day} of 90  ·  ${pct}% today`, cx, y + 258);
+  ctx.fillStyle = P.mute; cardFittedText(ctx, `${firstName}  ·  Day ${day} of 90  ·  ${total ? pct + '% today' : 'Rest day'}`, cx, y + 258, 840, 28, SANS);
   return c;
 }
 
@@ -1272,18 +1434,18 @@ function cardCertificate() {
   cardWordmark(ctx, cx, 182, P, SANS, 40);
   ctx.fillStyle = P.mute; ctx.font = '700 26px ' + SANS; ctx.fillText('C E R T I F I C A T E   O F   P R O G R E S S', cx, 264);
   ctx.strokeStyle = P.border; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(cx - 170, 302); ctx.lineTo(cx + 170, 302); ctx.stroke();
-  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('This certifies that', cx, 404);
+  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('A personal record for', cx, 404);
   ctx.fillStyle = P.ink; ctx.font = '700 92px ' + SERIF; ctx.fillText(storyTruncate(ctx, firstName, 820), cx, 502);
-  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('showed up for', cx, 582);
+  ctx.fillStyle = P.faint; ctx.font = 'italic 400 34px ' + SERIF; ctx.fillText('on', cx, 582);
   ctx.fillStyle = P.accent; ctx.font = '800 118px ' + SERIF; ctx.fillText('Day ' + day, cx, 716);
   ctx.fillStyle = P.mute; ctx.font = '600 34px ' + SANS; ctx.fillText('of the 90-day arc', cx, 778);
   const sy = 1010, sr = 138;
   ctx.save(); ctx.shadowColor = P.ringGlow; ctx.shadowBlur = 30;
   ctx.strokeStyle = P.accent; ctx.lineWidth = 10; ctx.beginPath(); ctx.arc(cx, sy, sr, 0, 2 * Math.PI); ctx.stroke(); ctx.restore();
-  ctx.fillStyle = P.ink; ctx.font = '800 74px ' + SANS; ctx.textBaseline = 'middle'; ctx.fillText(pct + '%', cx, sy - 4); ctx.textBaseline = 'alphabetic';
+  ctx.fillStyle = P.ink; ctx.font = '800 74px ' + SANS; ctx.textBaseline = 'middle'; ctx.fillText(total ? pct + '%' : 'Rest', cx, sy - 4); ctx.textBaseline = 'alphabetic';
   const rdCert = vitality().score;
   ctx.fillStyle = P.mute; ctx.font = '600 30px ' + SANS;
-  ctx.fillText(`${done} of ${total} habits today${rdCert !== null ? `  ·  Readiness ${rdCert}` : ''}`, cx, sy + sr + 54);
+  cardFittedText(ctx, `${total ? done + ' of ' + total + ' habits today' : 'Nothing due today'}${rdCert !== null ? `  ·  Readiness ${rdCert}` : ''}`, cx, sy + sr + 54, 840, 30, SANS);
   if (stk > 1) { ctx.fillStyle = P.accent; ctx.font = '800 32px ' + SANS; ctx.fillText(`${stk}-day streak`, cx, sy + sr + 116); }
   ctx.fillStyle = P.faint; ctx.font = '600 26px ' + SANS;
   ctx.fillText(new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }), cx, H - 116);
@@ -1308,6 +1470,98 @@ function openTodayShare() {
   sheet = { type: 'share', styled: true };
   render();
   track('share_opened', { kind: 'today' });
+}
+
+function animateLaunchLogo(dialog) {
+  const logoRevealDuration = 1250;
+  const logoHoldDuration = 2000;
+  const logoExitAt = logoRevealDuration + logoHoldDuration;
+  const introDuration = logoExitAt + 750;
+  const animations = [];
+  const preference = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const stage = dialog.querySelector('.launch-logo-stage');
+  const cancel = () => {
+    animations.forEach(animation => animation.cancel());
+    preference.removeEventListener?.('change', onPreferenceChange);
+  };
+  const onPreferenceChange = event => { if (event.matches) cancel(); };
+  if (Arc90Motion.reduced() || !stage || typeof stage.animate !== 'function') return { duration: 0, cancel };
+  const play = (selector, frames, duration, delay = 0, easing = 'cubic-bezier(.22,1,.36,1)') => {
+    const node = dialog.querySelector(selector);
+    if (node) animations.push(node.animate(frames, {
+      duration, delay,
+      easing, fill: 'backwards',
+    }));
+  };
+  try {
+    play('.launch-logo-stage', [
+      { opacity: 1, transform: 'translateY(0) scale(1)' },
+      { opacity: 1, transform: 'translateY(0) scale(1)', offset: logoExitAt / (logoExitAt + 500), easing: 'ease-in-out' },
+      { opacity: 0, transform: 'translateY(-12px) scale(.96)' },
+    ], logoExitAt + 500, 0, 'linear');
+    play('.launch-logo-symbol', [
+      { transform: 'rotate(-18deg) scale(.84)', opacity: .3 },
+      { transform: 'rotate(0) scale(1)', opacity: 1 },
+    ], logoRevealDuration);
+    play('.launch-logo-symbol .arc90-logo-track', [{ opacity: 0 }, { opacity: 1 }], 650);
+    play('.launch-logo-symbol .arc90-logo-arc', [
+      { strokeDasharray: '1', strokeDashoffset: '1' },
+      { strokeDasharray: '1', strokeDashoffset: '0' },
+    ], 1000, 100);
+    play('.launch-logo-symbol .arc90-logo-start', [{ opacity: 0 }, { opacity: 1 }], 400, 800);
+    play('.launch-logo-symbol .arc90-logo-core', [
+      { opacity: 0, transform: 'scale(.2)' },
+      { opacity: 1, transform: 'scale(1.2)', offset: .65 },
+      { opacity: 1, transform: 'scale(1)' },
+    ], 600, 600);
+    play('.launch-logo-wordmark', [{ opacity: 0, transform: 'translateY(7px)' }, { opacity: 1, transform: 'translateY(0)' }], 650, 500);
+    play('.launch-quote-brand', [{ opacity: 0 }, { opacity: 1 }], 400, logoExitAt);
+    play('.launch-quote-content', [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'translateY(0)' }], 500, logoExitAt + 250);
+    preference.addEventListener?.('change', onPreferenceChange);
+    return { duration: introDuration, cancel };
+  } catch {
+    cancel();
+    return { duration: 0, cancel };
+  }
+}
+
+function showLaunchQuote() {
+  if (!S.onboarded || document.hidden || sheet || S.focus?.active || S.focus?.pendingCompletion || document.getElementById('launchQuote')) return;
+  if (document.activeElement?.matches('input, textarea, [contenteditable="true"]')) return;
+  const book = reflectionQuote();
+  const dialog = document.createElement('dialog');
+  dialog.id = 'launchQuote';
+  dialog.className = 'launch-quote';
+  dialog.tabIndex = -1;
+  dialog.setAttribute('aria-labelledby', 'launchQuoteTitle');
+  dialog.setAttribute('aria-describedby', 'launchQuoteText launchQuoteSource');
+  dialog.innerHTML = `
+    <div class="launch-logo-stage" aria-hidden="true">
+      <div class="launch-logo-lockup">${logoMarkSvg('launch-logo-symbol')}<span class="launch-logo-wordmark">ARC<b>90</b></span></div>
+    </div>
+    <div class="launch-quote-brand">${logoMarkSvg('launch-quote-mark')}<span>ARC90</span></div>
+    <div class="launch-quote-content">
+      <h2 id="launchQuoteTitle">Daily reflection</h2>
+      <blockquote id="launchQuoteText">${esc(book.quote)}</blockquote>
+      <p id="launchQuoteSource">${esc(book.source)}</p>
+    </div>`;
+  document.body.appendChild(dialog);
+  // Native modal behavior keeps focus and taps away from the app underneath.
+  try { dialog.showModal(); } catch { dialog.remove(); return; }
+  const intro = animateLaunchLogo(dialog);
+  const dismiss = () => { if (dialog.open) dialog.close(); };
+  const timer = setTimeout(dismiss, 4000 + intro.duration);
+  dialog.addEventListener('click', dismiss);
+  dialog.addEventListener('cancel', event => { event.preventDefault(); dismiss(); });
+  dialog.addEventListener('keydown', event => {
+    clearTimeout(timer);
+    event.stopPropagation();
+    if (['Escape', 'Enter', ' '].includes(event.key)) { event.preventDefault(); dismiss(); }
+  });
+  dialog.addEventListener('close', () => {
+    clearTimeout(timer); intro.cancel(); dialog.remove();
+    requestAnimationFrame(animateTodayArc);
+  }, { once: true });
 }
 
 function dailyReflectionCard() {
@@ -1391,7 +1645,7 @@ function sheetShare() {
 }
 
 function streak(id) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let s = 0;
   let i = isCompleted(id, dkey(today)) ? 0 : 1;   // an unfinished today doesn't break it
   for (; ; i++) {
@@ -1415,7 +1669,7 @@ function dayCompleted(k) {
 /* Consecutive days (back from today) with at least one rep. An unfinished today
    doesn't break it; pure rest days (nothing scheduled) are skipped, not counted. */
 function dayStreak() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let s = 0;
   let i = dayCompleted(dkey(today)) ? 0 : 1;
   for (; ; i++) {
@@ -1428,8 +1682,17 @@ function dayStreak() {
   return s;
 }
 
+function claimStreakMilestone(previous, current) {
+  if (current <= previous || ![7, 14, 30, 60, 90].includes(current)) return 0;
+  const key = `streak:${S.profile.start}:${current}`;
+  if (S.firedSlots[key]) return 0;
+  S.firedSlots[key] = true;
+  save();
+  return current;
+}
+
 function bestDayStreak() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let best = 0, run = 0;
   for (let i = elapsedDays() - 1; i >= 0; i--) {
     const k = dkey(addDays(today, -i));
@@ -1440,7 +1703,7 @@ function bestDayStreak() {
 }
 
 function perfectDays() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let n = 0;
   for (let i = 0; i < elapsedDays(); i++) if (rateFor(dkey(addDays(today, -i))) === 1) n++;
   return n;
@@ -1479,7 +1742,7 @@ function streakBannerCard() {
 
 function bestStreak() {
   let best = 0;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   for (const h of S.habits) {
     let run = 0;
     for (let i = elapsedDays() - 1; i >= 0; i--) {
@@ -1500,7 +1763,7 @@ function totalReps() {
 
 function perfectDays() {
   let c = 0;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   for (let i = 0; i < elapsedDays(); i++) {
     const r = rateFor(dkey(addDays(today, -i)));
     if (r !== null && r >= 1) c++;
@@ -1510,7 +1773,7 @@ function perfectDays() {
 
 /* how often a missed habit gets completed the very next day */
 function recoveryRate() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let misses = 0, recovered = 0;
   for (const h of S.habits) {
     for (let i = elapsedDays() - 1; i >= 1; i--) {
@@ -1527,7 +1790,7 @@ function recoveryRate() {
 }
 
 function avgRateWindow(startBack, nDays) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let sum = 0, n = 0;
   for (let i = startBack; i < startBack + nDays; i++) {
     const d = addDays(today, -i);
@@ -1546,7 +1809,7 @@ function weeklyDelta() {
 }
 
 function bestWeekday() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const buckets = Array.from({ length: 7 }, () => ({ sum: 0, n: 0 }));
   for (let i = 0; i < Math.min(90, elapsedDays()); i++) {
     const d = addDays(today, -i);
@@ -1565,7 +1828,7 @@ function bestWeekday() {
 }
 
 function reviewStats(nDays) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const moods = {};
   let energy = 0, energyN = 0, reviews = 0;
   for (let i = 0; i < Math.min(nDays, elapsedDays()); i++) {
@@ -1583,7 +1846,7 @@ function reviewStats(nDays) {
 }
 
 function recentKeys(nDays = 7) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const start = startDate();
   const keys = [];
   for (let i = nDays - 1; i >= 0; i--) {
@@ -1632,7 +1895,7 @@ function weeklyReviewData() {
 }
 
 function straightMissHabit(days = 3) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   for (const h of S.habits) {
     let misses = 0;
     for (let i = 1; i <= Math.min(14, elapsedDays() - 1); i++) {
@@ -1650,7 +1913,7 @@ function straightMissHabit(days = 3) {
 
 function comebackSignal() {
   if (elapsedDays() < 2) return null;
-  const yesterday = dkey(addDays(atMidnight(new Date()), -1));
+  const yesterday = dkey(addDays(atMidnight(operationalDate()), -1));
   for (const h of S.habits) {
     const st = statusOf(h.id, yesterday);
     const due = scheduledFor(h, yesterday) || st === 'done' || st === 'min' || st === 'skip';
@@ -1672,12 +1935,19 @@ function milestoneMoment() {
 }
 
 function weekReviewKey() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const mondayOffset = (today.getDay() + 6) % 7;
   return dkey(addDays(today, -mondayOffset));
 }
 
 function weeklyCoachReview() {
+  const pattern = guidanceHabitPattern();
+  if (!pattern.ready) return {
+    generated: new Date().toISOString(),
+    summary: 'Your pattern is still taking shape. A few completed days of check-ins will make this review more useful.',
+    focus: pattern.target ? pattern.target.name : 'Choose one habit',
+    action: pattern.target ? `Start with ${pattern.target.min || 'a two-minute version'}. Keep the next step manageable.` : 'Start with one habit that matters to you.',
+  };
   const w = weeklyReviewData();
   const focus = w.focus ? w.focus.h : nextBestRep();
   const grade = w.pct >= 85 ? 'excellent' : w.pct >= 65 ? 'solid' : w.pct >= 40 ? 'uneven' : 'a reset week';
@@ -1785,7 +2055,7 @@ function applyNativeHealthSync(payload = {}) {
 }
 
 function sleepStats(nDays = 7) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const rows = [];
   for (let i = Math.min(nDays, elapsedDays()) - 1; i >= 0; i--) {
     const k = dkey(addDays(today, -i));
@@ -1854,7 +2124,7 @@ function upsertProtocolLog(p, log) {
 }
 
 function protocolPulseRows(days = 7) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const total = Math.max(1, S.protocols.length);
   return Array.from({ length: days }, (_, i) => {
     const d = addDays(today, i - (days - 1));
@@ -1883,19 +2153,78 @@ function focusNativeBridgeAvailable() {
 }
 
 function requestNativeFocusShield(action, payload = {}) {
-  if (!focusNativeBridgeAvailable()) return false;
+  if (!focusNativeBridgeAvailable()) return '';
+  const requestId = `focus-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   try {
-    window.webkit.messageHandlers.arc90Focus.postMessage({ action, ...payload });
-    return true;
+    window.webkit.messageHandlers.arc90Focus.postMessage({ action, requestId, ...payload });
+    window.setTimeout(() => focusNativeAcknowledgement({ requestId, status: 'failed' }), 5000);
+    return requestId;
   } catch (e) {
-    return false;
+    return '';
   }
 }
+
+function focusNativeAcknowledgement(detail = {}) {
+  const requestId = String(detail.requestId || '');
+  if (!requestId) return false;
+  const failed = detail.status === 'failed' || !!detail.error;
+  const confirmedActive = detail.status === 'active' || detail.active === true;
+  const confirmedStopped = detail.status === 'stopped' || detail.active === false;
+  let changed = false;
+
+  const active = S.focus.active;
+  if (active?.protection?.requestId === requestId && (failed || confirmedActive)) {
+    active.protection = { status: confirmedActive && !failed ? 'active' : 'failed', requestId: '' };
+    S.focus.mode = active.protection.status === 'active' ? 'native-ready' : 'soft';
+    changed = true;
+  }
+
+  const lock = S.focus.allDayLock;
+  if (lock?.requestId === requestId) {
+    if (failed) {
+      lock.status = 'failed';
+    } else if (lock.pendingAction === 'start' && confirmedActive) {
+      lock.on = true;
+      lock.status = 'active';
+      lock.confirmed = true;
+    } else if (lock.pendingAction === 'stop' && confirmedStopped) {
+      lock.on = false;
+      lock.status = 'off';
+      lock.confirmed = false;
+    } else {
+      return changed;
+    }
+    lock.requestId = '';
+    lock.pendingAction = '';
+    changed = true;
+  }
+
+  const pendingStop = S.focus.pendingNativeStop;
+  if (pendingStop?.requestId === requestId && (failed || confirmedStopped || confirmedActive)) {
+    S.focus.pendingNativeStop = confirmedStopped && !failed
+      ? null
+      : { requestId: '', status: 'failed', label: pendingStop.label };
+    changed = true;
+  }
+
+  if (changed) {
+    save();
+    render();
+  }
+  return changed;
+}
+
+window.arc90FocusDidUpdate = focusNativeAcknowledgement;
 
 function finishFocusSession(status = 'completed') {
   const active = S.focus.active;
   if (!active) return false;
-  requestNativeFocusShield('stop', { status });
+  if (['requested', 'active'].includes(active.protection?.status)) {
+    const requestId = requestNativeFocusShield('stop', { status, scope: 'session' });
+    S.focus.pendingNativeStop = requestId
+      ? { requestId, status: 'requested', label: active.label }
+      : { requestId: '', status: 'failed', label: active.label };
+  }
   const elapsed = Math.max(1, Math.round((Date.now() - new Date(active.start).getTime()) / 60000));
   S.focus.seq++;
   S.focus.sessions.unshift({
@@ -1911,6 +2240,10 @@ function finishFocusSession(status = 'completed') {
     targets: Array.isArray(active.targets) ? active.targets : [],
   });
   S.focus.active = null;
+  if (status === 'completed' && active.habitId != null) {
+    S.focus.pendingCompletion = { habitId: String(active.habitId), date: active.goalDate,
+      status: active.targetStatus === 'min' ? 'min' : 'done', label: active.label };
+  }
   save();
   return true;
 }
@@ -1931,7 +2264,7 @@ function focusConsistencyDays(nDays = 7) {
 
 function focusStreak() {
   let streakDays = 0;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   for (let i = 0; i < Math.min(90, elapsedDays()); i++) {
     const k = dkey(addDays(today, -i));
     if (focusMinutesForDay(k) > 0) streakDays++;
@@ -2060,7 +2393,8 @@ function addFocusPlanFromTemplate(id) {
   return true;
 }
 
-function startFocusSession(minutes, label, strict = true) {
+function startFocusSession(minutes, label, strict = true, ritual = null) {
+  if (S.focus.active) return false;
   const target = nextBestRep();
   const session = {
     start: new Date().toISOString(),
@@ -2069,18 +2403,21 @@ function startFocusSession(minutes, label, strict = true) {
     strict: !!strict,
     targets: [target ? target.name : (S.profile.goal || 'Your next 90 days')],
     unlocks: 0,
+    ...(ritual || {}),
   };
-  S.focus.active = {
-    ...session,
-  };
-  const nativeSent = requestNativeFocusShield('start', {
+  S.focus.active = { ...session, protection: { status: 'off', requestId: '' } };
+  const canRequestProtection = strict && focusStats().blockedCount > 0 && !S.focus.pendingNativeStop;
+  const requestId = canRequestProtection ? requestNativeFocusShield('start', {
     ...session,
     apps: S.focus.apps,
     sites: S.focus.sites,
-  });
-  S.focus.mode = nativeSent ? 'native-ready' : 'soft';
+  }) : '';
+  S.focus.active.protection = requestId
+    ? { status: 'requested', requestId }
+    : { status: 'off', requestId: '' };
+  S.focus.mode = 'soft';
   save();
-  return nativeSent;
+  return S.focus.active.protection.status;
 }
 
 function focusDisplayList(kind, suggestions) {
@@ -2109,10 +2446,13 @@ function moodLabel(mood) {
 }
 
 function moodOptionChips(current, extraClass = '') {
+  const compact = extraClass === 'today-mood';
+  const selected = MOOD_OPTIONS.findIndex(([id]) => id === current);
   return `
-    <div class="mood-choice-row ${extraClass}">
-      ${MOOD_OPTIONS.map(([id, label]) => `
-        <button class="${current === id ? 'on' : ''}" data-act="mood-quick" data-id="${id}" aria-label="Set mood to ${esc(label)}">
+    <div class="mood-choice-row ${extraClass}" role="group" aria-label="Mood choices">
+      ${compact && selected >= 0 ? `<span class="mood-cursor" aria-hidden="true" style="--mood-column:${selected % 3 + 1};--mood-row:${Math.floor(selected / 3) + 1};--mood-position:${selected + 1}"></span>` : ''}
+      ${MOOD_OPTIONS.map(([id, label], index) => `
+        <button class="${current === id ? 'on' : ''}" ${compact ? `style="--mood-column:${index % 3 + 1};--mood-row:${Math.floor(index / 3) + 1};--mood-position:${index + 1}"` : ''} data-act="mood-quick" data-id="${id}" aria-pressed="${current === id}" aria-label="Set mood to ${esc(label)}">
           ${esc(label)}
         </button>`).join('')}
     </div>`;
@@ -2208,6 +2548,14 @@ function nextBestRep() {
   return pending[0];
 }
 
+function nextFocusRep() {
+  const pending = actionable(todayKey()).filter((habit) => !isCompleted(habit.id, todayKey()));
+  const eligible = adaptiveMode() === 'recovery'
+    ? pending.filter((habit) => !adaptiveTarget(habit).optional)
+    : pending;
+  return eligible.find((habit) => ['learn', 'work', 'create', 'mind'].includes(habit.cat)) || eligible[0] || null;
+}
+
 function projectedReps() {
   const remaining = Math.max(0, daysLeft());
   const scheduled = actionable(todayKey()).length || S.habits.length;
@@ -2215,7 +2563,7 @@ function projectedReps() {
 }
 
 function reflectionCount(nDays = 90) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let count = 0;
   for (let i = 0; i < Math.min(nDays, elapsedDays()); i++) {
     const l = dlog(dkey(addDays(today, -i)));
@@ -2226,7 +2574,7 @@ function reflectionCount(nDays = 90) {
 
 function activeDaysCount() {
   const start = startDate();
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let count = 0;
   for (let d = start; d <= today; d = addDays(d, 1)) {
     const l = dlog(dkey(d));
@@ -2278,7 +2626,7 @@ function nextScheduledDate(h, fromKey = todayKey()) {
 }
 
 function habitMiniHeat(h, nDays = 21) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let cells = '';
   for (let i = nDays - 1; i >= 0; i--) {
     const k = dkey(addDays(today, -i));
@@ -2355,11 +2703,11 @@ function greeting() {
 function customCount() { return S.habits.filter((h) => String(h.id).startsWith('c')).length; }
 function forgeActive() {
   if (!S.forge) return false;
-  const d = Math.round((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
+  const d = Math.round((atMidnight(operationalDate()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
   return d >= 1 && d <= 7;
 }
 function forgeDay() {
-  return Math.round((atMidnight(new Date()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
+  return Math.round((atMidnight(operationalDate()) - atMidnight(new Date(S.forge.start + 'T00:00:00'))) / DAY_MS) + 1;
 }
 
 const ICONS = {
@@ -2370,6 +2718,7 @@ const ICONS = {
   protocol: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 7.5l6 6"/><path d="M7.5 10.5l6 6"/><rect x="3.5" y="11" width="17" height="6.5" rx="3.25" transform="rotate(-45 12 14.25)"/><circle cx="6.8" cy="17.2" r="1.2"/><circle cx="17.2" cy="6.8" r="1.2"/></svg>',
   progress: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 3 6-8"/><path d="M16 6h3v3"/></svg>',
   coach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 11.5a8.4 8.4 0 01-9 8.4 8.9 8.9 0 01-3.2-.6L3 21l1.7-5.1a8.3 8.3 0 01-1.2-4.4 8.4 8.4 0 018.5-8.4 8.4 8.4 0 019 8.4z"/></svg>',
+  mic: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"/></svg>',
   profile: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20.5c1.6-3.4 4.5-5 8-5s6.4 1.6 8 5"/></svg>',
   search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
   vitals: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h3l2-5 3 10 2.4-6 1.6 3H21"/></svg>',
@@ -2437,10 +2786,11 @@ const mqLight = window.matchMedia('(prefers-color-scheme: light)');
 function applyTheme() {
   const resolved = S.theme === 'auto' ? (mqLight.matches ? 'light' : 'dark') : S.theme;
   document.documentElement.dataset.theme = resolved;
+  document.documentElement.dataset.motion = S.preferences?.reducedMotion ? 'reduced' : 'auto';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) {
-    const bar = { light: '#f2f2f2', mono: '#0a0a0a', green: '#050b08', red: '#0a0405', dark: '#03040a' };
-    meta.content = bar[resolved] || '#03040a';
+    const bar = { light: '#f7f8fa', dark: '#111315' };
+    meta.content = bar[resolved] || '#111315';
   }
 }
 mqLight.addEventListener('change', () => { if (S.theme === 'auto') applyTheme(); });
@@ -2538,8 +2888,29 @@ window.__arc90WatchStatus = function arc90WatchStatus(status) {
 
 /* ---------------- premium gate ---------------- */
 
+function previewAccessActive() { return window.Arc90PreviewAccess?.active() === true; }
+function hasPremiumAccess() { return S.premium === true || previewAccessActive(); }
+
+// Public beta: Focus and Sleep stay open until launch monetization is enabled.
+function hasToolAccess(id) {
+  return id === 'focus' || id === 'sleep' || hasPremiumAccess();
+}
+
+function consumePreviewLink() {
+  const params = new URLSearchParams(window.location.search);
+  if (!params.has('preview')) return '';
+  const requested = params.get('preview') === '1';
+  params.delete('preview');
+  const search = params.toString();
+  window.history.replaceState(window.history.state, '', `${window.location.pathname}${search ? '?' + search : ''}${window.location.hash || ''}`);
+  if (!requested) return '';
+  const preview = window.Arc90PreviewAccess;
+  if (!preview?.available()) return 'This preview window has ended.';
+  return preview.setEnabled(true) ? 'Preview unlocked on this device. No purchase needed.' : 'Preview access could not be saved. Enable browser storage and try again.';
+}
+
 function gate(context) {
-  if (S.premium) return true;
+  if (hasPremiumAccess()) return true;
   sheet = { type: 'paywall', context };
   render();
   return false;
@@ -2551,7 +2922,7 @@ function isDevHost() {
 
 /* Full-tab premium lock — used to gate an entire tab (Sleep, Focus) rather
    than a single action. Renders instead of the tab's real content when
-   !S.premium; tapping it opens the paywall sheet with matching copy. */
+   access is locked; tapping it opens the paywall sheet with matching copy. */
 function premiumTabLock(context, icon, points) {
   const copy = paywallCopy(context);
   return `
@@ -2603,18 +2974,18 @@ function paywallCopy(context = '') {
     },
   };
   return copy[context] || {
-    eyebrow: 'Upgrade your 90-day system',
-    title: 'Turn your habits into a system you can actually read.',
-    sub: 'Premium adds the views, recovery tools, and exports that help you spot what is working before motivation fades.',
+    eyebrow: 'Arc90 Premium',
+    title: 'Know the next move. Protect the moment.',
+    sub: 'Premium adapts your day, protects focused work, and turns your history into clear personal patterns.',
   };
 }
 
 function premiumBenefits() {
   return [
-    ['Axis Dashboard', 'See where habits, energy, focus, sleep, and recovery are helping or dragging.'],
-    ['Forge Mode', 'A 7-day recovery plan when the arc starts slipping.'],
-    ['Unlimited reps', 'More habits, custom routines, and challenge templates.'],
-    ['Weekly reviews', 'Progress summaries and polished exports for accountability.'],
+    ['Adaptive recovery', 'Forge turns a slipping week into a smaller seven-day plan without erasing progress.'],
+    ['Focus Contract', 'Start the right rep with a timer, Focus Shield, and app blocking when native access is available.'],
+    ['Personal patterns', 'Unlock full history across habits, mood, sleep, readiness, and protocols.'],
+    ['Unlimited system', 'Add unlimited habits, custom routines, challenge templates, and proof photos.'],
   ];
 }
 
@@ -2624,79 +2995,116 @@ function premiumBenefits() {
 
 const app = document.getElementById('app');
 
-const TAB_ORDER = ['today', 'habits', 'sleep', 'focus', 'progress', 'profile'];
+const TAB_ORDER = ['today', 'progress', 'habits', 'dashboard', 'profile'];
+const TOOL_GROUPS = [
+  { id: 'mind', label: 'Focus & guidance', items: [
+    { id: 'focus', label: 'Focus', icon: 'focus', premium: true },
+    { id: 'coach', label: 'AI Guidance', icon: 'coach' },
+  ] },
+  { id: 'health', label: 'Health lab', items: [
+    { id: 'protocol', label: 'Protocols', icon: 'protocol' },
+    { id: 'sleep', label: 'Sleep', icon: 'sleep', premium: true },
+    { id: 'vitals', label: 'Health signals', icon: 'vitals' },
+  ] },
+];
 function mainTabOf(id) {
-  if (id === 'protocol' || id === 'vitals') return 'sleep'; // reached from the Sleep tab
+  if (TOOL_GROUPS.some(group => group.items.some(item => item.id === id))) return 'dashboard';
+  if (id === 'brain' || id === 'plan') return 'progress';
   return TAB_ORDER.includes(id) ? id : 'today';
 }
 let lastRenderedTab = null;
 let tabDirection = 'next';
 let navOpen = false;
-let moreOpen = false;            // "More" drop-up menu (Sleep/Focus) anchored above the tab bar
+let moreOpen = false;            // Grouped Tools menu anchored above the tab bar.
 let proofTag = 'Win';            // selected tag in the proof note composer
 let proofSeq = 0;                // disambiguates ids created in the same millisecond
+let progressRange = 7;
+let progressSelected = 6;
+let moodSelected = 6;
+let todayHistoryExpanded = true;
 let shareCanvas = null;          // last-built story card (canvas) for native share / save
 let shareCardURL = '';           // its dataURL for the preview sheet
+let sheetReturnFocus = null;
 function render() {
+  cancelTodayArcAnimation();
+  const shellMotion = captureShellMotion();
+  const hadDialog = !!document.querySelector('.sheet[role="dialog"]');
+  if (sheet && !hadDialog) {
+    const active = document.activeElement;
+    sheetReturnFocus = active?.dataset?.act ? { act: active.dataset.act, id: active.dataset.id } : null;
+  }
   applyTheme();
   syncFocusState();
   if (!S.onboarded) { renderOnboarding(); return; }
   const animate = lastRenderedTab !== tab;
   const directionClass = animate ? ` enter-${tabDirection === 'prev' ? 'prev' : 'next'}` : '';
   lastRenderedTab = tab;
-  const views = { today: viewToday, habits: viewHabits, sleep: viewSleep, focus: viewFocus, plan: viewPlan, progress: viewProgress, coach: viewCoach, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
+  const views = { today: viewToday, habits: viewHabits, sleep: viewSleep, focus: viewFocus, plan: viewPlan, brain: viewBrainDump, progress: viewProgress, dashboard: viewDashboard, coach: viewCoach, protocol: viewProtocol, vitals: viewVitals, profile: viewProfile };
   app.innerHTML = `
     <div class="screen${animate ? ` anim${directionClass}` : ''}">${views[tab]()}</div>
-    ${moreOpen ? '<button class="dropup-scrim" data-act="more-close" aria-label="Close menu"></button>' : ''}
+    ${moreOpen ? '<button class="dropup-scrim" data-act="more-close" aria-label="Close tools" tabindex="-1"></button>' : ''}
     <div class="tabbar-dock">
       ${moreOpen ? moreDropup() : ''}
-      <nav class="tabbar">
+      <nav class="tabbar" aria-label="Main navigation">
         ${tabBtn('today', 'Today', ICONS.today)}
+        ${tabBtn('progress', 'Arc', ICONS.progress)}
         ${tabBtn('habits', 'Habits', ICONS.habits)}
-        ${moreTabBtn()}
-        ${tabBtn('progress', 'Progress', ICONS.progress)}
-        ${tabBtn('profile', 'Profile', ICONS.profile)}
+        ${tabBtn('dashboard', 'Progress', ICONS.progress)}
+        ${tabBtn('profile', 'You', ICONS.profile)}
+        <span class="tab-cursor" aria-hidden="true"></span>
       </nav>
     </div>
     ${sheet ? viewSheet() : ''}
+    ${ritualDock()}
     ${alarmOverlayView()}
   `;
   wireAfterRender();
+  Arc90Motion.observeCharts(app, animate && tab === 'dashboard');
+  playShellMotion(shellMotion);
+  if (animate && tab === 'today' && !appRoom) requestAnimationFrame(animateTodayArc);
+  if (!sheet && hadDialog) {
+    const target = [...app.querySelectorAll('[data-act]')].find((node) => node.dataset.act === sheetReturnFocus?.act && node.dataset.id === sheetReturnFocus?.id);
+    (target || app.querySelector('.tab-btn.active'))?.focus({ preventScroll: true });
+    sheetReturnFocus = null;
+  }
   hydrateProofImages();
   sendWatchSnapshot('render');
 }
 
 function tabBtn(id, label, icon) {
-  return `<button class="tab-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">${icon}<span>${label}</span></button>`;
+  const current = mainTabOf(tab) === id;
+  return `<button class="tab-btn ${current ? 'active' : ''}" data-act="tab" data-id="${id}"${current ? ' aria-current="page"' : ''}>${icon}<span>${label}</span></button>`;
 }
 
 function moreTabBtn() {
-  const current = mainTabOf(tab) === 'sleep' || mainTabOf(tab) === 'focus';
-  const locked = !S.premium;
+  const current = mainTabOf(tab) === 'tools';
   const cls = [current ? 'active' : '', moreOpen ? 'open' : ''].filter(Boolean).join(' ');
-  return `<button class="tab-btn tab-btn-more ${cls}" data-act="more-toggle" aria-haspopup="true" aria-expanded="${moreOpen}">${ICONS.more}<span>More${locked ? ' <em class="tab-lock">🔒</em>' : ''}</span></button>`;
+  return `<button class="tab-btn tab-btn-more ${cls}" data-act="more-toggle" aria-label="${moreOpen ? 'Close' : 'Open'} Lab" aria-expanded="${moreOpen}"${moreOpen ? ' aria-controls="tools-menu"' : ''}${current ? ' aria-current="true"' : ''}>${ICONS.more}<span>Lab</span></button>`;
 }
 
 function moreDropup() {
-  const locked = !S.premium;
-  const items = [
-    { id: 'sleep', label: 'Sleep', sub: 'Score, alarm & sounds', icon: ICONS.sleep },
-    { id: 'focus', label: 'Focus', sub: 'Timer & app shield', icon: ICONS.focus },
-  ];
   return `
-    <div class="dropup" role="menu" aria-label="More">
-      <div class="dropup-cap">${locked ? 'Premium tools' : 'More'}</div>
-      ${items.map((it) => `
-        <button class="dropup-item" data-act="tab" data-id="${it.id}" role="menuitem">
-          <span class="dropup-ico">${it.icon}</span>
-          <span class="dropup-txt"><b>${esc(it.label)}</b><small>${esc(it.sub)}</small></span>
-          ${locked ? '<span class="dropup-lock">🔒</span>' : '<span class="dropup-arr">›</span>'}
+    <nav class="dropup" id="tools-menu" aria-label="Lab">
+      ${TOOL_GROUPS.map(group => `<div class="dropup-group" role="group" aria-labelledby="tools-${group.id}">
+        <div class="dropup-cap" id="tools-${group.id}">${esc(group.label)}</div>
+        ${group.items.map(it => `<button class="dropup-item" data-act="tab" data-id="${it.id}"${tab === it.id ? ' aria-current="page"' : ''}>
+          <span class="dropup-ico" aria-hidden="true">${ICONS[it.icon]}</span>
+          <span class="dropup-txt"><b>${esc(it.label)}</b></span>
+          ${!hasToolAccess(it.id) && it.premium ? '<span class="dropup-lock">Pro</span>' : ''}
+          <span class="dropup-arr" aria-hidden="true">›</span>
         </button>`).join('')}
-    </div>`;
+      </div>`).join('')}
+    </nav>`;
+}
+
+function setToolsMenu(open) {
+  moreOpen = open;
+  render();
+  app.querySelector(open ? '#tools-menu .dropup-item' : '[data-act="more-toggle"]')?.focus({ preventScroll: true });
 }
 
 function sideNavBtn(id, label, icon, meta = '') {
-  return `<button class="side-nav-btn ${mainTabOf(tab) === id ? 'active' : ''}" data-act="tab" data-id="${id}">
+  return `<button class="side-nav-btn ${tab === id || (id === 'habits' && tab === 'plan') ? 'active' : ''}" data-act="tab" data-id="${id}">
     ${icon}
     <span>${label}</span>
     ${meta ? `<em>${meta}</em>` : ''}
@@ -2730,40 +3138,47 @@ function sideDrawer() {
           <div class="side-label">Account</div>
           ${sideNavBtn('profile', 'Profile', ICONS.profile)}
         </div>
-        <button class="side-upgrade" data-act="paywall">${S.premium ? 'Premium Active' : 'Upgrade to Pro'}</button>
+        ${previewAccessActive() ? '' : `<button class="side-upgrade" data-act="paywall">${S.premium ? 'Premium Active' : 'Upgrade to Pro'}</button>`}
       </aside>
     </div>`;
 }
 
 function switchTab(next) {
-  if (!next || next === tab) { if (moreOpen) { moreOpen = false; render(); } return; }
+  if (!['today', 'habits', 'sleep', 'focus', 'plan', 'brain', 'progress', 'dashboard', 'coach', 'protocol', 'vitals', 'profile'].includes(next)) return;
+  if (next === tab) {
+    if (moreOpen) setToolsMenu(false);
+    if (next === 'today' && !appRoom) requestAnimationFrame(animateTodayArc);
+    return;
+  }
   const from = TAB_ORDER.indexOf(mainTabOf(tab));
   const to = TAB_ORDER.indexOf(mainTabOf(next));
   tabDirection = to >= from ? 'next' : 'prev';
-  document.documentElement.dataset.tabDirection = tabDirection;
-  const update = () => {
-    tab = next;
-    navOpen = false;
-    moreOpen = false;
-    openQA = null;
-    appRoom = null;   // leaving Today always exits its rooms
-    window.scrollTo(0, 0);
-    render();
-  };
-  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (!reduced && document.startViewTransition) document.startViewTransition(update);
-  else update();
+  // Commit navigation synchronously so rapid taps cannot queue stale destinations.
+  tab = next;
+  navOpen = false;
+  moreOpen = false;
+  openQA = null;
+  appRoom = null;
+  window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  render();
+  app.querySelector('.tab-btn.active')?.focus({ preventScroll: true });
 }
 
-/* global header: centered wordmark with the live 90-day arc */
+function logoMarkSvg(className = '') {
+  return `
+    <svg class="arc90-logo-mark ${className}" viewBox="0 0 64 64" aria-hidden="true" focusable="false">
+      <circle class="arc90-logo-track" cx="32" cy="32" r="24"/>
+      <path class="arc90-logo-arc" pathLength="1" d="M48.97 15.03 A24 24 0 1 0 48.97 48.97"/>
+      <rect class="arc90-logo-start" x="45.55" y="11.61" width="6.84" height="6.84" rx="2"/>
+      <circle class="arc90-logo-core" cx="32" cy="32" r="3.8"/>
+    </svg>`;
+}
+
+/* Global header: a stable mark and compact wordmark at every depth. */
 function brandbar() {
-  const day = dayNumber();
   return `
     <div class="brandbar">
-      <svg viewBox="0 0 108 108" width="18" height="18" style="transform:rotate(-90deg)">
-        <circle cx="54" cy="54" r="44" fill="none" stroke="var(--line-2)" stroke-width="14"/>
-        <circle cx="54" cy="54" r="44" fill="none" stroke="url(#ringGrad)" stroke-width="14" stroke-linecap="round" stroke-dasharray="${(276.46 * day / 90).toFixed(1)} 276.5"/>
-      </svg>
+      ${logoMarkSvg('brand-symbol')}
       <span>ARC<b>90</b></span>
     </div>`;
 }
@@ -2945,127 +3360,508 @@ function insightsHalf() {
    inside the Today's-arc hero); otherwise a standalone card. */
 function arcFieldPanel(bare = false) {
   const day = dayNumber();
-  const challengePct = Math.round((day / 90) * 100);
-  const mom = momentum();
-  const weekTone = mom >= 70 ? 'Strong week' : mom >= 45 ? 'Gaining traction' : 'Needs a reset';
   const panel = `
       <div class="arc-grid-panel" style="${bare ? '' : 'margin-top:0'}">
         <div class="arc-grid-head">
           <div>
-            <span class="eyebrow">90-day field</span>
-            <b>${challengePct}% of the arc</b>
+            <span class="eyebrow">90-day history</span>
+            ${bare ? '' : `<b>${esc(S.profile.goal || 'Your next 90 days')}</b>`}
           </div>
-          <span>${weekTone}</span>
+          ${bare ? '' : `<span>Day ${day} · ${90 - day} left</span>`}
         </div>
         ${grid90()}
         <div class="arc-grid-legend">
-          <span><i class="l1"></i>started</span>
-          <span><i class="l2"></i>partial</span>
-          <span><i class="l3"></i>fulfilled</span>
+          <span><i class="l3"></i>Complete</span>
+          <span><i class="l2"></i>Partial</span>
+          <span><i class="missed-key"></i>Missed</span>
+          <span>Rest: dashed</span>
         </div>
       </div>`;
   return bare ? panel : `<section class="card">${panel}</section>`;
 }
 
+function todayHistoryPanel() {
+  const first = Math.max(0, Math.round((atMidnight(operationalDate()) - startDate()) / DAY_MS) - 6);
+  return `<section class="arc-grid-panel today-history" data-expanded="${todayHistoryExpanded}" aria-label="Habit history">
+    <div class="history-heading">
+      <h2>Recent days</h2>
+      <button data-act="history-toggle" aria-expanded="${todayHistoryExpanded}" aria-controls="today-history-full">
+        <span>${todayHistoryExpanded ? 'Less' : '90 days'}</span><span class="history-chevron" aria-hidden="true">&#8964;</span>
+      </button>
+    </div>
+    <div class="grid90 history-recent">${arcHistoryCells(first, 7, true)}</div>
+    <div class="history-disclosure" id="today-history-full" aria-hidden="${!todayHistoryExpanded}" ${todayHistoryExpanded ? '' : 'inert'}>
+      <div class="history-disclosure-inner">
+        <div class="history-full-content">
+          <div class="history-caption"><span>90-day history</span><span>Day ${dayNumber()} of 90</span></div>
+          ${grid90()}
+          <div class="arc-grid-legend"><span><i class="l3"></i>Complete</span><span><i class="l2"></i>Partial</span><span><i class="missed-key"></i>Missed</span><span>Rest: dashed</span></div>
+        </div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function toggleTodayHistory() {
+  const panel = document.querySelector('.today-history');
+  const content = panel?.querySelector('.history-disclosure');
+  const button = panel?.querySelector('[data-act="history-toggle"]');
+  if (!content || !button) return;
+  todayHistoryExpanded = !todayHistoryExpanded;
+  panel.dataset.expanded = String(todayHistoryExpanded);
+  button.setAttribute('aria-expanded', String(todayHistoryExpanded));
+  button.querySelector('span').textContent = todayHistoryExpanded ? 'Less' : '90 days';
+  content.setAttribute('aria-hidden', String(!todayHistoryExpanded));
+  content.inert = !todayHistoryExpanded;
+}
+
 function viewToday() {
   if (appRoom) return appRoomView();
-  const act = actionable(todayKey());
-  const total = act.length;
-  const done = act.filter((h) => isCompleted(h.id, todayKey())).length;
-  const frac = total ? done / total : 0;
+  const { scheduled, total, done, frac, pct: todayPct } = todayCompletion();
   const C = 364.425;
   const mom = momentum();
-  const pill = mom >= 70 ? ['good', 'Primed'] : mom >= 45 ? ['mid', 'Building'] : ['low', 'Recover'];
   const day = dayNumber();
-  const todayPct = Math.round(frac * 100);
-  const challengePct = Math.round((day / 90) * 100);
-  const reps = totalReps();
-  const dayLeftCount = daysLeft();
   const weekTone = mom >= 70 ? 'Strong week' : mom >= 45 ? 'Gaining traction' : 'Needs a reset';
   const md = momentumDelta();
   const mdCls = md > 0 ? 'up' : md < 0 ? 'down' : 'flat';
   const mdTxt = md > 0 ? `▲ +${md} today` : md < 0 ? `▼ ${Math.abs(md)} today` : 'Even today';
+  const modeLabel = { full: 'Full day', busy: 'Busy day', recovery: 'Recovery' }[adaptiveMode()];
 
   return `
     ${brandbar()}
-    <header class="topbar">
+    <header class="topbar today-header">
       <div>
         <h1>${greeting()}, ${esc(S.profile.name.split(' ')[0] || 'you')}</h1>
         <div class="sub">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-        <span class="day-chip">◔ Day ${day} of 90 · ${daysLeft()} left</span>
+        <div class="today-meta">
+          <span class="day-chip">◔ Day ${day} of 90 · ${daysLeft()} left</span>
+          <button class="day-mode-trigger" data-act="daymode-open" aria-label="Your day: ${modeLabel}. Change day mode" aria-haspopup="dialog" aria-expanded="${sheet?.type === 'daymode'}">
+            <span>${modeLabel}</span><span class="day-mode-chevron" aria-hidden="true">›</span>
+          </button>
+        </div>
       </div>
     </header>
+
+    ${planningQuickAccess()}
 
     ${forgeActive() ? `<div class="forge-banner"><div>Forge Mode · Day ${forgeDay()} of 7 — minimum versions only on your focus habits. Show up small.</div></div>` : ''}
 
     <section class="card hero-card">
       <div class="hero-topline">
-        <div class="hero-topline-label" data-act="today-habits-scroll">
+        <div class="hero-topline-label">
           <span class="eyebrow">Today’s arc</span>
-          <strong>${total ? `${done} of ${total} complete` : 'No habits due'}</strong>
+          <small class="hero-goal-line">${esc(S.profile.goal || 'Choose your 90-day goal')}</small>
         </div>
-        <div class="hero-topline-actions">
-          <span class="status-pill ${pill[0]}">${pill[1]}</span>
-          ${S.habits.length ? `<button class="hero-share" data-act="share-today" aria-label="Share today’s arc">↗</button>` : ''}
-        </div>
+        ${S.habits.length ? `<button class="hero-share" data-act="share-today" aria-label="Share today’s arc">↗</button>` : ''}
       </div>
 
       <div class="hero">
-        <button class="ring-wrap hero-ring" data-act="today-habits-scroll" aria-label="Open today's habits — ${done} of ${total || 0} complete">
+        <button class="ring-wrap hero-ring" data-act="today-habits-scroll" aria-label="Open today's habits — ${total ? `${done} of ${total} complete` : 'nothing due today'}">
           <svg viewBox="0 0 132 132" width="132" height="132">
             <circle class="ring-track" cx="66" cy="66" r="58" fill="none" stroke-width="12"/>
             <circle class="ring-fill" cx="66" cy="66" r="58" fill="none" stroke-width="12"
               stroke-dasharray="${C}" stroke-dashoffset="${C * (1 - frac)}"/>
+            <circle class="arc-intro-trace" cx="66" cy="66" r="64" aria-hidden="true"
+              stroke-dasharray="14 388.124" stroke-dashoffset="402.124"/>
           </svg>
           <div class="ring-center">
-            <div class="big-num"><span data-countup="${todayPct}" data-suffix="%">0</span></div>
-            <div class="of">${done}/${total || 0} today</div>
+            <div class="big-num">${total ? `<span data-countup="${todayPct}" data-suffix="%">0</span>` : 'Rest'}</div>
+            <div class="of">${total ? `${done}/${total} done` : 'Nothing due'}</div>
           </div>
         </button>
         <div class="hero-stats">
-          <div class="hstat">
-            <div class="eyebrow">Momentum score</div>
-            <div class="hstat-val grad"><span data-countup="${mom}">0</span><span class="unit">%</span></div>
-            <div class="hstat-note"><span class="mom-delta ${mdCls}">${mdTxt}</span> · ${weekTone}</div>
+          <div class="approved-hero-metrics">
+            <div>
+              <span>Momentum</span>
+              <strong><span data-countup="${mom}">0</span><small>%</small></strong>
+              <small class="metric-context">${weekTone}</small>
+            </div>
           </div>
-          <div class="hstat">
-            <div class="eyebrow">90-day goal</div>
-            <div class="goal-copy">${esc(S.profile.goal || 'Set a target in Profile')}</div>
-            <div class="goal-meter" aria-hidden="true"><i style="width:${challengePct}%"></i></div>
-          </div>
+          <div class="hstat-note"><span class="mom-delta ${mdCls}">${mdTxt}</span></div>
         </div>
       </div>
-
-      ${arcFieldPanel(true)}
+      ${adaptiveNextMovePanel(total, scheduled.length)}
 
     </section>
 
-    <div class="bento" style="margin-top:12px">
-      ${readinessArcCard()}
-
-      ${streakHalf()}
-      ${coachHalf()}
-
-      <div>
-        <div class="card-head today-reps-head" style="margin-top:2px">
-          <span class="section-title" style="margin:0">Today</span>
-          <button class="mini-act" data-act="tab" data-id="habits">${done}/${total} · edit</button>
-        </div>
-        ${S.habits.length ? `<div class="habit-check-grid">${S.habits.map(habitCheckTile).join('')}</div>`
-          : `<div class="card empty-note">No habits yet. <button class="inline-link" data-act="tab" data-id="habits">Choose the reps</button> that carry the 90 days.</div>`}
-      </div>
-
-      ${contextualCard()}
-
-      ${dailyReflectionCard()}
-
-      ${premiumLaunchCard()}
-    </div>
+    ${adaptiveHabitsPanel()}
+    ${todayTasksPanel()}
+    ${todaySignalsPanel()}
   `;
 }
 
+const JOURNAL_PROMPTS = [
+  'What am I tolerating right now that I have stopped noticing?',
+  'Where in my life am I performing competence I do not feel?',
+  'What would I do this year if no one would ever find out?',
+  'Which of my current commitments would I not sign up for again today?',
+  'What does my body know about my schedule that my plans are ignoring?',
+  'Who am I still trying to prove something to?',
+  'What is the story I tell about why I am busy?',
+  'When did I last feel genuinely rested? What was different?',
+  'What am I afraid people will think if I slow down?',
+  'What is the difference between what I want and what I think I should want?',
+  'What is one thing I am good at that I take no pride in?',
+  'Where am I confusing motion with progress?',
+  'What did I learn this week that I have not applied?',
+  'What would the version of me who already has the license do differently today?',
+  'What am I avoiding because it would require asking someone for something?',
+  'What resentment am I carrying that is costing me more than the person it points at?',
+  'What do I do when I am anxious, and does it work?',
+  'Which relationship in my life gets my leftovers?',
+  'What is a recent failure I have not actually processed, only moved past?',
+  'What am I building, and who is it for?',
+  'If I had to cut three commitments this month, which would I miss least?',
+  'What is my earliest memory of being praised? How does that still drive me?',
+  'What is the most honest sentence I could say about my finances?',
+  'What would change if I assumed I had enough time?',
+  'Where do I mistake being needed for being valued?',
+  'What have I outgrown but not yet put down?',
+  'What does a good day actually look like, in detail, hour by hour?',
+  'What is the smallest change that would make the biggest difference?',
+  'What am I pretending not to know?',
+  'What do I want to carry into next month, and what am I ready to leave behind?',
+];
+
+function practicePrompt(date, start) {
+  // Calendar dates use UTC arithmetic so daylight saving cannot shift the prompt.
+  const elapsed = Math.floor((Date.parse(date + 'T00:00:00Z') - Date.parse(start + 'T00:00:00Z')) / 86400000);
+  const index = Number.isFinite(elapsed) ? Math.max(0, elapsed) % JOURNAL_PROMPTS.length : 0;
+  return JOURNAL_PROMPTS[index];
+}
+
+function dailyPracticePanel() {
+  const date = practiceDate || todayKey();
+  const entry = S.practices?.[date] || {};
+  const prompt = typeof entry.prompt === 'string' ? entry.prompt : practicePrompt(date, S.profile.start || todayKey());
+  const text = S.journal[date];
+  return `<section class="daily-practice" aria-label="Daily practice">
+    <div class="practice-heading"><h2>Writing</h2></div>
+    ${dlog(date).intention ? `<p class="planning-legacy">Earlier intention: ${esc(dlog(date).intention)}</p>` : ''}
+    <div class="practice-body">
+        <label class="practice-prompt" for="practiceWriting">${esc(prompt)}</label>
+        <p class="practice-hint">Three to eight sentences. Do not edit yourself.</p>
+        <textarea id="practiceWriting" rows="5" maxlength="20000" data-practice-field="journal" data-date="${date}" data-prompt="${esc(prompt)}" placeholder="Start wherever you are.">${esc(typeof text === 'string' ? text : '')}</textarea>
+    </div>
+    <p class="practice-save" id="practiceSaveStatus" role="status">${practiceSaveFailed ? 'Not saved. Keep this page open and try typing again.' : 'Saved on this device as you write.'}</p>
+  </section>`;
+}
+
+function meditationPanel() {
+  const active = S.focus.active || S.focus.pendingCompletion;
+  return `<section class="meditation-panel" aria-label="Meditation">
+    <div><h2>Meditation</h2><p>A quiet moment. Breathe naturally.</p></div>
+    ${active ? `<button class="btn btn-ghost" data-act="tab" data-id="focus">Open current session</button>` : `<div class="practice-minutes">${[2, 5, 10].map((m) => `<button class="btn btn-ghost" data-act="practice-meditate" data-minutes="${m}" aria-label="Meditate for ${m} minutes">${m} min</button>`).join('')}</div>`}
+  </section>`;
+}
+
+function adaptiveMode() { return Arc90Adaptive.modeForDay(S.adaptive, todayKey()); }
+function adaptiveTarget(h) { return Arc90Adaptive.targetForHabit(h, adaptiveMode(), S.adaptive.essentialIds); }
+
+function historicalRateFor(k) {
+  if (!S.habits.length) return undefined;
+  const raw = S.log[k];
+  if (!raw || !Array.isArray(raw.scheduledIds)) return undefined;
+  const log = dlog(k);
+  const skipped = new Set(log.skip.map(String));
+  const scheduled = log.scheduledIds.filter((id) => !skipped.has(String(id)));
+  if (!scheduled.length) return null;
+  const completed = new Set([...log.done, ...log.min].map(String));
+  return scheduled.filter((id) => completed.has(String(id))).length / scheduled.length;
+}
+
+function recentDifficultDays(limit = 3) {
+  const today = atMidnight(operationalDate());
+  const rates = [];
+  for (let back = 1; back <= 7 && back < elapsedDays(); back++) {
+    rates.push(historicalRateFor(dkey(addDays(today, -back))));
+  }
+  return Arc90Adaptive.countRecentDifficultDays(rates, limit);
+}
+
+function adaptiveRecommendation() {
+  if (!S.habits.length) return Arc90Adaptive.recommendMode({});
+  const current = vitality();
+  const coreSignals = current.logged.filter((signal) => signal.key !== 'water').length;
+  return Arc90Adaptive.recommendMode({
+    readiness: current.score,
+    readinessCount: current.count,
+    coreSignals,
+    recentMisses: recentDifficultDays(),
+  });
+}
+
+function adaptiveNextMove() {
+  const mode = adaptiveMode();
+  const hour = new Date().getHours();
+  const picks = daySupport().picks;
+  const candidates = S.habits.filter((h) => scheduledFor(h, todayKey())).map((habit) => {
+    const target = adaptiveTarget(habit);
+    const timing = bestHabitWindow(habit);
+    return {
+      habit,
+      target,
+      timing,
+      done: isCompleted(habit.id, todayKey()),
+      skipped: statusOf(habit.id, todayKey()) === 'skip',
+      optional: target.optional,
+      picked: picks.includes(String(habit.id)),
+      inWindow: !!timing && hour >= timing.startHour && hour < timing.endHour,
+    };
+  });
+  return Arc90Adaptive.chooseNextMove(candidates, mode !== 'recovery');
+}
+
+function adaptiveNextMovePanel(total, scheduledTotal) {
+  const next = adaptiveNextMove();
+  if (!next) {
+    const hasHabits = S.habits.length > 0;
+    const needsEssential = adaptiveMode() === 'recovery' && scheduledTotal > 0 && total === 0;
+    return `<section class="next-move ${total ? 'is-complete' : 'is-empty'}" aria-label="Next move">
+      <span class="next-move-mark" aria-hidden="true">${total ? ICONS.check : '+'}</span>
+      <div class="next-move-copy">
+        <span class="eyebrow">Next move</span>
+        <strong>${total ? 'Your Arc is protected' : needsEssential ? 'Choose today’s essential' : hasHabits ? 'Nothing is scheduled today' : 'Build your first Arc'}</strong>
+        <small>${total ? 'Everything required today is complete.' : needsEssential ? 'Recovery needs one small promise to protect.' : hasHabits ? 'Your next scheduled rep will appear here.' : 'Choose up to eight habits to begin.'}</small>
+      </div>
+      ${needsEssential ? '<button class="next-move-action" data-act="daymode-open">Review day</button>' : hasHabits ? '' : '<button class="next-move-action" data-act="tab" data-id="habits">Choose habits</button>'}
+    </section>`;
+  }
+  const focusable = ['learn', 'work', 'create', 'mind'].includes(next.habit.cat);
+  const targetCopy = next.target.status === 'min' ? next.target.label : 'Full target';
+  const contextCopy = next.timing
+    ? `Best window ${windowHour(next.timing.startHour)}–${windowHour(next.timing.endHour)}`
+    : ({ full: 'Ready when you are', busy: 'Busy-day target', recovery: 'Today’s essential' }[adaptiveMode()]);
+  return `<section class="next-move" aria-label="Next move: ${esc(next.habit.name)}">
+    <span class="next-move-mark" aria-hidden="true">${esc(next.habit.emoji || '○')}</span>
+    <div class="next-move-copy">
+      <span class="eyebrow">Next move</span>
+      <strong>${esc(shortHabitName(next.habit.name))}</strong>
+      ${next.target.status === 'min' ? `<small>${esc(targetCopy)}</small>` : ''}
+      ${next.timing ? `<button class="next-move-window" data-act="adaptive-window" data-id="${esc(String(next.habit.id))}" aria-label="Open best window for ${esc(next.habit.name)}">${esc(contextCopy)}</button>` : ''}
+    </div>
+    <button class="next-move-action" data-act="${focusable ? 'ritual-open' : 'adaptive-check'}" data-id="${esc(String(next.habit.id))}" aria-label="${focusable ? `Start focus for ${esc(next.habit.name)}` : `Mark ${esc(next.habit.name)} complete`}">
+      ${focusable ? ICONS.focus : '<span class="next-move-empty" aria-hidden="true"></span>'}<span>${focusable ? 'Start' : 'Complete'}</span>
+    </button>
+  </section>`;
+}
+
+function adaptiveDayPanel() {
+  const mode = adaptiveMode();
+  const recommendation = adaptiveRecommendation();
+  const modeNames = { full: 'Full', busy: 'Busy', recovery: 'Recovery' };
+  const due = S.habits.filter((h) => scheduledFor(h, todayKey()));
+  const targets = mode === 'recovery' ? due.filter((h) => !adaptiveTarget(h).optional) : due;
+  const kept = targets.filter((h) => isCompleted(h.id, todayKey())).length;
+  const detail = mode === 'full' ? 'Your usual targets' : mode === 'busy' ? 'Reduced targets for today' : 'Your chosen essentials';
+  return `<section class="adaptive-section" aria-label="Adaptive Day">
+    <div class="adaptive-heading"><h2>Your day</h2><button class="mini-act" data-act="adaptive-essentials">Essentials</button></div>
+    <div class="adaptive-modes" role="group" aria-label="Day mode">
+      ${[['full', 'Full'], ['busy', 'Busy'], ['recovery', 'Recovery']].map(([id, label]) => `<button data-act="adaptive-mode" data-id="${id}" aria-pressed="${mode === id}">${label}${recommendation.mode === id ? '<small>Suggested</small>' : ''}</button>`).join('')}
+    </div>
+    <div class="adaptive-recommendation">
+      <p>${esc(recommendation.reason)}</p>
+      ${mode === recommendation.mode ? '' : `<button class="mini-act" data-act="adaptive-recommend" data-id="${recommendation.mode}">Use ${modeNames[recommendation.mode]}</button>`}
+    </div>
+    <p class="adaptive-summary" role="status">${detail} · ${kept}/${targets.length} ${mode === 'full' ? 'kept' : 'adapted targets kept'}</p>
+    <div class="adaptive-support-grid">${daySupportPanels()}</div>
+  </section>`;
+}
+
+function bestHabitWindow(h) {
+  if (S.adaptive.dismissed[String(h.id)]) return null;
+  const cutoff = dkey(addDays(atMidnight(operationalDate()), -41));
+  const samples = Object.keys(S.log).filter((k) => k >= cutoff && k <= todayKey()).flatMap((date) => {
+    const log = dlog(date);
+    return isCompleted(h.id, date) && log.completedAt[h.id] && Number.isInteger(log.completionHours[h.id])
+      ? [{ date, hour: log.completionHours[h.id] }] : [];
+  });
+  return Arc90Adaptive.bestWindow(samples);
+}
+
+function windowHour(hour) { return formatClockTime(`${String(hour % 24).padStart(2, '0')}:00`); }
+
+const LIFE_AREAS = { health: 'Health', mind: 'Mind', career_school: 'Career / school', money: 'Money', build: 'Build', people: 'People', spirit: 'Spirit' };
+
+function habitPurpose(habit) {
+  const goals = S.brain?.goals || [];
+  const seen = new Set();
+  let goal = goals.find(item => item.id === habit.goal_id && item.status === 'active');
+  const chain = [];
+  while (goal && chain.length < 5 && !seen.has(goal.id)) {
+    seen.add(goal.id);
+    chain.push(goal);
+    goal = goals.find(item => item.id === goal.parent_goal_id && item.status === 'active');
+  }
+  return chain;
+}
+
+function adaptiveHabitTile(h) {
+  const target = adaptiveTarget(h);
+  const status = statusOf(h.id, todayKey());
+  const done = status === 'done' || status === 'min';
+  const skipped = status === 'skip';
+  const picked = daySupport().picks.includes(String(h.id));
+  const category = picked ? "Today's pick" : (CATEGORIES.find((c) => c.id === h.cat) || {}).name || 'Personal';
+  const sub = skipped ? 'Skipped' : status === 'min' ? 'Minimum kept' : status === 'done' ? 'Complete' : target.status === 'min' ? 'Minimum' : 'Today';
+  const purpose = habitPurpose(h)[0];
+  return `<div class="adaptive-habit-item">
+    <button class="adaptive-check" data-act="${skipped ? 'task-sheet' : 'adaptive-check'}" data-id="${esc(String(h.id))}"${skipped ? '' : ` aria-pressed="${done}"`} aria-label="${esc(h.name)}, ${esc(sub)}${skipped ? '. Open options to restore' : ''}">
+      <small class="adaptive-category">${esc(category)}</small>
+      <strong class="adaptive-name">${esc(h.name)}</strong>
+      ${purpose ? `<small class="adaptive-purpose" title="Supports ${esc(purpose.title)}">${esc(purpose.title)}</small>` : ''}
+      ${skipped || status === 'min' || (!done && target.status === 'min') ? `<small class="adaptive-target">${esc(sub)}</small>` : ''}
+      <span class="adaptive-state" aria-hidden="true">${done ? ICONS.check : skipped ? '−' : ''}</span>
+    </button>
+  </div>`;
+}
+
+function adaptiveHabitsPanel() {
+  const skipped = S.habits.filter((h) => statusOf(h.id, todayKey()) === 'skip');
+  const due = S.habits.filter((h) => statusOf(h.id, todayKey()) !== 'skip' && (scheduledFor(h, todayKey()) || isCompleted(h.id, todayKey())));
+  const picks = daySupport().picks;
+  due.sort((a, b) => Number(picks.includes(String(b.id))) - Number(picks.includes(String(a.id))));
+  const essentials = due.filter((h) => !adaptiveTarget(h).optional);
+  const optional = due.filter((h) => adaptiveTarget(h).optional);
+  const rest = S.habits.filter((h) => !due.includes(h) && !skipped.includes(h));
+  const grid = (habits) => `<div class="adaptive-habit-grid">${habits.map(adaptiveHabitTile).join('')}</div>`;
+  const byGoal = (habits) => {
+    if (typeof brainHabitGroups !== 'function') return grid(habits);
+    const groups = brainHabitGroups().groups.map((g) => ({ ...g, ids: new Set(g.habits.map((h) => String(h.id))) }));
+    const parts = groups.map((g) => ({ ...g, list: habits.filter((h) => g.ids.has(String(h.id))) })).filter((g) => g.list.length);
+    if (!parts.length) return grid(habits);
+    const other = habits.filter((h) => !parts.some((g) => g.ids.has(String(h.id))));
+    const head = (title, list) => `<h3><i aria-hidden="true"></i><span>${esc(title)}</span><b>${list.filter((h) => isCompleted(h.id, todayKey())).length}/${list.length}</b></h3>`;
+    return parts.map((g) => `<div class="today-goal" style="--tone:${g.tone}">${head(g.title, g.list)}${grid(g.list)}</div>`).join('')
+      + (other.length ? `<div class="today-goal today-goal-none">${head('No goal yet', other)}${grid(other)}</div>` : '');
+  };
+  return `<section class="today-habits-section" aria-label="Today's habits">
+    <div class="adaptive-heading"><h2>${adaptiveMode() === 'recovery' ? 'Essentials' : 'Your habits'}</h2><button class="mini-act" data-act="tab" data-id="habits">Edit</button></div>
+    ${essentials.length ? byGoal(essentials) : `<p class="adaptive-summary">${S.habits.length ? (adaptiveMode() === 'recovery' ? 'No essentials due today.' : 'No habits due today.') : 'Choose your first habits to begin.'}</p>`}
+    ${optional.length ? `<div class="adaptive-optional"><h3>Optional</h3>${grid(optional)}</div>` : ''}
+    ${skipped.length ? `<details class="adaptive-optional"><summary>Skipped today · ${skipped.length}</summary>${grid(skipped)}</details>` : ''}
+    ${rest.length ? `<details class="adaptive-optional"><summary>Not scheduled today · ${rest.length}</summary>${grid(rest)}</details>` : ''}
+  </section>`;
+}
+
+function todaySignalsPanel() {
+  const trackers = S.preferences.trackers || {};
+  if (!trackers.water && !trackers.mood) return '';
+  const water = healthDay().water;
+  const goal = Math.max(1, Number(S.health.settings.waterGoal) || 8);
+  const mood = dlog(todayKey()).mood;
+  return `<div class="today-signals${trackers.water && trackers.mood ? '' : ' today-signals-single'}">
+    ${trackers.water ? `<section aria-label="Water"><h2>Water</h2>
+    <div class="water-stepper">
+      <button data-act="water-sub" aria-label="Remove one glass of water" ${water <= 0 ? 'disabled' : ''}>−</button>
+      <div class="water-reading" aria-live="polite" aria-atomic="true"><strong aria-label="${water} glasses"><span class="water-count-current">${water}</span></strong><small>/ ${goal} glasses</small></div>
+      <button data-act="water-add" aria-label="Add one glass of water">+</button>
+    </div><div class="water-progress" role="progressbar" aria-label="Daily water goal" aria-valuemin="0" aria-valuemax="${goal}" aria-valuenow="${Math.min(water, goal)}" aria-valuetext="${water} of ${goal} glasses"><span style="--water-progress:${Math.min(1, water / goal)}"></span></div></section>` : ''}
+    ${trackers.mood ? `<section aria-label="Mood"><h2>Mood</h2>${moodOptionChips(mood, 'today-mood')}</section>` : ''}
+  </div>`;
+}
+
+function daySupport() { return Arc90DaySupport.forDay(S.daySupport, todayKey()); }
+function pendingSupportHabits() {
+  return S.habits.filter((h) => scheduledFor(h, todayKey()) && !statusOf(h.id, todayKey()));
+}
+function supportPlan() { return Arc90DaySupport.plan(pendingSupportHabits(), daySupport().capacity); }
+function supportFocusHabit() {
+  const pending = pendingSupportHabits();
+  const essentials = adaptiveMode() === 'recovery' ? pending.filter((h) => !adaptiveTarget(h).optional) : [];
+  const candidates = essentials.length ? essentials : pending;
+  return candidates.find((h) => ['learn', 'work', 'create', 'mind'].includes(h.cat)) || candidates[0];
+}
+function daySupportPanels() {
+  const support = daySupport();
+  const labels = { time: 'Time', energy: 'Energy', distractions: 'Distracted', unsure: 'Unsure' };
+  const pending = pendingSupportHabits().length;
+  const action = { time: 'Try Busy mode', energy: 'Choose essentials', distractions: 'Start focus', unsure: 'One next step' };
+  return `<section class="support-signal" aria-label="Capacity"><h2>Capacity</h2>
+    ${support.capacity ? `<button class="support-answer" data-act="support-reset" data-id="capacity" aria-label="Change capacity, currently ${support.capacity} minutes">${support.capacity} min today <span aria-hidden="true">↺</span></button>
+      <button class="support-action" data-act="support-plan">${support.picks.length ? 'Review picks' : 'See a small plan'}</button>`
+      : `<div class="support-options" role="group" aria-label="Time available today">${[5, 15, 30, 60].map((minutes) => `<button data-act="support-capacity" data-id="${minutes}" aria-label="${minutes} minutes available">${minutes} min</button>`).join('')}</div>`}
+    </section>
+    <section class="support-signal" aria-label="Friction"><h2>Friction</h2>
+    ${support.friction ? `<button class="support-answer" data-act="support-reset" data-id="friction" aria-label="Change friction, currently ${labels[support.friction]}">${labels[support.friction]} <span aria-hidden="true">↺</span></button>
+      ${pending ? `<button class="support-action" data-act="support-help">${action[support.friction]}</button>` : '<p>Nothing left today.</p>'}`
+      : `<div class="support-options" role="group" aria-label="What is making today harder">${Object.entries(labels).map(([id, label]) => `<button data-act="support-friction" data-id="${id}">${label}</button>`).join('')}</div>`}
+    </section>`;
+}
+
+function sheetSupport() {
+  if (sheet.kind === 'next') {
+    const h = supportFocusHabit();
+    return `<div class="ritual-sheet"><h2>One next step</h2>${h ? `<p>${esc(h.name)}</p><p>${esc(adaptiveTarget(h).label)}</p><button class="btn" data-act="support-pick" data-id="${esc(String(h.id))}">${adaptiveTarget(h).optional ? 'Pin this optional habit' : 'Bring this to the top'}</button>` : '<p>Nothing left today.</p>'}</div>`;
+  }
+  const plan = sheet.plan || supportPlan();
+  return `<div class="ritual-sheet"><h2>Your ${daySupport().capacity || 0}-minute plan</h2>
+    ${plan.items.length ? `<p>Small versions · ${plan.total} min estimated</p><ul class="support-plan-list">${plan.items.map((item) => `<li><span><strong>${esc(S.habits.find((h) => String(h.id) === item.id)?.name || item.label)}</strong><small>${esc(item.label)}</small></span><small>${item.estimated ? '~' : ''}${item.minutes} min</small></li>`).join('')}</ul>
+    <p>Busy mode uses smaller targets. These picks move first; your other habits and past check-offs stay intact.</p><button class="btn" data-act="support-apply">Use Busy mode & these picks</button>`
+    : `<p>${pendingSupportHabits().length ? 'No small targets fit this time budget. Choose another capacity or adjust a habit in your library.' : 'Nothing left today. Your time is yours.'}</p>`}
+  </div>`;
+}
+
+function sheetAdaptive() {
+  return `<div class="ritual-sheet"><h2>Your essentials</h2>
+    <div class="essential-list">${S.habits.map((h) => `<label><input type="checkbox" name="essential" value="${esc(String(h.id))}" ${S.adaptive.essentialIds.includes(String(h.id)) ? 'checked' : ''}>${esc(h.name)}</label>`).join('')}</div>
+    <button class="btn" data-act="adaptive-save">Save essentials</button>
+    ${Object.keys(S.adaptive.dismissed).length ? '<button class="mini-act" data-act="adaptive-reset-hints">Show dismissed timing hints</button>' : ''}
+  </div>`;
+}
+
+function sheetBestWindow() {
+  const h = S.habits.find((item) => String(item.id) === String(sheet.id));
+  const timing = h && bestHabitWindow(h);
+  if (!timing) return '<h2>No timing pattern yet</h2>';
+  return `<div class="ritual-sheet"><h2>Your best window</h2><p>${esc(h.name)}</p>
+    <strong class="window-evidence">${windowHour(timing.startHour)} – ${windowHour(timing.endHour)}</strong>
+    <p>${timing.days} of ${timing.totalDays} logged days fall in this window. A pattern in your check-offs, not a prediction.</p>
+    <button class="btn" data-act="adaptive-remind" data-id="${esc(String(h.id))}">Daily reminder at ${windowHour(timing.startHour)}</button>
+    <p class="adaptive-summary">Replaces your current app-wide reminder schedule. Delivery requires notification permission.</p>
+    <button class="mini-act" data-act="adaptive-dismiss" data-id="${esc(String(h.id))}">Hide this suggestion</button></div>`;
+}
+
+function ritualClock(active) {
+  const seconds = Math.max(0, Math.ceil(focusRemainingMs(active) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+function ritualDock() {
+  const active = S.focus.active;
+  const pending = S.focus.pendingCompletion;
+  if (sheet || tab === 'focus' || (!active && !pending)) return '';
+  return `<aside class="ritual-dock" aria-label="Focus session">
+    <button class="ritual-open" data-act="ritual-open"><span>${active ? 'Focusing' : 'Session finished'}</span><strong>${esc((active || pending).label)}</strong></button>
+    ${active ? `<span class="ritual-clock">${ritualClock(active)}</span><button class="ritual-stop" data-act="ritual-stop" aria-label="End focus session" title="End session">×</button>` : '<button class="mini-act" data-act="ritual-open">Review</button>'}
+  </aside>`;
+}
+
+function sheetRitual() {
+  const active = S.focus.active;
+  const pending = S.focus.pendingCompletion;
+  if (active) return `<div class="ritual-sheet"><h2>${esc(active.label)}</h2><strong class="ritual-clock">${ritualClock(active)}</strong><button class="btn" data-act="ritual-stop">End session</button></div>`;
+  if (pending) {
+    const h = S.habits.find((item) => String(item.id) === pending.habitId);
+    return `<div class="ritual-sheet"><h2>Time well spent</h2><p>${esc(pending.label)}</p>
+      <p>${pending.status === 'min' ? 'Reduced target' : 'Full target'} · ${niceDate(pending.date)}</p><div class="ritual-finish">
+      ${h && !isCompleted(h.id, pending.date) ? '<button class="btn" data-act="ritual-complete">Mark habit complete</button>' : ''}
+      <button class="mini-act" data-act="ritual-dismiss">${h && isCompleted(h.id, pending.date) ? 'Done' : 'Not completed'}</button></div></div>`;
+  }
+  const h = S.habits.find((item) => String(item.id) === String(sheet.id));
+  if (!h) return '<h2>Choose a habit to focus on</h2>';
+  const target = adaptiveTarget(h);
+  const suggested = Number(sheet.minutes) || Number((target.label.match(/(\d+)[\s-]*min/i) || [])[1]) || (target.status === 'min' ? 5 : 25);
+  const native = focusNativeBridgeAvailable();
+  return `<div class="ritual-sheet"><h2>Focus ritual</h2><p>${esc(target.label)}</p><div class="ritual-controls">
+    <label for="ritualMinutes">Minutes</label><input id="ritualMinutes" type="number" min="1" max="180" step="1" value="${Math.min(180, Math.max(1, suggested))}">
+    <label><input id="ritualShield" type="checkbox" ${native ? '' : 'disabled'}> Request app restrictions</label>
+    ${native ? '' : '<p class="adaptive-summary">App restrictions are unavailable in this build. The timer still works.</p>'}
+    </div><button class="btn" data-act="ritual-start" data-id="${esc(String(h.id))}">Start session</button></div>`;
+}
+
 function premiumLaunchCard() {
-  if (S.premium) return '';
+  if (hasPremiumAccess()) return '';
   const next = nextBestRep();
   const hook = next
     ? `Premium helps you rescue slips like ${next.emoji} ${next.name} before they become a lost week.`
@@ -3090,7 +3886,7 @@ function habitCheckTile(h) {
   const off = !scheduledFor(h, todayKey()) && !done;
   const cls = st === 'done' ? 'done' : st === 'min' ? 'done min' : st === 'skip' ? 'skip' : off ? 'off' : '';
   return `
-    <button class="habit-check-tile ${cls}" data-act="toggle" data-id="${h.id}" aria-label="${esc(h.name)}">
+    <button class="habit-check-tile ${cls}" data-act="toggle" data-id="${h.id}" aria-pressed="${done}" aria-label="${esc(h.name)}">
       <span class="habit-check-emoji">${habitIcon(h)}</span>
       <span class="habit-check-name">${esc(shortHabitName(h.name))}</span>
       <span class="habit-check-state">${done ? '✓' : st === 'skip' ? '–' : '+'}</span>
@@ -3133,7 +3929,7 @@ function vitalitySignals(k = todayKey()) {
   // Below-baseline RHR and above-baseline HRV both read as "recovered".
   const baselineOf = (map) => {
     if (!map) return 0;
-    const today = atMidnight(new Date());
+    const today = atMidnight(operationalDate());
     let sum = 0, n = 0;
     for (let i = 1; i <= 30; i++) {
       const v = Number(map[dkey(addDays(today, -i))]) || 0;
@@ -3299,7 +4095,7 @@ function todayStopCard() {
 }
 
 function waterGraphRows(days = 7) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const goal = Math.max(1, Number(S.health.settings.waterGoal) || 8);
   return Array.from({ length: days }, (_, i) => {
     const d = addDays(today, i - (days - 1));
@@ -3551,7 +4347,7 @@ function taskRow(h) {
 
 /* glowing area chart — smooth catmull-rom curve, gradient fill, glowing end dot */
 function chart(nDays) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const start = startDate();
   const W = 320, H = 110, padX = 6, padTop = 14, padBot = 20;
   const innerW = W - padX * 2, innerH = H - padTop - padBot;
@@ -3607,59 +4403,86 @@ function tabHeroCard(eyebrow, title, sub, stats) {
     </section>`;
 }
 
-function habitsHeroCard() {
-  const n = S.habits.length;
-  if (!n) return '';
-  const today = atMidnight(new Date());
-  let done = 0, due = 0;
+function habitWeekRate(habits) {
+  const ids = new Set(habits.map((h) => String(h.id)));
+  const today = atMidnight(operationalDate());
+  let due = 0, done = 0;
   for (let i = 0; i < 7; i++) {
     const k = dkey(addDays(today, -i));
-    const a = actionable(k);
+    const a = actionable(k).filter((h) => ids.has(String(h.id)));
     due += a.length;
     done += a.filter((h) => isCompleted(h.id, k)).length;
   }
-  const rate = due ? Math.round((done / due) * 100) : 0;
-  let bestS = 0;
-  S.habits.forEach((h) => { const s = streak(h.id); if (s > bestS) bestS = s; });
-  return tabHeroCard(
-    'Your system',
-    `${n} rep${n === 1 ? '' : 's'} in rotation`,
-    `Small daily votes for ${esc(S.profile.identity || 'the new you')}`,
-    [['This week', rate + '%'], ['Best chain', bestS ? bestS + 'd' : '—'], ['Total votes', totalReps()]]
-  );
+  return due ? Math.round((done / due) * 100) : null;
+}
+
+// One habit inside its goal group: the whole row opens the habit; unlinked habits get a
+// small Link chip, or a one-tap suggestion when a goal clearly matches.
+function habitGoalRow(h, unlinked) {
+  const today = atMidnight(operationalDate());
+  let dots = '', kept = 0, due = 0;
+  for (let i = 6; i >= 0; i--) {
+    const k = dkey(addDays(today, -i)), st = statusOf(h.id, k);
+    if (st === 'done' || st === 'min') kept++;
+    if (scheduledFor(h, k) || st === 'done' || st === 'min') due++;
+    dots += `<i class="${st === 'done' ? 'on' : st === 'min' ? 'min' : ''}"></i>`;
+  }
+  const suggestion = unlinked && typeof brainSuggestGoal === 'function' ? brainSuggestGoal(h.name, brainLinkTargets('habit', h)) : null;
+  return `<div class="hb-row">
+      <button class="hb-open" data-act="rhythm-sheet" data-id="${h.id}" aria-label="${esc(h.name)}: ${kept} of ${due} this week. Open habit">
+        <span class="lib-emoji" aria-hidden="true">${habitIcon(h)}</span>
+        <span class="hb-copy"><b>${esc(h.name)}</b><small>${rhythmLabel(h)} · ${kept} of ${due} this week</small></span>
+        <span class="hb-week" aria-hidden="true"><span class="dot7">${dots}</span><em>›</em></span>
+      </button>
+      ${unlinked && !suggestion ? `<button class="hb-link" data-brain-act="link-habit" data-id="${esc(h.id)}">Link to a goal</button>` : ''}
+      ${suggestion ? `<button class="hb-suggest" data-brain-act="suggest-link" data-kind="habit" data-id="${esc(h.id)}" data-goal="${esc(suggestion.id)}"><span>Suggested</span><b>${esc(brainGoalLabel(suggestion.title))}</b><i>Link</i></button>` : ''}
+    </div>`;
+}
+
+function habitGoalGroup(group, unlinked = false) {
+  const rate = habitWeekRate(group.habits);
+  const head = `<b>${esc(group.title)}</b><span>${group.habits.length} ${group.habits.length === 1 ? 'habit' : 'habits'}${rate === null ? '' : ` · ${rate}% this week`}</span>${rate === null ? '' : `<span class="hb-meter" aria-hidden="true"><i style="width:${rate}%"></i></span>`}`;
+  return `<section class="hb-group${unlinked ? ' hb-group-none' : ''}" style="--tone:${group.tone}">
+    ${unlinked ? `<header class="hb-group-head"><i aria-hidden="true"></i><div>${head}</div></header>` : `<button class="hb-group-head" data-brain-act="node" data-id="${esc(group.id)}" aria-label="${esc(group.title)}: open goal details"><i aria-hidden="true"></i><div>${head}</div><em aria-hidden="true">›</em></button>`}
+    ${group.habits.map((h) => habitGoalRow(h, unlinked)).join('')}
+  </section>`;
 }
 
 function viewHabits() {
+  const { groups, unlinked } = typeof brainHabitGroups === 'function' ? brainHabitGroups() : { groups: [], unlinked: S.habits };
+  const week = habitWeekRate(S.habits);
+  let bestS = 0;
+  S.habits.forEach((h) => { bestS = Math.max(bestS, streak(h.id)); });
   return `
     ${brandbar()}
     <header class="topbar">
       <div>
         <h1>Habits</h1>
-        <div class="sub">The reps that build ${esc(S.profile.identity || 'the new you')}</div>
+        <div class="sub">Every rep feeds a goal</div>
       </div>
-      <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
+      <button class="mini-act top-mini" data-act="habits-add-scroll">Add</button>
     </header>
-
-    ${habitsHeroCard()}
-
-    <div class="section-title">Your habits <span class="count-bub">${S.habits.length}${S.premium ? '' : ` / ${FREE_HABITS}`}</span></div>
-    ${S.premium ? '' : `<div class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></div>`}
-    ${S.habits.length ? `<div class="mine-grid">${S.habits.map(mineRow).join('')}</div>` : '<div class="card empty-note">Nothing here yet — add from the library below.</div>'}
-
-    ${libraryPanel()}
-
-    <div class="section-gap section-title">Create your own</div>
-    <div class="custom-form">
-      <input id="customName" type="text" placeholder="e.g. Practice salsa 15 min" maxlength="48"/>
-      <button class="btn" data-act="add-custom" style="padding:0 20px">Add</button>
+    <div class="goal-shell habits-shell">
+    ${S.habits.length ? `<dl class="hb-summary"><div><dd>${week === null ? '—' : week + '%'}</dd><dt>Kept this week</dt></div><div><dd>${bestS ? bestS + 'd' : '—'}</dd><dt>Best chain</dt></div><div><dd>${S.habits.length - unlinked.length}/${S.habits.length}</dd><dt>Linked to a goal</dt></div></dl>` : ''}
+    ${groups.map((g) => habitGoalGroup(g)).join('')}
+    ${unlinked.length ? habitGoalGroup({ title: 'No goal yet', tone: 'var(--flow-none)', habits: unlinked }, true) : ''}
+    ${S.habits.length ? '' : '<div class="hb-empty"><b>No habits yet</b><p>Add one below. Small, daily, and linked to a goal works best.</p></div>'}
+    <section class="hb-add" id="habitsAdd" aria-labelledby="habitsAddTitle">
+      <header><h2 id="habitsAddTitle">Add a habit</h2><span>${S.habits.length}${hasPremiumAccess() ? '' : ` / ${FREE_HABITS}`}</span></header>
+      ${hasPremiumAccess() ? '' : `<p class="limit-note">Base plan: ${FREE_HABITS} active habits · ${FREE_CUSTOM} custom. <b data-act="paywall" style="cursor:pointer">Premium unlocks unlimited</b></p>`}
+      <div class="custom-form">
+        <input id="customName" type="text" placeholder="e.g. Study 1 focused hour" maxlength="48" aria-label="New habit name"/>
+        <button class="btn" data-act="add-custom" style="padding:0 20px">Add</button>
+      </div>
+      ${libraryPanel()}
+      <details class="hb-templates"><summary>Start from a challenge template</summary>${challengeTemplatesPanel()}</details>
+    </section>
     </div>
-
-    <div class="section-gap">${challengeTemplatesPanel()}</div>
   `;
 }
 
 function libraryPanel() {
-  const cat = libCat === 'all' ? 'All missions' : (CATEGORIES.find((c) => c.id === libCat)?.name || 'Filtered');
+  const cat = libCat === 'all' ? `${CATEGORIES.filter((c) => c.id !== 'custom').length} categories` : (CATEGORIES.find((c) => c.id === libCat)?.name || 'Filtered');
   const query = libQuery.trim() ? ` · “${libQuery.trim()}”` : '';
   return `
     <section class="card library-card ${libraryOpen ? 'open' : ''}">
@@ -3672,7 +4495,7 @@ function libraryPanel() {
       </button>
       ${libraryOpen ? `
         <div class="library-body">
-          <div class="search-bar">${ICONS.search}<input id="libSearch" type="search" placeholder="Search 100 habits..." value="${esc(libQuery)}"/></div>
+          <div class="search-bar">${ICONS.search}<input id="libSearch" type="search" placeholder="Search ${HABIT_LIBRARY.length} habits..." value="${esc(libQuery)}"/></div>
           <div class="cat-chips">
             <button class="chip ${libCat === 'all' ? 'on' : ''}" data-act="cat" data-id="all">All</button>
             ${CATEGORIES.filter((c) => c.id !== 'custom').map((c) => `<button class="chip ${libCat === c.id ? 'on' : ''}" data-act="cat" data-id="${c.id}">${c.emoji} ${c.name}</button>`).join('')}
@@ -3698,50 +4521,42 @@ function challengeTemplatesPanel() {
     </section>`;
 }
 
-function mineRow(h) {
-  const today = atMidnight(new Date());
-  let dots = '';
-  for (let i = 6; i >= 0; i--) {
-    const st = statusOf(h.id, dkey(addDays(today, -i)));
-    dots += `<i class="${st === 'done' ? 'on' : st === 'min' ? 'min' : ''}"></i>`;
-  }
-  return `
-    <div class="mine-row">
-      <span class="lib-emoji">${habitIcon(h)}</span>
-      <div class="mine-copy">
-        <div class="lib-name">${esc(h.name)}</div>
-        <div class="lib-cat">${rhythmLabel(h)} · min: ${esc(h.min || '2-minute version')}</div>
-        <div class="dot7" style="margin-top:6px">${dots}</div>
-      </div>
-      <div class="mine-actions">
-        <button class="remove-btn rhythm-btn" data-act="rhythm-sheet" data-id="${h.id}">${rhythmLabel(h, true)}</button>
-        <button class="remove-btn" data-act="remove" data-id="${h.id}">Remove</button>
-      </div>
-    </div>`;
-}
-
+// The library, organized by category. "All" shows a short preview of each category with a
+// link to the full list; a chosen category or a search shows every match, still grouped.
 function libList() {
   const q = libQuery.trim().toLowerCase();
-  let items = HABIT_LIBRARY.filter((h) =>
+  const items = HABIT_LIBRARY.filter((h) =>
     (libCat === 'all' || h.cat === libCat) &&
-    (!q || h.name.toLowerCase().includes(q) || catOf(h.cat).name.toLowerCase().includes(q))
+    (!q || h.name.toLowerCase().includes(q) || h.min.toLowerCase().includes(q) || catOf(h.cat).name.toLowerCase().includes(q))
   );
-  if (!items.length) return '<div class="empty-note">No matches — create it yourself below.</div>';
-  return `<div class="lib-grid">${items.map((h) => {
+  if (!items.length) return '<div class="empty-note">No matches — create it yourself above.</div>';
+  const preview = libCat === 'all' && !q;
+  const row = (h) => {
     const added = S.habits.some((x) => x.id === h.id);
-    return `
-      <button class="ltile ${added ? 'added' : ''}" data-act="lib-toggle" data-id="${h.id}" title="min: ${esc(h.min)}">
-        <span class="ltb">${added ? '✓' : '+'}</span>
-        <span class="lte">${habitIcon(h)}</span>
-        <span class="ltn">${esc(h.name)}</span>
+    return `<button class="lrow${added ? ' added' : ''}" data-act="lib-toggle" data-id="${h.id}" aria-pressed="${added}" aria-label="${added ? 'Remove' : 'Add'} ${esc(h.name)}">
+        <span class="lrow-icon" aria-hidden="true">${esc(h.emoji || '')}</span>
+        <span class="lrow-copy"><b>${esc(h.name)}</b><small>Min: ${esc(h.min)}</small></span>
+        <span class="lrow-add" aria-hidden="true">${added ? '✓' : '+'}</span>
       </button>`;
+  };
+  return `<div class="lib-groups">${CATEGORIES.filter((c) => c.id !== 'custom').map((c) => {
+    const list = items.filter((h) => h.cat === c.id);
+    if (!list.length) return '';
+    const total = HABIT_LIBRARY.filter((h) => h.cat === c.id).length;
+    const mine = HABIT_LIBRARY.filter((h) => h.cat === c.id && S.habits.some((x) => x.id === h.id)).length;
+    const shown = preview ? list.slice(0, 4) : list;
+    return `<section class="lib-group" aria-label="${esc(c.name)}">
+      <header><span aria-hidden="true">${c.emoji}</span><h3>${esc(c.name)}</h3><small>${q ? `${list.length} ${list.length === 1 ? 'match' : 'matches'}` : `${total} habits${mine ? ` · ${mine} added` : ''}`}</small></header>
+      ${shown.map(row).join('')}
+      ${preview && list.length > shown.length ? `<button class="lib-more" data-act="cat" data-id="${c.id}">See all ${list.length} in ${esc(c.name)}</button>` : ''}
+    </section>`;
   }).join('')}</div>`;
 }
 
 function addHabit(libId) {
   const h = HABIT_LIBRARY.find((x) => x.id === libId);
   if (!h || S.habits.some((x) => x.id === h.id)) return true;
-  if (!S.premium && S.habits.length >= FREE_HABITS) return gate('habit-limit') && addHabit(libId);
+  if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) return gate('habit-limit') && addHabit(libId);
   S.habits.push({ id: h.id, emoji: h.emoji, name: h.name, cat: h.cat, min: h.min, rhythm: 'daily' });
   save();
   return true;
@@ -3753,8 +4568,8 @@ function removeHabit(id) {
 function addCustom(name) {
   const n = name.trim();
   if (!n) return true;
-  if (!S.premium && S.habits.length >= FREE_HABITS) return gate('habit-limit');
-  if (!S.premium && customCount() >= FREE_CUSTOM) return gate('custom-limit');
+  if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) return gate('habit-limit');
+  if (!hasPremiumAccess() && customCount() >= FREE_CUSTOM) return gate('custom-limit');
   S.customSeq++;
   S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: n, cat: 'custom', min: '2-minute version', rhythm: 'daily' });
   save();
@@ -3767,7 +4582,7 @@ function applyTemplate(id) {
   let added = 0;
   for (const habitId of tpl.habits) {
     if (S.habits.some((h) => h.id === habitId)) continue;
-    if (!S.premium && S.habits.length >= FREE_HABITS) break;
+    if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) break;
     if (addHabit(habitId)) added++;
   }
   if (!S.profile.goal) S.profile.goal = tpl.goal;
@@ -3806,6 +4621,7 @@ function requestHealthSync() {
 }
 
 function safeStripeCheckout() {
+  if (previewAccessActive()) { showNudge('Preview access is active. No purchase is needed.'); return; }
   track('checkout_clicked');
   showNudge('Opening secure Stripe Checkout...');
   fetch('/api/create-checkout-session', {
@@ -3883,7 +4699,7 @@ function emailCaptureCard() {
       <input id="subEmail" class="sub-input" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" aria-describedby="subStatus" />
       <label class="sub-consent">
         <input id="subConsent" type="checkbox" />
-        <span>Yes, email me ARC90 updates. I can unsubscribe at any time.</span>
+        <span>Yes, email me ARC90 updates. I can withdraw consent by emailing <a href="mailto:michael28gh@gmail.com">the developer</a>.</span>
       </label>
       <button class="btn sub-btn" data-act="subscribe">Keep me posted</button>
       <div id="subStatus" class="sub-status" role="status" aria-live="polite"></div>
@@ -3906,7 +4722,7 @@ function submitSubscribe() {
     .then((r) => r.json().then((d) => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
       if (ok && d && d.ok) { S.subscribed = true; save(); track('subscribed'); render(); showNudge('You’re on the list. Thanks for backing ARC90.'); }
-      else { setStatus((d && d.error) || 'Could not save. Try again.', 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Keep me posted'; } }
+      else { setStatus('Could not save your subscription. Please try again later.', 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Keep me posted'; } }
     })
     .catch(() => { setStatus('Network error. Please try again.', 'err'); if (btn) { btn.disabled = false; btn.textContent = 'Keep me posted'; } });
 }
@@ -3915,12 +4731,20 @@ function submitSubscribe() {
    FOCUS
    ============================================================ */
 
-function focusPreset(minutes, label, copy, strict = true) {
+function focusDurations(mode = adaptiveMode()) {
+  return ({ full: [25, 45, 60], busy: [15, 25, 45], recovery: [5, 15, 25] })[mode] || [25, 45, 60];
+}
+
+function selectedFocusMinutes() {
+  const mode = adaptiveMode();
+  const durations = focusDurations(mode);
+  return focusLength.mode === mode && durations.includes(focusLength.minutes) ? focusLength.minutes : durations[0];
+}
+
+function focusDurationOption(minutes, selected) {
   return `
-    <button class="focus-preset" data-act="focus-start" data-minutes="${minutes}" data-label="${esc(label)}" data-strict="${strict ? '1' : '0'}">
-      <span>${minutes}m</span>
-      <b>${esc(label)}</b>
-      <small>${esc(copy)}</small>
+    <button class="focus-duration" data-act="focus-duration-select" data-minutes="${minutes}" aria-pressed="${minutes === selected}" aria-label="${minutes} minutes">
+      ${minutes}<span> min</span>
     </button>`;
 }
 
@@ -3946,8 +4770,80 @@ function focusRecentRow(session) {
     </div>`;
 }
 
+function focusProgress(active) {
+  if (!active) return 0;
+  const total = Math.max(1, Number(active.minutes) || 1) * 60000;
+  return Math.max(0, Math.min(1, 1 - (focusRemainingMs(active) / total)));
+}
+
+function focusWeekPanel(stats) {
+  const keys = recentKeys(7);
+  const values = keys.map((key) => focusMinutesForDay(key));
+  const max = Math.max(30, ...values);
+  const bars = keys.map((key, index) => {
+    const minutes = values[index];
+    const day = new Date(`${key}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' });
+    const height = minutes ? Math.max(4, Math.round((minutes / max) * 100)) : 0;
+    return `<span class="focus-week-day ${key === todayKey() ? 'today' : ''} ${minutes ? 'has-session' : ''}" title="${esc(day)}: ${formatFocusMinutes(minutes)}">
+      <b>${minutes ? formatFocusMinutes(minutes) : '\u2013'}</b>
+      <span class="focus-week-track"><i style="--focus-bar:${height}%"></i></span><small>${esc(day)}</small>
+    </span>`;
+  }).join('');
+  return `
+    <section class="focus-week-section" aria-label="Focus over the last seven days">
+      <div class="focus-section-head">
+        <div><h2>Your focus rhythm</h2><span class="focus-week-caption">Last 7 days</span></div>
+        <div class="focus-week-total"><strong>${formatFocusMinutes(stats.weekMinutes)}</strong><span>${stats.consistency} active ${stats.consistency === 1 ? 'day' : 'days'}</span></div>
+      </div>
+      <div class="focus-week-bars" role="img" aria-label="${stats.weekMinutes ? `${formatFocusMinutes(stats.weekMinutes)} focused across ${stats.consistency} of the last 7 days` : 'No focus sessions logged in the last 7 days'}">${bars}</div>
+    </section>`;
+}
+
+function focusProtectionPanel(stats, nativeReady) {
+  const targets = stats.blockedCount;
+  const cleanup = S.focus.pendingNativeStop;
+  const state = cleanup
+    ? (cleanup.status === 'requested' ? 'Turning off' : 'Needs attention')
+    : nativeReady ? (targets ? `${targets} selected` : 'Set up') : 'Screen Time off';
+  return `
+    <section class="focus-protection-section">
+      <button class="focus-protection-toggle" data-act="focus-settings-toggle" aria-expanded="${focusSettingsOpen}" aria-controls="focus-protection-details">
+        <span class="focus-protection-icon" aria-hidden="true">${ICONS.focus}</span>
+        <span><strong>Distractions</strong><small>${targets ? `${targets} selected` : 'Apps & websites'}</small></span>
+        <em>${state}</em><i aria-hidden="true">›</i>
+      </button>
+      ${focusSettingsOpen ? `<div class="focus-protection-details" id="focus-protection-details">
+        <div class="focus-native-status ${nativeReady ? 'ready' : ''}">
+          <i aria-hidden="true"></i>
+          <div><b>${nativeReady ? 'Screen Time connection detected' : 'Timer mode is active'}</b><span>${nativeReady ? 'Protection starts only after your iPhone confirms it.' : 'The timer works now. App blocking will appear after Apple Screen Time access is enabled.'}</span></div>
+        </div>
+        ${cleanup ? `<div class="focus-native-status warning">
+          <i aria-hidden="true"></i>
+          <div><b>${cleanup.status === 'requested' ? 'Turning previous protection off' : 'Protection cleanup needs attention'}</b><span>${cleanup.status === 'requested' ? 'Waiting for your iPhone to confirm.' : nativeReady ? 'Retry so Screen Time can confirm it is off.' : 'Open iPhone Screen Time settings to confirm protection is off.'}</span></div>
+          ${cleanup.status === 'failed' && nativeReady ? '<button class="mini-act" data-act="focus-native-stop-retry">Retry</button>' : ''}
+        </div>` : ''}
+
+        <div class="focus-detail-head"><span>Distractions</span><small>${targets ? `${targets} selected` : 'Choose two or three'}</small></div>
+        ${focusTargetSummary()}
+        <div class="focus-chip-row">
+          ${FOCUS_APP_SUGGESTIONS.slice(0, 4).map((name) => {
+            const selected = S.focus.apps.some((a) => focusEntryKey('apps', a) === focusEntryKey('apps', name));
+            return `<button class="chip ${selected ? 'on' : ''}" data-act="focus-app-toggle" data-id="${esc(name)}" aria-pressed="${selected}" aria-label="${selected ? 'Remove' : 'Add'} ${esc(name)} ${selected ? 'from' : 'to'} protection">${esc(name)}</button>`;
+          }).join('')}
+        </div>
+        <div class="focus-add-compact">
+          <input id="focusAppInput" type="text" maxlength="28" placeholder="Add app" aria-label="Add an app to focus protection"/>
+          <button class="btn btn-ghost" data-act="focus-app-add">Add</button>
+          <input id="focusSiteInput" type="text" maxlength="48" placeholder="Add website" aria-label="Add a website to focus protection"/>
+          <button class="btn btn-ghost" data-act="focus-site-add">Add</button>
+        </div>
+        ${focusAllDayCard(nativeReady)}
+      </div>` : ''}
+    </section>`;
+}
+
 function viewFocus() {
-  if (!S.premium) return `
+  if (!hasToolAccess('focus')) return `
     ${brandbar()}
     <header class="topbar">
       <div>
@@ -3959,88 +4855,75 @@ function viewFocus() {
   `;
   const stats = focusStats();
   const active = S.focus.active;
-  const next = nextBestRep();
+  const pending = S.focus.pendingCompletion;
+  const next = nextFocusRep();
   const nativeReady = focusNativeBridgeAvailable();
-  const modeLabel = nativeReady ? 'Native blocker' : 'Timer only';
+  const mode = adaptiveMode();
+  const durations = focusDurations(mode);
+  const minutes = selectedFocusMinutes();
+  const target = next ? adaptiveTarget(next) : null;
+  const timing = next ? bestHabitWindow(next) : null;
+  const focusLabel = next ? next.name : (S.profile.goal || 'Open focus');
+  const targetLine = target
+    ? (shortHabitName(target.label).toLowerCase() === shortHabitName(focusLabel).toLowerCase() ? (target.status === 'min' ? 'Minimum target' : 'Full target') : target.label)
+    : 'A little space for what matters.';
+  const windowLine = timing ? `Your best window: ${windowHour(timing.startHour)}-${windowHour(timing.endHour)}` : ({ full: 'One thing. Your full attention.', busy: 'A small block in a busy day.', recovery: 'A gentler pace for today.' })[mode];
+  const angle = active ? Math.round(focusProgress(active) * 360) : 360;
+  const protectionStatus = active?.protection?.status || 'off';
+  const protectionLabel = protectionStatus === 'active' ? 'Shield on' : protectionStatus === 'requested' ? 'Shield pending' : 'Timer on';
+  const protectionCopy = protectionStatus === 'active'
+    ? 'Your iPhone confirmed distraction protection.'
+    : protectionStatus === 'requested'
+      ? 'Waiting for your iPhone to confirm protection.'
+      : 'Stay with the block. The timer will keep your place.';
+  const pendingHabit = pending && S.habits.find((habit) => String(habit.id) === pending.habitId);
+  const canComplete = pendingHabit && !isCompleted(pendingHabit.id, pending.date);
   return `
+    <div class="focus-page">
     ${brandbar()}
-    <header class="topbar">
+    <header class="topbar focus-header">
       <div>
         <h1>Focus</h1>
-        <div class="sub">One clean block. Fewer exits. More attention for the rep that matters.</div>
+        <div class="sub">${esc(windowLine)}</div>
       </div>
-      <button class="mini-act top-mini" data-act="tab" data-id="today">Done</button>
+      <div class="focus-today-total"><span>Today</span><strong>${formatFocusMinutes(stats.todayMinutes)}</strong></div>
     </header>
 
-    <section class="card focus-control-card">
-      <div class="focus-control-top">
-        <div>
-          <span class="tip-tag" style="margin:0">${nativeReady ? 'Native focus' : 'Focus timer'}</span>
-          <div class="focus-hero-title">${active ? 'Block running' : 'Start focused time'}</div>
-        </div>
-        <span class="focus-mode-pill ${nativeReady ? 'ready' : ''}">${modeLabel}</span>
+    <section class="focus-stage ${active ? 'is-active' : pending ? 'is-complete' : ''}" aria-label="${active ? 'Active focus session' : pending ? 'Review completed focus session' : 'Start a focus session'}">
+      <div class="focus-intention">
+        <span>${active ? 'In your zone' : pending ? 'Time well spent' : 'Make time for'}</span>
+        <h2>${esc(shortHabitName((active || pending)?.label || focusLabel))}</h2>
       </div>
-
+      <div class="focus-session-ring" ${active ? 'data-focus-progress' : ''} style="--focus-angle:${angle}deg">
+        <div class="focus-dial-face">
+          <span class="focus-dial-icon" aria-hidden="true">${pending && !active ? ICONS.check : ICONS.focus}</span>
+          ${pending && !active ? '<strong class="focus-dial-done">Complete</strong>' : `<strong class="${active ? 'ritual-clock' : 'focus-dial-time'}">${active ? ritualClock(active) : `${minutes}:00`}</strong>`}
+          <small>${active ? 'remaining' : pending ? 'You made the time.' : 'minutes of focus'}</small>
+        </div>
+      </div>
       ${active ? `
-        <div class="focus-live-inline">
-          <div>
-            <div class="focus-live-time">${formatClockMinutes(focusRemainingMs(active))}</div>
-            <div class="focus-live-label">${esc(active.label)}</div>
-          </div>
-          <div class="focus-live-copy">${nativeReady ? 'Native shielding was requested for this block.' : 'Tracking is live. App blocking is waiting on the native Screen Time bridge.'}</div>
+        <p class="focus-session-state" title="${esc(protectionCopy)}"><i aria-hidden="true"></i>${protectionLabel}</p>
+        <div class="focus-session-actions">
+          <button class="btn focus-begin" data-act="focus-end">End session</button>
+          <button class="focus-adjust" data-act="focus-unlock">Log distraction</button>
         </div>
-        <div class="focus-actions">
-          <button class="btn" data-act="focus-end">Finish</button>
-          <button class="btn btn-ghost" data-act="focus-unlock">${nativeReady ? 'Emergency unlock' : 'Log break'}</button>
-        </div>
+      ` : pending ? `
+        <p class="focus-complete-note">${pending.status === 'min' ? 'Reduced target' : 'Full target'} &middot; ${niceDate(pending.date)}</p>
+        ${canComplete ? '<button class="btn focus-begin" data-act="ritual-complete">Mark habit complete</button>' : ''}
+        <button class="${canComplete ? 'focus-adjust' : 'btn focus-begin'}" data-act="ritual-dismiss">${canComplete ? 'Not completed yet' : 'Done'}</button>
       ` : `
-        <div class="focus-preset-grid compact">
-          ${focusPreset(30, 'Deep work', 'One rep, protected.')}
-          ${focusPreset(60, 'Build', 'For real work.')}
-          ${focusPreset(90, 'Lock in', 'Long block.')}
+        <div class="focus-duration-grid" role="group" aria-label="Focus session length">
+          ${durations.map((value) => focusDurationOption(value, minutes)).join('')}
         </div>
+        <button class="btn focus-begin" data-act="focus-start" data-minutes="${minutes}" data-label="${esc(focusLabel)}" data-strict="1"${next ? ` data-habit-id="${esc(String(next.id))}" data-target-status="${target.status}"` : ''}>Begin focus <span aria-hidden="true">&rarr;</span></button>
+        ${next ? `<button class="focus-adjust" data-act="ritual-open" data-id="${esc(String(next.id))}" data-minutes="${minutes}" title="${esc(targetLine)}">Adjust session <span aria-hidden="true">&rsaquo;</span></button>` : ''}
       `}
-
-      <div class="focus-mini-stats">
-        <div><b>${formatFocusMinutes(stats.todayMinutes)}</b><span>today</span></div>
-        <div><b>${stats.blockedCount}</b><span>targets</span></div>
-        <div><b>${stats.consistency}/7</b><span>active</span></div>
-      </div>
-      <div class="focus-next-line"><b>Protect next:</b> ${esc(next ? next.name : (S.profile.goal || 'your next important block'))}</div>
     </section>
 
-    ${focusAllDayCard()}
-
-    <section class="card focus-shield-card">
-      <div class="card-head">
-        <span class="tip-tag" style="margin:0">Focus targets</span>
-        <span class="mini-act">${stats.blockedCount} saved</span>
-      </div>
-      ${focusTargetSummary()}
-
-      ${stats.blockedCount < 3 ? `
-        <div class="section-mini-title">Quick add</div>
-        <div class="focus-chip-row">
-          ${FOCUS_APP_SUGGESTIONS.slice(0, 4).map((name) => `<button class="chip ${S.focus.apps.some((a) => focusEntryKey('apps', a) === focusEntryKey('apps', name)) ? 'on' : ''}" data-act="focus-app-toggle" data-id="${esc(name)}">${esc(name)}</button>`).join('')}
-        </div>` : ''}
-
-      <div class="focus-add-compact">
-        <input id="focusAppInput" type="text" maxlength="28" placeholder="Add app"/>
-        <button class="btn btn-ghost" data-act="focus-app-add">Add</button>
-        <input id="focusSiteInput" type="text" maxlength="48" placeholder="Add website"/>
-        <button class="btn btn-ghost" data-act="focus-site-add">Add</button>
-      </div>
-    </section>
-
-    <section class="card focus-native-note">
-      <div>
-        <span class="tip-tag" style="margin:0">Blocking status</span>
-        <div class="focus-note-title">${nativeReady ? 'Native blocker connected' : 'Soft mode only right now'}</div>
-        <p>${nativeReady
-          ? 'Arc90 can ask iOS to shield selected apps during a focus block.'
-          : 'This build can track focus blocks. True Opal-style app blocking needs Apple Screen Time APIs in native Swift, plus Apple’s Family Controls entitlement.'}</p>
-      </div>
-    </section>
+    ${active || pending ? '' : meditationPanel()}
+    ${focusWeekPanel(stats)}
+    ${focusProtectionPanel(stats, nativeReady)}
+    </div>
   `;
 }
 
@@ -4050,14 +4933,14 @@ function focusTargetSummary() {
     ...S.focus.sites.map((value) => ({ kind: 'site', value })),
   ];
   if (!targets.length) {
-    return '<div class="empty-note focus-empty">Choose the apps or sites that steal the first 20 minutes. Start with 2 or 3.</div>';
+    return '<p class="focus-empty-hint">Pick the places you open without thinking.</p>';
   }
   const hidden = Math.max(0, targets.length - 8);
   return `
     <div class="focus-target-grid">
       ${targets.slice(0, 8).map((t) => `
-        <button class="focus-target-chip" data-act="focus-${t.kind === 'app' ? 'app' : 'site'}-toggle" data-id="${esc(t.value)}">
-          <span>${t.kind === 'app' ? 'app' : 'web'}</span>
+        <button class="focus-target-chip" data-act="focus-${t.kind === 'app' ? 'app' : 'site'}-toggle" data-id="${esc(t.value)}" aria-label="Remove ${esc(t.value)} from protection">
+          <span aria-hidden="true">${t.kind === 'app' ? 'app' : 'web'}</span>
           <b>${esc(t.value)}</b>
         </button>`).join('')}
       ${hidden ? `<div class="focus-target-chip more"><span>more</span><b>+${hidden}</b></div>` : ''}
@@ -4067,26 +4950,28 @@ function focusTargetSummary() {
 /* All-day lock: one persistent, day-scoped shield slot for every focus target. */
 function allDayLockActive() {
   const l = S.focus && S.focus.allDayLock;
-  return !!(l && l.on && l.date === todayKey());
+  return !!(l && l.on && l.confirmed === true && l.date === todayKey());
 }
 
-function focusAllDayCard() {
+function focusAllDayCard(nativeReady = focusNativeBridgeAvailable()) {
   const on = allDayLockActive();
+  const lock = S.focus.allDayLock || {};
+  const pending = lock.status === 'requested';
   const targets = focusStats().blockedCount;
+  const detail = !nativeReady
+    ? 'Requires Apple Screen Time access'
+    : !targets
+      ? 'Choose distractions first'
+      : pending
+        ? (lock.pendingAction === 'stop' ? 'Turning protection off...' : 'Waiting for iPhone confirmation...')
+        : lock.status === 'failed'
+          ? 'Screen Time did not confirm. Try again.'
+          : on ? `${targets} selected until midnight` : 'Protect the rest of today';
   return `
-    <section class="card focus-allday-card ${on ? 'on' : ''}">
-      <div class="allday-row">
-        <div class="allday-copy">
-          <span class="tip-tag" style="margin:0">All-day lock</span>
-          <div class="allday-title">${on ? 'Locked all day' : 'Lock apps for the whole day'}</div>
-          <p>${on
-            ? `Your ${targets} target${targets === 1 ? '' : 's'} are shielded until midnight — one slot, no timer.`
-            : 'Shield every focus target from now until midnight. One switch, no timer, no exits.'}</p>
-        </div>
-        <button class="allday-switch ${on ? 'on' : ''}" data-act="focus-allday-toggle" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="Toggle all-day lock"><i></i></button>
-      </div>
-      ${!targets ? '<div class="allday-empty">Add at least one app or site below, then flip the lock.</div>' : ''}
-    </section>`;
+    <div class="focus-allday-control ${on ? 'on' : ''}">
+      <div><b>All-day shield</b><span>${detail}</span></div>
+      <button class="allday-switch ${on ? 'on' : ''}" data-act="focus-allday-toggle" role="switch" aria-checked="${on ? 'true' : 'false'}" aria-label="${on ? 'Turn off' : 'Turn on'} all-day shield" ${nativeReady && targets && !pending ? '' : 'disabled'}><i></i></button>
+    </div>`;
 }
 
 /* ============================================================
@@ -4102,20 +4987,22 @@ function defaultTaskDue() {
 
 function fmtTaskDue(due) {
   if (!due) return '';
-  const d = new Date(due);
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(due);
+  const d = taskDeadline(due);
   if (isNaN(d.getTime())) return '';
   const now = new Date();
   const t = new Date(now); t.setDate(now.getDate() + 1);
   const day = d.toDateString() === now.toDateString() ? 'Today'
     : d.toDateString() === t.toDateString() ? 'Tomorrow'
     : d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  return `${day} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+  return dateOnly ? day : `${day} · ${d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
 }
 
-function taskOverdue(t) { return t.due && !t.done && new Date(t.due).getTime() < Date.now(); }
+function taskDeadline(due) { return new Date(/^\d{4}-\d{2}-\d{2}$/.test(due || '') ? due + 'T23:59:59' : due); }
+function taskOverdue(t) { return t.due && !t.done && taskDeadline(t.due).getTime() < Date.now(); }
 
 function journalStreak() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let s = 0;
   for (let i = 0; i < 400; i++) {
     const v = String((S.journal && S.journal[dkey(addDays(today, -i))]) || '').trim();
@@ -4130,57 +5017,44 @@ function taskRow(t) {
   const due = fmtTaskDue(t.due);
   return `
     <div class="plan-task${t.done ? ' done' : ''}${over ? ' overdue' : ''}">
-      <button class="plan-task-check${t.done ? ' on' : ''}" data-act="task-toggle" data-id="${t.id}" aria-pressed="${t.done}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}">${t.done ? ICONS.check : ''}</button>
+      <button class="plan-task-check${t.done ? ' on' : ''}" data-act="task-toggle" data-id="${esc(t.id)}" aria-pressed="${t.done}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}">${t.done ? ICONS.check : ''}</button>
       <div class="plan-task-body">
-        <div class="plan-task-title">${esc(t.title)}</div>
+        <button class="plan-task-title" data-planning-act="task-edit" data-id="${esc(t.id)}" aria-label="Edit task: ${esc(t.title)}">${esc(t.title)}</button>
+        <button class="inline-link" data-brain-act="link-task" data-id="${esc(t.id)}">${esc(S.brain.goals.find(g => g.id === t.goal_id)?.title || 'Link to a goal')}</button>
         ${due ? `<div class="plan-task-due">${over ? '⚠ ' : ''}${due}${t.remind && !t.done ? ' · 🔔' : ''}</div>` : ''}
       </div>
-      <button class="plan-task-del" data-act="task-del" data-id="${t.id}" aria-label="Delete task">✕</button>
+      <button class="plan-task-del" data-act="task-del" data-id="${esc(t.id)}" aria-label="Delete task: ${esc(t.title)}">✕</button>
     </div>`;
 }
 
-function viewPlan() {
+function viewPlan(embedded = false) {
   const tasks = (S.tasks || []).slice().sort((a, b) => {
     if (a.done !== b.done) return a.done ? 1 : -1;
     if (!a.due && !b.due) return (b.created || 0) - (a.created || 0);
     if (!a.due) return 1;
     if (!b.due) return -1;
-    return new Date(a.due) - new Date(b.due);
+    return taskDeadline(a.due) - taskDeadline(b.due);
   });
   const open = tasks.filter((t) => !t.done);
   const overdue = open.filter(taskOverdue).length;
-  const jKey = todayKey();
-  const jText = (S.journal && S.journal[jKey]) || '';
-  const jStreak = journalStreak();
-  const jCount = journalCount();
   return `
-    ${brandbar()}
+    ${embedded ? '' : `${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Plan</h1>
-        <div class="sub">Deadlines, reminders &amp; today’s journal</div>
+        <h1>Tasks</h1>
+        <div class="sub">${open.length} open${overdue ? ` · ${overdue} overdue` : ''}</div>
       </div>
-    </header>
-
-    ${(() => {
-      const nextUp = open.find((t) => t.due);
-      return tabHeroCard(
-        'Execution',
-        open.length ? `${open.length} open task${open.length === 1 ? '' : 's'}` : 'Clear runway',
-        nextUp ? `Next up: ${esc(nextUp.title)}` : 'Add a deadline and Arc90 nudges you the moment it’s due.',
-        [['Open', open.length], ['Overdue', overdue], ['Journal', jStreak ? jStreak + 'd' : '—']]
-      );
-    })()}
-
-    <section class="card plan-add-card">
-      <div class="card-head"><span class="tip-tag" style="margin:0">New task</span></div>
+      <button class="inline-link" data-planning-act="workspace" data-id="brain">Capture</button>
+    </header>`}
+    <section class="planning-section plan-add-card" aria-label="New task">
+      <label for="taskTitle">New task</label>
       <input id="taskTitle" class="plan-input" type="text" placeholder="What needs to get done?" maxlength="200" autocomplete="off" />
       <div class="plan-add-row">
-        <input id="taskDue" class="plan-input plan-due" type="datetime-local" value="${esc(defaultTaskDue())}" aria-label="Task deadline" />
+        <input id="taskDue" class="plan-input plan-due" type="datetime-local" value="" aria-label="Task deadline (optional)" />
         <button class="btn plan-add-btn" data-act="task-add">Add</button>
       </div>
       <label class="plan-remind" for="taskRemind">
-        <input type="checkbox" id="taskRemind" checked />
+        <input type="checkbox" id="taskRemind" />
         <span>Notify me when it’s due</span>
       </label>
     </section>
@@ -4191,42 +5065,7 @@ function viewPlan() {
     </div>
     ${tasks.length
       ? `<div class="plan-tasks">${tasks.map(taskRow).join('')}</div>`
-      : `<div class="card empty-note">No tasks yet. Add a deadline above and Arc90 will nudge you the moment it’s due.</div>`}
-
-    ${S.habits.length ? (() => {
-      const dueToday = actionable(jKey);
-      const doneHabits = S.habits.filter((h) => isCompleted(h.id, jKey));
-      return `
-        <div class="card-head plan-list-head">
-          <span class="section-title" style="margin:0">Habits done today</span>
-          <span class="reminder-state">${doneHabits.length}/${dueToday.length || S.habits.length}</span>
-        </div>
-        ${doneHabits.length ? `
-          <div class="plan-tasks">
-            ${doneHabits.map((h) => `
-              <div class="plan-task done habit-row">
-                <span class="plan-task-check on" aria-hidden="true">${ICONS.check}</span>
-                <div class="plan-task-body">
-                  <div class="plan-task-title">${h.emoji ? esc(h.emoji) + ' ' : ''}${esc(h.name)}</div>
-                  <div class="plan-task-due">${statusOf(h.id, jKey) === 'min' ? 'Minimum version · habit' : 'Completed · habit'}</div>
-                </div>
-              </div>`).join('')}
-          </div>`
-        : `<div class="card empty-note">Nothing logged yet today. <button class="inline-link" data-act="tab" data-id="today">Knock one out →</button></div>`}
-      `;
-    })() : ''}
-
-    <section class="card plan-journal-card">
-      <div class="card-head">
-        <span class="tip-tag" style="margin:0">Today’s journal</span>
-        <span class="reminder-state">${jStreak ? `${jStreak}-day streak` : 'New'}</span>
-      </div>
-      <div class="plan-journal-date">${new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}</div>
-      <textarea id="journalText" class="plan-journal-ta" rows="7" placeholder="How did today go? What did you learn, feel, or want to remember?">${esc(jText)}</textarea>
-      <div class="seg-hint">Saves automatically on this device · ${jCount} ${jCount === 1 ? 'entry' : 'entries'} logged.</div>
-    </section>
-
-    <div class="empty-note" style="padding-top:8px">Reminders fire while Arc90 is open or in the background. Add Arc90 to your home screen for the most reliable notifications.</div>
+      : `<p class="empty-note">No tasks yet.</p>`}
   `;
 }
 
@@ -4234,28 +5073,185 @@ function viewPlan() {
    PROGRESS
    ============================================================ */
 
-function viewProgress() {
-  const end = addDays(startDate(), 89);
+function viewProgress(embedded = false) {
+  if (!embedded) return arcWorkspaceView();
+  const data = approvedProgressData(progressRange);
+  const focus = focusStats();
+  const mood = approvedMoodData(7);
+  const focusHabit = weeklyReviewData().focus?.h;
   return `
-    ${brandbar()}
-    <header class="topbar">
+    ${embedded ? '' : brandbar()}
+    <div class="approved-range" role="group" aria-label="Arc range">
+      ${[7, 30, 90].map((n) => `<button data-act="progress-range" data-id="${n}" aria-pressed="${progressRange === n}">${n} days</button>`).join('')}
+    </div>
+    <div class="approved-progress-layout">
       <div>
-        <h1>Progress</h1>
-        <div class="sub">${fmtDate(startDate())} → ${fmtDate(end)} · Day ${dayNumber()} of 90</div>
+        <section class="approved-section approved-consistency">
+          <div class="approved-section-head"><h2>Consistency</h2><span>${data.period}</span></div>
+          <div class="approved-statline">
+            <div><strong>${data.pct}<small>%</small></strong><span>of scheduled reps kept</span></div>
+            <span>${data.done} / ${data.due} reps</span>
+          </div>
+          ${approvedConsistencyChart(data)}
+          <p class="approved-readout" role="status">${approvedProgressReadout(data)}</p>
+          <div class="approved-summary">
+            <div><b>${data.full}</b><span>Full ${progressRange === 7 ? 'days' : 'periods'}</span></div>
+            <div><b>${data.rest}</b><span>Rest ${progressRange === 7 ? 'days' : 'periods'}</span></div>
+            <div><b>${progressRange === 7 ? formatFocusMinutes(focus.weekMinutes) : '—'}</b><span>Focus time</span></div>
+          </div>
+        </section>
+        <section class="approved-section">
+          <div class="approved-section-head"><h2>Your week, by area</h2><span>kept / scheduled</span></div>
+          ${approvedCategoryBars(7)}
+        </section>
       </div>
-    </header>
-
-    ${commandCenterCard()}
-    ${progressArcMapCard()}
-    ${proofCard(true)}
-    <section class="card">
-      <div class="card-head"><span class="eyebrow">Last 7 days</span></div>
-      ${chart(7)}
-    </section>
-    ${progressAnalyticsCard()}
-    ${moodGraphPanel()}
-    ${progressPulseCard()}
+      <div class="approved-progress-side">
+        <section class="approved-section approved-mood">
+          <div class="approved-section-head"><h2>Mood</h2><span>Last 7 days</span></div>
+          <div class="approved-mood-stat"><strong>${mood.average === null ? '—' : mood.average.toFixed(1)}${mood.average === null ? '' : '<small> / 5</small>'}</strong><span>${mood.logged} check-in${mood.logged === 1 ? '' : 's'}</span></div>
+          ${approvedMoodChart(mood)}
+          <p class="approved-readout" id="mood-readout" role="status">${approvedMoodReadout(mood)}</p>
+        </section>
+        <section class="approved-section approved-next-focus">
+          <div class="approved-section-head"><h2>One focus for next week</h2></div>
+          <p>${focusHabit ? `Make room for ${esc(focusHabit.name)}.` : 'Keep the next rep small enough to repeat.'}</p>
+          <span>${focusHabit ? `Use the minimum version — ${esc(focusHabit.min || 'two minutes')} — on busy days.` : 'Consistency grows when the next action is clear.'}</span>
+        </section>
+        <section class="approved-section approved-proof-link">
+          <button data-act="proof-open"><span><b>Your proof</b><small>${proofItems().length} saved moment${proofItems().length === 1 ? '' : 's'}</small></span><span aria-hidden="true">›</span></button>
+        </section>
+      </div>
+    </div>
+    ${planningWeeklyPanel(todayKey())}
   `;
+}
+
+function approvedProgressDay(k, label) {
+  const dueHabits = S.habits.filter((h) => {
+    const status = statusOf(h.id, k);
+    return status !== 'skip' && (scheduledFor(h, k) || status === 'done' || status === 'min');
+  });
+  const done = dueHabits.filter((h) => isCompleted(h.id, k)).length;
+  return { key: k, label, due: dueHabits.length, done, pct: dueHabits.length ? Math.round(done / dueHabits.length * 100) : null };
+}
+
+function approvedProgressData(days) {
+  const today = atMidnight(operationalDate());
+  const start = startDate();
+  const challengeEnd = addDays(start, 89);
+  const daily = [];
+  for (let back = days - 1; back >= 0; back--) {
+    const date = addDays(today, -back);
+    const key = dkey(date);
+    if (date < start) daily.push({ key, label: niceDate(key), due: null, done: 0, pct: null, future: true });
+    else daily.push(approvedProgressDay(key, niceDate(key)));
+  }
+  const groupSize = days === 7 ? 1 : days === 30 ? 5 : 15;
+  const rows = [];
+  for (let i = 0; i < daily.length; i += groupSize) {
+    const part = daily.slice(i, i + groupSize);
+    const known = part.filter((d) => d.due !== null);
+    const due = known.reduce((sum, d) => sum + d.due, 0);
+    const done = known.reduce((sum, d) => sum + d.done, 0);
+    rows.push({
+      label: days === 7 ? part[0].label.split(',')[0] : `Days ${i + 1}–${Math.min(days, i + groupSize)}`,
+      detail: days === 7 ? part[0].label : `${part[0].label} – ${part[part.length - 1].label}`,
+      due: known.length ? due : null,
+      done,
+      pct: due ? Math.round(done / due * 100) : null,
+      rest: known.length > 0 && due === 0,
+      future: known.length === 0,
+    });
+  }
+  const knownDays = daily.filter((d) => d.due !== null);
+  const due = knownDays.reduce((sum, d) => sum + d.due, 0);
+  const done = knownDays.reduce((sum, d) => sum + d.done, 0);
+  progressSelected = Math.min(Math.max(0, progressSelected), rows.length - 1);
+  return {
+    rows, due, done, pct: due ? Math.round(done / due * 100) : 0,
+    full: rows.filter((r) => r.due > 0 && r.done === r.due).length,
+    rest: rows.filter((r) => r.rest).length,
+    period: days === 7 ? `${rows[0].detail.split(',').slice(1).join(',').trim()} – ${rows[rows.length - 1].detail.split(',').slice(1).join(',').trim()}` : `${fmtDate(start)} → ${fmtDate(challengeEnd)}`,
+  };
+}
+
+function approvedConsistencyChart(data) {
+  return `<div class="approved-chart">
+    <div class="approved-axis"><span>100%</span><span>50%</span><span>0</span></div>
+    <div class="approved-bars" style="--count:${data.rows.length}">
+      ${data.rows.map((r, i) => `<button data-act="progress-point" data-id="${i}" aria-pressed="${progressSelected === i}" aria-label="${esc(r.detail)}: ${r.future ? 'before challenge' : r.rest ? 'rest day' : `${r.done} of ${r.due} reps kept`}">
+        <span class="approved-bar-slot">${r.pct === null ? '<i class="approved-no-data">—</i>' : `<i class="approved-bar" style="height:${r.pct}%;--motion-order:${i}"></i>`}</span>
+        <small>${esc(r.label)}</small>
+      </button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function approvedProgressReadout(data) {
+  const r = data.rows[progressSelected];
+  if (!r) return 'No progress data yet.';
+  return `<b>${esc(r.detail)}</b> · ${r.future ? 'Before your challenge started' : r.rest ? 'Rest day · no scheduled habits' : `${r.done} of ${r.due} reps kept`}`;
+}
+
+function approvedCategoryBars(days) {
+  const today = atMidnight(operationalDate());
+  const rows = CATEGORIES.filter((c) => S.habits.some((h) => (h.cat || 'custom') === c.id)).map((cat) => {
+    let due = 0, done = 0;
+    for (let back = 0; back < Math.min(days, elapsedDays()); back++) {
+      const key = dkey(addDays(today, -back));
+      for (const h of S.habits.filter((item) => (item.cat || 'custom') === cat.id)) {
+        const status = statusOf(h.id, key);
+        if (status === 'skip' || (!scheduledFor(h, key) && status !== 'done' && status !== 'min')) continue;
+        due++;
+        if (status === 'done' || status === 'min') done++;
+      }
+    }
+    return { cat, due, done, pct: due ? Math.round(done / due * 100) : null };
+  });
+  if (!rows.length) return '<p class="empty-note">Add a habit to see your areas.</p>';
+  return `<div class="approved-categories">${rows.map((r) => `<div><p><span>${esc(r.cat.name)}</span><span>${r.due ? `${r.done} / ${r.due}` : 'Not scheduled'}</span></p><div><i style="width:${r.pct || 0}%"></i></div></div>`).join('')}</div>`;
+}
+
+function approvedMoodData(days) {
+  const today = atMidnight(operationalDate());
+  const rows = [];
+  for (let back = days - 1; back >= 0; back--) {
+    const date = addDays(today, -back);
+    const key = dkey(date);
+    const log = dlog(key);
+    const value = moodScore(log);
+    rows.push({ key, label: date.toLocaleDateString('en-US', { weekday: 'short' }), detail: niceDate(key), value: value || null, mood: log.mood || '' });
+  }
+  const values = rows.filter((r) => r.value !== null);
+  moodSelected = Math.min(Math.max(0, moodSelected), rows.length - 1);
+  return { rows, logged: values.length, average: values.length ? values.reduce((sum, r) => sum + r.value, 0) / values.length : null };
+}
+
+function approvedMoodChart(data) {
+  const w = 320, h = 132, left = 28, right = 10, top = 10, bottom = 28;
+  const x = (i) => left + (w - left - right) * i / Math.max(1, data.rows.length - 1);
+  const y = (v) => top + (h - top - bottom) * (1 - (v - 1) / 4);
+  const segments = [];
+  let active = [];
+  data.rows.forEach((row, i) => {
+    if (row.value === null) { if (active.length) segments.push(active); active = []; }
+    else active.push({ ...row, x: x(i), y: y(row.value) });
+  });
+  if (active.length) segments.push(active);
+  return `<div class="approved-mood-chart">
+    <svg viewBox="0 0 ${w} ${h}" role="img" aria-label="Mood over the last 7 days. Missing dates are shown as gaps.">
+      ${[5, 3, 1].map((v) => `<line x1="${left}" x2="${w - right}" y1="${y(v)}" y2="${y(v)}"></line><text x="2" y="${y(v) + 4}">${v}</text>`).join('')}
+      ${segments.map((part) => part.length > 1 ? `<path pathLength="1" d="M ${part.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ')}"></path>` : '').join('')}
+      ${segments.flat().map((p) => `<circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="3"><title>${esc(`${p.detail}: ${moodLabel(p.mood)}`)}</title></circle>`).join('')}
+    </svg>
+    <div class="approved-mood-dates">${data.rows.map((r, i) => `<button data-act="mood-point" data-id="${i}" aria-pressed="${moodSelected === i}" aria-label="${esc(r.detail)}: ${r.value === null ? 'not logged' : `${moodLabel(r.mood)}, ${r.value} of 5`}">${r.label}</button>`).join('')}</div>
+  </div>`;
+}
+
+function approvedMoodReadout(data) {
+  const r = data.rows[moodSelected];
+  if (!r) return 'No mood data yet.';
+  return `<b>${esc(r.detail)}</b> · ${r.value === null ? 'Not logged' : `${esc(moodLabel(r.mood))} · ${r.value} of 5`}`;
 }
 
 /* ---- Command Center: Whoop/Oura-style biometric deck from real Arc90 data ---- */
@@ -4375,7 +5371,7 @@ function progressAnalyticsCard() {
     <section class="card analytics-board">
       <div class="card-head">
         <span class="eyebrow">Analytics dashboard</span>
-        <span class="pro-badge">VIOLET</span>
+        <span class="pro-badge">ARC90</span>
       </div>
       <div class="analytics-grid">
         <div class="analytics-heat">
@@ -4414,7 +5410,7 @@ function progressAnalyticsCard() {
 }
 
 function progressHeatRows(days = 35) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   return Array.from({ length: days }, (_, i) => {
     const d = addDays(today, i - (days - 1));
     const key = dkey(d);
@@ -4489,12 +5485,14 @@ const REFLECTION_QUOTES = [
 ];
 
 function reflectionQuote(seedOffset = 0) {
-  const seed = Math.floor(atMidnight(new Date()) / DAY_MS) + dayNumber() + (Number(seedOffset) || 0);
-  return REFLECTION_QUOTES[seed % REFLECTION_QUOTES.length];
+  const seed = Math.floor(atMidnight(operationalDate()) / DAY_MS) + dayNumber() + (Number(seedOffset) || 0);
+  // Before onboarding there is no start date, so the seed can be NaN.
+  const index = Number.isFinite(seed) ? ((seed % REFLECTION_QUOTES.length) + REFLECTION_QUOTES.length) % REFLECTION_QUOTES.length : 0;
+  return REFLECTION_QUOTES[index];
 }
 
 function progressMantraCard() {
-  const seed = Math.floor(atMidnight(new Date()) / DAY_MS) + dayNumber();
+  const seed = Math.floor(atMidnight(operationalDate()) / DAY_MS) + dayNumber();
   const quote = PROGRESS_MANTRAS[seed % PROGRESS_MANTRAS.length];
   const identity = S.profile.identity || 'the person you are becoming';
   const book = reflectionQuote();
@@ -4604,53 +5602,131 @@ function moodInsightPanel() {
     </section>`;
 }
 
-function moodGraphPanel() {
-  const rows = moodGraphRows(14);
+function moodGraphPanel(mode = 'full') {
+  const compact = mode === 'compact';
+  const days = compact ? 7 : 30;
+  const rows = moodGraphRows(days);
+  const windowDays = rows.length;
   const logged = rows.filter((r) => r.value).length;
-  const avg = logged ? rows.reduce((sum, r) => sum + r.value, 0) / logged : 0;
-  const current = rows[rows.length - 1];
+  const avg = moodAverage(rows);
+  const current = rows[rows.length - 1] || {};
+  const recentAvg = moodAverage(rows.slice(-7));
+  const priorAvg = compact ? 0 : moodAverage(rows.slice(-14, -7));
+  const trend = moodGraphTrend(recentAvg, priorAvg, avg, logged);
   const copy = logged
-    ? `${logged}/14 days logged · ${avg.toFixed(1)}/5 average`
+    ? `${logged}/${windowDays} days logged · ${avg.toFixed(1)}/5 average`
     : 'Log mood from Today to reveal your emotional pattern.';
+
   return `
-    <section class="card mood-graph-card">
+    <section class="card mood-graph-card ${compact ? 'compact-mood-graph-card' : ''}">
       <div class="card-head">
-        <span class="eyebrow">Mood graph</span>
-        <button class="mini-act" data-act="review">reflection</button>
+        <span class="eyebrow">${compact ? 'Mood trend' : 'Mood graph'}</span>
+        <button class="mini-act" data-act="review">${current.mood ? esc(moodLabel(current.mood)) : 'log mood'}</button>
+      </div>
+      <div class="mood-graph-top">
+        <div>
+          <b>${logged ? avg.toFixed(1) : '--'}</b>
+          <span>${windowDays}-day average</span>
+        </div>
+        <div>
+          <b>${current.mood ? esc(moodLabel(current.mood)) : '--'}</b>
+          <span>today</span>
+        </div>
       </div>
       ${moodOptionChips(dlog(todayKey()).mood, 'graph')}
-      <div class="mood-graph">
-        ${rows.map((r) => `
-          <div class="mood-bar ${r.today ? 'today' : ''} ${r.value ? '' : 'empty'}">
-            <i style="height:${r.value ? Math.max(12, r.value * 20) : 8}%"></i>
-            <span>${esc(r.label)}</span>
-          </div>`).join('')}
-      </div>
+      ${moodLineSvg(rows, compact)}
       <div class="mood-graph-foot">
-        <b>${logged ? moodGraphTone(avg) : 'No baseline yet'}</b>
+        <b>${esc(trend)}</b>
         <span>${esc(copy)}</span>
       </div>
     </section>`;
 }
 
-function moodGraphRows(days = 14) {
-  const today = atMidnight(new Date());
-  return Array.from({ length: days }, (_, i) => {
-    const d = addDays(today, i - (days - 1));
+function moodGraphRows(days = 30) {
+  const today = atMidnight(operationalDate());
+  const count = Math.max(1, Math.min(days, elapsedDays()));
+  return Array.from({ length: count }, (_, i) => {
+    const d = addDays(today, i - (count - 1));
     const key = dkey(d);
     const l = dlog(key);
     return {
       key,
+      mood: l.mood || '',
       value: moodScore(l),
       label: d.toLocaleDateString('en-US', { weekday: 'short' }).slice(0, 1),
+      dateLabel: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
       today: key === todayKey(),
     };
   });
 }
 
 function moodScore(l) {
-  if (l.energy) return Math.max(1, Math.min(5, Number(l.energy) || 0));
   return ({ strong: 5, steady: 4, tired: 3, stressed: 2, low: 1 })[l.mood] || 0;
+}
+
+function moodAverage(rows) {
+  const values = rows.map((r) => r.value).filter(Boolean);
+  return values.length ? values.reduce((sum, n) => sum + n, 0) / values.length : 0;
+}
+
+function moodGraphTrend(recentAvg, priorAvg, avg, logged) {
+  if (!logged) return 'No baseline yet';
+  if (!recentAvg) return 'No recent mood data';
+  if (priorAvg) {
+    const delta = recentAvg - priorAvg;
+    if (delta >= 0.35) return 'Mood trending up';
+    if (delta <= -0.35) return 'Mood dipping';
+    return 'Holding steady';
+  }
+  return moodGraphTone(avg);
+}
+
+function moodLineSvg(rows, compact = false) {
+  const w = 320;
+  const h = compact ? 112 : 140;
+  const padX = 18;
+  const padTop = 12;
+  const padBottom = 24;
+  const baseY = h - padBottom;
+  const innerW = w - padX * 2;
+  const innerH = h - padTop - padBottom;
+  const xFor = (i) => padX + (rows.length <= 1 ? 0 : (innerW * i) / (rows.length - 1));
+  const yFor = (v) => padTop + innerH * (1 - ((v - 1) / 4));
+  const points = rows
+    .map((r, i) => r.value ? { ...r, x: xFor(i), y: yFor(r.value) } : null)
+    .filter(Boolean);
+  const linePath = points.length
+    ? `M ${points.map((p) => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(' L ')}`
+    : '';
+  const areaPath = points.length >= 2
+    ? `${linePath} L ${points[points.length - 1].x.toFixed(2)} ${baseY} L ${points[0].x.toFixed(2)} ${baseY} Z`
+    : '';
+  const dayLabels = compact
+    ? rows
+    : rows.filter((_, i) => i === 0 || i === Math.floor((rows.length - 1) / 2) || i === rows.length - 1);
+
+  return `
+    <div class="mood-line-wrap">
+      <svg class="mood-line-plot ${compact ? 'compact' : ''}" viewBox="0 0 ${w} ${h}" role="img" aria-label="Mood trend over ${rows.length} days">
+        <line class="mood-axis strong" x1="${padX}" y1="${yFor(5).toFixed(2)}" x2="${w - padX}" y2="${yFor(5).toFixed(2)}"></line>
+        <line class="mood-axis" x1="${padX}" y1="${yFor(3).toFixed(2)}" x2="${w - padX}" y2="${yFor(3).toFixed(2)}"></line>
+        <line class="mood-axis low" x1="${padX}" y1="${yFor(1).toFixed(2)}" x2="${w - padX}" y2="${yFor(1).toFixed(2)}"></line>
+        ${areaPath ? `<path class="mood-area" d="${areaPath}"></path>` : ''}
+        ${linePath ? `<path class="mood-line" d="${linePath}"></path>` : ''}
+        ${rows.map((r, i) => !r.value
+          ? `<circle class="mood-miss-dot" cx="${xFor(i).toFixed(2)}" cy="${baseY}" r="1.8"></circle>`
+          : '').join('')}
+        ${points.map((p) => `
+          <circle class="mood-point ${esc(p.mood)} ${p.today ? 'today' : ''}" cx="${p.x.toFixed(2)}" cy="${p.y.toFixed(2)}" r="${p.today ? 5 : 3.8}">
+            <title>${esc(`${p.dateLabel}: ${moodLabel(p.mood)}`)}</title>
+          </circle>`).join('')}
+        <text class="mood-y-label" x="2" y="${yFor(5).toFixed(2) + 3}">5</text>
+        <text class="mood-y-label" x="2" y="${yFor(3).toFixed(2) + 3}">3</text>
+        <text class="mood-y-label" x="2" y="${yFor(1).toFixed(2) + 3}">1</text>
+        ${dayLabels.map((r) => `
+          <text class="mood-x-label ${r.today ? 'today' : ''}" x="${xFor(rows.indexOf(r)).toFixed(2)}" y="${h - 5}">${esc(r.label)}</text>`).join('')}
+      </svg>
+    </div>`;
 }
 
 function moodGraphTone(avg) {
@@ -4661,7 +5737,7 @@ function moodGraphTone(avg) {
 }
 
 function moodDistribution(nDays = 30) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let good = 0, normal = 0, low = 0, energy = 0, energyN = 0;
   for (let i = 0; i < Math.min(nDays, elapsedDays()); i++) {
     const l = dlog(dkey(addDays(today, -i)));
@@ -4761,7 +5837,7 @@ function shareSnapshotCard() {
 }
 
 function historyReview() {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const start = startDate();
   const days = [];
   for (let i = 13; i >= 0; i--) {
@@ -4813,8 +5889,8 @@ function achievementsPanel() {
 }
 
 function premiumCard(key, title, lockText, inner) {
-  if (S.premium) {
-    return `<section class="card"><div class="card-head"><span class="eyebrow">${title}</span><span class="pro-badge">PRO</span></div>${inner}</section>`;
+  if (hasPremiumAccess()) {
+    return `<section class="card"><div class="card-head"><span class="eyebrow">${title}</span>${previewAccessActive() ? '' : '<span class="pro-badge">PRO</span>'}</div>${inner}</section>`;
   }
   return `
     <section class="card locked">
@@ -4935,30 +6011,36 @@ function habitBreakdownInner(rec) {
   }).join('') + (rec !== null ? `<div class="axis-note"><b>Recovery rate: ${rec}%</b> — how often you complete a habit the day right after missing it. Getting back up fast is the real skill.</div>` : '');
 }
 
-function grid90() {
+function arcHistoryCells(first = 0, count = 90, recent = false) {
   const start = startDate();
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   let cells = '';
-  for (let i = 0; i < 90; i++) {
+  for (let i = first; i < (recent ? first + count : Math.min(90, first + count)); i++) {
     const d = addDays(start, i);
     const k = dkey(d);
     const cls = ['cell'];
+    let stateLabel = 'Upcoming';
     if (d > today) cls.push('f');
     else {
       const r = rateFor(k);
-      if (r !== null) {
-        if (r >= 1) cls.push('l3');
-        else if (r >= 0.5) cls.push('l2');
-        else if (r > 0) cls.push('l1');
-      }
+      if (r === null) { cls.push('rest'); stateLabel = 'Rest day'; }
+      else if (r >= 1) { cls.push('l3'); stateLabel = 'Complete'; }
+      else if (r >= 0.5) { cls.push('l2'); stateLabel = `${Math.round(r * 100)}% complete`; }
+      else if (r > 0) { cls.push('l1'); stateLabel = `${Math.round(r * 100)}% complete`; }
+      else if (k === todayKey()) { cls.push('pending'); stateLabel = 'Not started yet'; }
+      else { cls.push('missed'); stateLabel = 'Missed'; }
       if (k === todayKey()) cls.push('now');
     }
     const attrs = d <= today
-      ? `data-act="day-open" data-id="${k}" aria-label="Review Day ${i + 1}, ${niceDate(k)}"`
+      ? `data-act="day-open" data-id="${k}" aria-label="${recent ? '' : `Day ${i + 1}, `}${niceDate(k)}: ${stateLabel}"`
       : `disabled aria-label="Day ${i + 1}, future"`;
-    cells += `<button class="${cls.join(' ')}" title="Day ${i + 1}" ${attrs}></button>`;
+    cells += `<button class="${cls.join(' ')}" title="Day ${i + 1}: ${stateLabel}" ${k === todayKey() ? 'aria-current="date"' : ''} ${attrs}>${recent ? `<span>${d.toLocaleDateString('en-US', { weekday: 'short' })}</span><b>${d.getDate()}</b>` : ''}</button>`;
   }
-  return `<div class="grid90">${cells}</div>`;
+  return cells;
+}
+
+function grid90() {
+  return `<div class="grid90">${arcHistoryCells()}</div>`;
 }
 
 /* ============================================================
@@ -5677,7 +6759,7 @@ function windDownCard() {
 /* ── Sleep debt: rolling 14-night ledger vs goal ────────────────────────────── */
 function sleepDebt(nDays = 14) {
   const goal = Math.max(4, Number(S.health.settings.sleepGoal) || 7);
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const nights = [];
   let net = 0, logged = 0;
   for (let i = nDays - 1; i >= 0; i--) {
@@ -5722,7 +6804,7 @@ function sleepDebtCard() {
 }
 
 function viewSleep() {
-  if (!S.premium) return `
+  if (!hasToolAccess('sleep')) return `
     ${brandbar()}
     <header class="topbar">
       <div>
@@ -5743,11 +6825,6 @@ function viewSleep() {
   const protoCount = S.protocols.length;
   const latestSleep = vitalLatest('sleep');
   const lastNight = latestSleep ? `${latestSleep.v}h last logged` : 'not yet logged';
-  const hr = new Date().getHours();
-  const firstName = (S.profile.name || '').trim().split(' ')[0];
-  const greetWord = hr >= 21 || hr < 5 ? 'Good night' : hr < 12 ? 'Good morning' : 'Good evening';
-  const moonPhase = ['🌑','🌒','🌓','🌔','🌕','🌖','🌗','🌘'][Math.floor(((Date.now() / 86400000) + 14.765) % 29.53 / 29.53 * 8) % 8];
-  const dateStr = new Date().toLocaleDateString('en-US',{weekday:'long',month:'long',day:'numeric'});
   const heroStat = stats.avg ? `${stats.avg.toFixed(1)}h avg · ${stats.consistency}` : lastNight;
   const wakeMood = sleepDay().wakeMood;
 
@@ -5762,14 +6839,12 @@ function viewSleep() {
 
   return `
     ${brandbar()}
-    <div class="slhero">
-      <div class="slhero-aurora"></div>
-      <div class="slhero-inner">
-        <div class="slhero-date">${dateStr}</div>
-        <h1 class="slhero-greeting">${greetWord}${firstName ? `,&nbsp;<span class="slhero-name">${esc(firstName)}</span>` : ''}<span class="slhero-moon">${moonPhase}</span></h1>
-        <div class="slhero-sub">${esc(heroStat)}</div>
+    <header class="topbar">
+      <div>
+        <h1>Sleep</h1>
+        <div class="sub">${esc(heroStat)} · recovery and wind-down</div>
       </div>
-    </div>
+    </header>
 
     <div class="bento" style="margin-top:12px">
     ${sleepScoreCard()}
@@ -5937,7 +7012,7 @@ function viewProtocol() {
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Protocol</h1>
+        <h1>Protocols</h1>
         <div class="sub">Supplements, nutrition, training, hydration, and sleep signals</div>
       </div>
     </header>
@@ -5963,7 +7038,7 @@ function vitalVal(key, k) {
 }
 
 function vitalLatest(key) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   for (let i = 0; i < 90; i++) {
     const k = dkey(addDays(today, -i));
     const v = vitalVal(key, k);
@@ -5973,7 +7048,7 @@ function vitalLatest(key) {
 }
 
 function vitalTrend(key) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const vals = [];
   for (let i = 0; i < 90 && vals.length < 2; i++) {
     const v = vitalVal(key, dkey(addDays(today, -i)));
@@ -5985,7 +7060,7 @@ function vitalTrend(key) {
 }
 
 function vitalSpark(key, n = 12) {
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   const vals = [];
   for (let i = n - 1; i >= 0; i--) {
     const raw = vitalVal(key, dkey(addDays(today, -i)));
@@ -6021,7 +7096,7 @@ function vitalCard(m) {
       <div class="vital-spark">${vitalSpark(m.key)}</div>
       <div class="vital-sub">${esc(goalTxt)}</div>
       <div class="vital-log">
-        <input id="vital-${m.key}" type="number" step="${m.step}" min="0" placeholder="${esc(m.ph)}" value="${today !== null && today !== undefined ? esc(String(today)) : ''}"/>
+        <input id="vital-${m.key}" aria-label="${esc(m.label || m.key)}" type="number" step="${m.step}" min="0" placeholder="${esc(m.ph)}" value="${today !== null && today !== undefined ? esc(String(today)) : ''}"/>
         <button class="btn btn-ghost" data-act="vital-save" data-key="${m.key}">Log</button>
       </div>
     </section>`;
@@ -6069,7 +7144,7 @@ function viewVitals() {
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Vitals</h1>
+        <h1>Health signals</h1>
         <div class="sub">Biohacking signals · recovery, sleep, output</div>
       </div>
     </header>
@@ -6081,32 +7156,51 @@ function viewVitals() {
   `;
 }
 
+function guidanceHabitPattern() {
+  // Compare finished days only; an unfinished day is not a missed day.
+  const today = todayKey();
+  const keys = recentKeys(8).filter(key => key < today).slice(-7);
+  const loggedDays = keys.filter(key => S.habits.some(habit => statusOf(habit.id, key))).length;
+  const rows = S.habits.map(habit => ({ habit, stats: habitRateForKeys(habit, keys) }))
+    .filter(row => row.stats && row.stats.sched >= 3);
+  const ready = loggedDays >= 3 && rows.length > 0;
+  const anchor = ready ? rows.filter(row => row.stats.hit >= 3 && row.stats.pct >= 70)
+    .sort((a, b) => b.stats.pct - a.stats.pct)[0] || null : null;
+  const focus = ready ? rows.filter(row => row.stats.pct < 85 && String(row.habit.id) !== String(anchor?.habit.id))
+    .sort((a, b) => a.stats.pct - b.stats.pct)[0] || null : null;
+  const scheduled = actionable(today);
+  const target = focus?.habit || scheduled.find(habit => !['done', 'min'].includes(statusOf(habit.id, today)))
+    || anchor?.habit || scheduled[0] || S.habits[0] || null;
+  return { ready, loggedDays, anchor, focus, target };
+}
+
 function coachOverviewCard() {
   const mom = momentum();
   const stk = dayStreak();
   const day = dayNumber();
-  const st = strongestHabit();
-  const wk = weakestHabit();
-  const grade = mom >= 75 ? 'Strong' : mom >= 50 ? 'Steady' : mom >= 30 ? 'Wobbling' : 'At risk';
-  const gcls = mom >= 50 ? 'good' : mom >= 30 ? 'mid' : 'low';
-  const read = mom >= 75
-    ? `You’re in the top gear of your arc. The system is running — now protect it and don’t get cocky on the easy days.`
+  const { ready, anchor, focus, target } = guidanceHabitPattern();
+  const grade = !ready ? 'Building your baseline' : mom >= 75 ? 'Strong' : mom >= 50 ? 'Steady' : 'Room to rebuild';
+  const gcls = !ready ? '' : mom >= 50 ? 'good' : 'mid';
+  const read = !ready
+    ? 'Start with one manageable habit. A few completed days of check-ins will give us a clearer picture of what works for you.'
+    : mom >= 75
+    ? 'Your recent check-ins are consistent. Keep the routine manageable before adding more.'
     : mom >= 50
-      ? `You’re holding the line. The pattern is real but fragile — one or two habits are carrying you more than the rest.`
-      : mom >= 30
-        ? `Momentum is slipping. This is the exact moment most people quit — you don’t have to be perfect, you have to be present.`
-        : `You’re running on willpower, not system. Let’s shrink everything to the minimum and win one day back first.`;
+      ? 'You have some consistency to build on. Give the harder habits a smaller starting point.'
+      : 'Fewer habits were checked off recently. Choose one small step for today, without trying to catch up all at once.';
   const roadmap = [
-    st ? `Keep <b>${esc(st.habit.name)}</b> as your anchor — it’s your most reliable rep. Stack the shaky ones right after it.` : `Pick one habit to be your daily anchor — the one you never skip.`,
-    wk ? `<b>${esc(wk.habit.name)}</b> is your weak point. Drop it to its minimum (${esc(wk.habit.min || '2-minute version')}) for 7 days — consistency beats size.` : `Shrink your hardest habit to a 2-minute version until it sticks.`,
-    stk >= 3 ? `Your ${stk}-day streak is real leverage — protect it tonight before anything else.` : `Log one rep today to start a streak. Loss aversion will do the rest.`,
+    anchor ? `Keep <b>${esc(anchor.habit.name)}</b> at its usual time. You checked it off on ${anchor.stats.hit} of ${anchor.stats.sched} recent scheduled days.`
+      : target ? `Start with <b>${esc(target.name)}</b>, at a time you can realistically repeat.` : 'Choose one habit that matters to you.',
+    focus ? `Give <b>${esc(focus.habit.name)}</b> a smaller starting point: <b>${esc(focus.habit.min || 'a two-minute version')}</b>.`
+      : anchor ? 'Keep your current routine steady before adding another commitment.' : 'Pair that small step with a familiar moment, such as finishing breakfast.',
+    stk >= 3 ? `You have a ${stk}-day streak. Keep the next step manageable.` : 'Notice what made starting easier, and take that into tomorrow.',
   ];
   return `
     <section class="card coach-overview-card">
       <div class="coach-ov-head">
         <div>
           <span class="eyebrow">Your read · Day ${day} of 90</span>
-          <div class="coach-ov-grade ${gcls}">${grade}<span> · ${mom}% momentum</span></div>
+          <div class="coach-ov-grade ${gcls}">${grade}${ready ? `<span> · ${mom}% momentum</span>` : ''}</div>
         </div>
         <div class="coach-ov-streak"><b>${stk}</b><small>day streak</small></div>
       </div>
@@ -6119,9 +7213,9 @@ function coachOverviewCard() {
 }
 
 function coachPrompts() {
-  const wk = weakestHabit();
+  const { focus } = guidanceHabitPattern();
   const chips = [
-    wk ? `Why do I keep missing ${wk.habit.name}?` : 'What habit should I focus on first?',
+    focus ? `How can I make ${focus.habit.name} easier to start?` : 'What habit should I focus on first?',
     'What should I fix this week?',
     'Design a morning routine for my goal',
     'I feel like quitting — what now?',
@@ -6132,12 +7226,25 @@ function coachPrompts() {
     </div>`;
 }
 
+function guidancePlaybookAnswer(qa) {
+  const { ready, anchor, focus, target } = guidanceHabitPattern();
+  if (!target) return 'Choose one habit that matters to you. Keep its first step small enough for an ordinary day.';
+  const name = `<b>${esc(target.name)}</b>`;
+  const minimum = `<b>${esc(target.min || 'a two-minute version')}</b>`;
+  if (qa.id === 'easier') return `Prepare what ${name} needs ahead of time, and begin with ${minimum}. You can decide whether to continue after starting.`;
+  if (!ready) return `There is not enough completed-day history to identify a pattern yet. Start with ${name}: ${minimum}, after a familiar daily routine.`;
+  if (qa.id === 'toomuch') return 'Try the Busy or Recovery day setting when your schedule is tight. Notice which targets you can repeat before adding more commitments.';
+  if (focus && anchor) return `Keep <b>${esc(anchor.habit.name)}</b> at its usual time. Try ${minimum} for ${name} after that separate routine, if the timing fits your day.`;
+  if (focus) return `Give ${name} one predictable cue, such as finishing breakfast. Start with ${minimum}; there is no need to make up every missed rep today.`;
+  return `There is no clear weak habit in the recent completed days. Keep ${name} manageable, and adjust only what feels difficult to repeat.`;
+}
+
 function viewCoach() {
   return `
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Coach</h1>
+        <h1>AI Guidance</h1>
         <div class="sub">Your data, read back to you — with a plan and a place to ask</div>
       </div>
     </header>
@@ -6147,6 +7254,7 @@ function viewCoach() {
     <div class="section-gap section-title">Ask your coach</div>
     ${coachPrompts()}
     ${aiPanel()}
+    ${meditationPanel()}
     ${weeklyAiReviewCard()}
     ${guidanceSignalCard()}
 
@@ -6155,7 +7263,7 @@ function viewCoach() {
       <button class="qa-chip ${openQA === qa.id ? 'open' : ''}" data-act="qa" data-id="${qa.id}">
         <span>${esc(qa.q)}</span><span class="arr">${openQA === qa.id ? '−' : '+'}</span>
       </button>
-      ${openQA === qa.id ? `<div class="qa-answer">${fillTemplate(qa.a, true)}</div>` : ''}
+      ${openQA === qa.id ? `<div class="qa-answer">${guidancePlaybookAnswer(qa)}</div>` : ''}
     `).join('')}
     <button class="qa-chip ${openQA === 'dose' ? 'open' : ''}" data-act="qa" data-id="dose">
       <span>Can you tell me what to take, or how much?</span><span class="arr">${openQA === 'dose' ? '−' : '+'}</span>
@@ -6170,13 +7278,12 @@ function viewCoach() {
 }
 
 function guidanceSignalCard() {
-  const w = weakestHabit();
-  const st = strongestHabit();
+  const { anchor, focus, target } = guidanceHabitPattern();
   const tip = currentTip();
-  const target = tipTarget();
-  const insight = w && st
-    ? `Move ${esc(w.habit.name)} after ${esc(st.habit.name.toLowerCase())} for 7 days. Minimum version: ${esc(w.habit.min || '2 minutes')}.`
-    : 'Protect the smallest version of each habit until your pattern has enough data.';
+  const insight = focus && anchor
+    ? `Try <b>${esc(focus.habit.name)}</b> after <b>${esc(anchor.habit.name)}</b>, if the timing fits. Start with ${esc(focus.habit.min || 'a two-minute version')}.`
+    : target ? `Give <b>${esc(target.name)}</b> one familiar cue. Start with ${esc(target.min || 'a two-minute version')}.`
+      : 'Choose one habit that matters to you, then make its first step small.';
   return `
     <section class="card guidance-signal-card">
       <div class="card-head">
@@ -6198,7 +7305,7 @@ function guidanceSignalCard() {
 function weeklyAiReviewCard() {
   const review = weeklyCoachReview();
   const key = weekReviewKey();
-  const saved = S.weeklyReviews[key] || review;
+  const saved = guidanceHabitPattern().ready ? S.weeklyReviews[key] || review : review;
   return `
     <section class="card weekly-ai-card">
       <div class="card-head">
@@ -6506,7 +7613,7 @@ function sleepAnalysisCard() {
         ${isToday ? '' : `<button class="mini-act" data-act="sleep-day" data-key="${todayKey()}">back to today</button>`}
       </div>
       <div class="sleep-form">
-        <input id="sleepHours" type="number" min="0" max="18" step="0.25" value="${editing.hours === '' ? '' : esc(editing.hours)}" placeholder="hours"/>
+        <input id="sleepHours" aria-label="Hours slept" type="number" min="0" max="18" step="0.25" value="${editing.hours === '' ? '' : esc(editing.hours)}" placeholder="hours"/>
         <div class="seg" id="sleepQualitySeg">
           ${qualityOptions.map(([value, label]) => `<button class="${editing.quality === value ? 'on' : ''}" data-sleep-quality="${value}">${label}</button>`).join('')}
         </div>
@@ -6539,116 +7646,132 @@ function forgeView() {
     </section>`;
 }
 
-/* ---------------- AI Coach (bring-your-own-key) ---------------- */
+/* ---------------- AI Coach (authenticated server proxy) ---------------- */
 
-const AI_PROVIDERS = {
-  anthropic: { label: 'Claude', model: 'claude-sonnet-4-6', hint: 'console.anthropic.com → API keys' },
-  openai:    { label: 'ChatGPT', model: 'gpt-4o-mini', hint: 'platform.openai.com → API keys' },
-  gemini:    { label: 'Gemini', model: 'gemini-2.5-flash', hint: 'aistudio.google.com → Get API key' },
-};
 let aiBusy = false;
+let aiError = '';
+let authEmail = '';
+let authCodeSent = false;
+let authBusy = false;
+let authStatus = '';
+
+function authPanel() {
+  if (window.arc90Auth?.isSignedIn()) return `<div class="auth-panel"><span>Signed in</span><button class="mini-act" data-act="auth-out">Sign out</button></div>`;
+  return `<div class="auth-panel">
+    <label for="authEmail">Account email</label>
+    <input id="authEmail" type="email" autocomplete="email" maxlength="254" value="${esc(authEmail)}" aria-describedby="authStatus" ${authBusy || authCodeSent ? 'disabled' : ''}/>
+    ${authCodeSent ? '<label for="authCode">Email code</label><input id="authCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="8" aria-describedby="authStatus"/>' : ''}
+    <button class="btn" data-act="${authCodeSent ? 'auth-verify' : 'auth-request'}" ${authBusy ? 'disabled' : ''}>${authBusy ? 'Please wait...' : authCodeSent ? 'Verify code' : 'Email me a sign-in code'}</button>
+    ${authCodeSent ? `<button class="mini-act" data-act="auth-change" ${authBusy ? 'disabled' : ''}>Use another email or resend</button>` : ''}
+    <div id="authStatus" role="status">${esc(authStatus)}</div>
+  </div>`;
+}
+
+async function submitAuth(verify) {
+  if (authBusy) return;
+  const email = document.getElementById('authEmail');
+  const code = document.getElementById('authCode');
+  if (!verify) {
+    authEmail = email?.value.trim().toLowerCase() || '';
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(authEmail) || authEmail.length > 254) { invalidField(email, 'Enter a valid account email.'); return; }
+  } else if (!/^\d{6,8}$/.test(code?.value.trim() || '')) { invalidField(code, 'Enter the 6 to 8 digit code from your email.'); return; }
+  const value = code?.value.trim();
+  if (!window.arc90Auth) { authStatus = 'Sign-in is not available in this build.'; render(); return; }
+  authBusy = true;
+  authStatus = '';
+  render();
+  try {
+    if (verify) { await window.arc90Auth.verifyCode(authEmail, value); authCodeSent = false; authStatus = ''; }
+    else { await window.arc90Auth.requestCode(authEmail); authCodeSent = true; authStatus = 'Check your email for a sign-in code.'; }
+  } catch (error) {
+    authStatus = error.status === 503 || /not configured|configuration|not available in this build|503/i.test(error.message || '')
+      ? 'Sign-in is not configured yet. Please try again later.'
+      : verify ? 'The code could not be verified. Check it or request a new code.' : 'Could not send a sign-in code. Please try again later.';
+  } finally {
+    authBusy = false;
+    render();
+    document.getElementById(authCodeSent ? 'authCode' : 'authEmail')?.focus();
+  }
+}
+
+async function authenticatedHeaders() {
+  if (typeof window.arc90Auth?.getAccessToken !== 'function') throw new Error('Sign-in is not available in this build. Offline guidance is still available.');
+  let token;
+  try { token = await window.arc90Auth.getAccessToken(); } catch (_) { /* session unavailable */ }
+  if (typeof token !== 'string' || !token || /[\r\n]/.test(token)) throw new Error('Sign in again to continue. Offline guidance is still available.');
+  return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
 
 function aiPanel() {
-  const p = AI_PROVIDERS[S.ai.provider];
-  if (!S.ai.key) {
-    return `
-      <section class="card ai-card compact-ai-card">
-        <div class="card-head" style="margin-bottom:8px"><span class="tip-tag" style="margin:0">AI Guidance</span><span class="pro-badge">BETA</span></div>
-        <div class="ai-compact-line">
-          <span>Ask goals, habits, focus, routines, or next move.</span>
-          <div class="provider-mini-row">
-            ${Object.entries(AI_PROVIDERS).map(([id, pr]) => `<button class="${S.ai.provider === id ? 'on' : ''}" data-act="ai-provider" data-id="${id}">${pr.label}</button>`).join('')}
-          </div>
-        </div>
-        <div class="ai-connect-row">
-          <input id="aiKey" type="password" placeholder="${p.label} API key…" autocomplete="off"/>
-          <button class="btn compact-connect" data-act="ai-connect">Connect</button>
-        </div>
-        <div class="seg-hint compact-key-hint">${p.hint}</div>
-      </section>`;
-  }
-  const msgs = S.aiChat.length ? S.aiChat : [{ role: 'assistant', content: `Connected. Ask me anything about your arc, routines, focus, mindset, or execution. Day ${dayNumber()} of 90, Momentum ${momentum()}%. What do you want to solve?` }];
+  const msgs = S.aiChat.length ? S.aiChat : [{ role: 'assistant', content: 'What would you like to work on today?' }];
   return `
     <section class="card ai-card compact-ai-card">
+      ${authPanel()}
       <div class="card-head" style="margin-bottom:8px">
-        <span class="tip-tag" style="margin:0">AI Guidance · ${AI_PROVIDERS[S.ai.provider].label}</span>
-        <span style="display:flex;gap:10px">
-          <button class="mini-act" data-act="ai-clear">clear</button>
-          <button class="mini-act" data-act="ai-disconnect">disconnect</button>
-        </span>
+        <span class="tip-tag" style="margin:0">AI Guidance</span>
+        <button class="mini-act" data-act="ai-clear" ${aiBusy ? 'disabled' : ''}>Clear chat</button>
       </div>
-      <div class="chat-box" id="aiChatBox">
+      <div class="chat-box" id="aiChatBox" role="log" aria-label="Coach conversation" aria-live="polite" aria-busy="${aiBusy}">
         ${msgs.map((m) => `<div class="msg ${m.role === 'user' ? 'me' : 'ai'}">${esc(m.content)}</div>`).join('')}
-        ${aiBusy ? '<div class="msg ai typing"><i></i><i></i><i></i></div>' : ''}
+        ${aiBusy ? '<div class="msg ai" role="status">Thinking...</div>' : ''}
       </div>
+      <div id="aiStatus" role="status">${esc(aiError)}</div>
       <div class="chat-input">
-        <input id="aiInput" type="text" placeholder="Ask your coach…" maxlength="400" ${aiBusy ? 'disabled' : ''}/>
-        <button class="btn chat-send" data-act="ai-send" ${aiBusy ? 'disabled' : ''}>↑</button>
+        <input id="aiInput" type="text" aria-label="Message your coach" aria-describedby="aiStatus aiPrivacy" placeholder="Ask your coach..." maxlength="400" ${aiBusy ? 'disabled' : ''}/>
+        <button class="btn chat-send" data-act="ai-send" aria-label="Send message" ${aiBusy ? 'disabled' : ''}>↑</button>
       </div>
-      <div class="seg-hint" style="margin-top:9px">Open coaching for goals and routines. Medical dosing stays with your clinician.</div>
+      <div class="seg-hint" id="aiPrivacy" style="margin-top:9px">Live chat requires sign-in and sends your messages to our AI provider. Offline guidance stays on this device. Medical dosing stays with your clinician.</div>
     </section>`;
 }
 
-function aiSystemPrompt() {
-  const stats = S.habits.map((h) => `- ${h.name}: ${Math.round(habitRate(h.id, 7) * 100)}% last 7 days (min version: ${h.min || '2-minute version'})`).join('\n');
-  return `You are Arc90's AI Guidance coach: a clear, useful, evidence-aware life and habit coach. You help the user think, plan, and execute across habits, focus, routines, mindset, work, training logs, and their 90-day arc.
-
-USER: ${S.profile.name}, ${S.profile.occupation}.
-90-DAY GOAL: ${S.profile.goal}${S.profile.motivation ? ` (why it matters: ${S.profile.motivation})` : ''}.
-TODAY: Day ${dayNumber()} of 90. Momentum Score: ${momentum()}% (0.6×last-7-days + 0.4×whole challenge).
-HABITS (7-day completion):
-${stats}
-
-RULES:
-1. Answer the user's actual question directly. Be practical, warm, and specific.
-2. Max ~180 words unless they ask for a plan. End with one concrete next action when useful.
-3. Use behavioral science when relevant: implementation intentions, habit stacking, friction design, minimum viable habit, never-miss-twice, environment design. No fake neuroscience.
-4. You may discuss broad wellness tracking, routines, and adherence. HARD BOUNDARY: do not prescribe, change, or recommend medication, supplement, peptide, or medical dosing, stacking, or treatment. If asked for dosing, say you can organize a clinician's instructions into a routine, but the dose decision belongs to a licensed professional.
-5. Use their real numbers above when relevant.`;
-}
-
 async function callAI(history) {
-  const { provider, key } = S.ai;
-  const sys = aiSystemPrompt();
-  if (provider === 'anthropic') {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'content-type': 'application/json', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: AI_PROVIDERS.anthropic.model, max_tokens: 400, system: sys, messages: history }),
-    });
-    if (!res.ok) throw new Error(`Claude ${res.status}: ${(await res.text()).slice(0, 140)}`);
-    const j = await res.json();
-    return j.content.map((c) => c.text || '').join('');
+  const headers = await authenticatedHeaders();
+  const messagesToSend = [];
+  let remaining = 12000;
+  for (const message of history.slice(-20).reverse()) {
+    if (!['user', 'assistant'].includes(message.role) || typeof message.content !== 'string') continue;
+    const content = message.content.trim().slice(0, Math.min(2000, remaining));
+    if (!content) break;
+    messagesToSend.unshift({ role: message.role, content });
+    remaining -= content.length;
   }
-  if (provider === 'openai') {
-    const res = await fetch('https://api.openai.com/v1/chat/completions', {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30000);
+  try {
+    const res = await fetch('/api/coach', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${key}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ model: AI_PROVIDERS.openai.model, max_tokens: 400, messages: [{ role: 'system', content: sys }, ...history] }),
+      credentials: 'same-origin',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({ messages: messagesToSend }),
     });
-    if (!res.ok) throw new Error(`OpenAI ${res.status}: ${(await res.text()).slice(0, 140)}`);
-    const j = await res.json();
-    return j.choices[0].message.content;
+    const messages = {
+      400: 'That message could not be sent. Shorten it and try again.',
+      401: 'Sign in to use live coaching. Offline guidance is still available.',
+      403: 'Your account cannot access live coaching. Offline guidance is still available.',
+      404: 'Live coaching is not available in this build. Offline guidance is still available.',
+      429: 'Too many coaching requests. Wait a moment and try again.',
+      503: 'Live coaching is not configured yet. Offline guidance is still available.',
+    };
+    if (!res.ok) throw new Error(messages[res.status] || 'Live coaching is temporarily unavailable. Please try again later.');
+    const data = await res.json();
+    if (typeof data.reply !== 'string' || !data.reply.trim()) throw new Error('The coach returned an empty response. Please try again.');
+    return data.reply.slice(0, 12000);
+  } catch (error) {
+    if (error.name === 'AbortError') throw new Error('The coach took too long to respond. Please try again.');
+    if (error instanceof TypeError || error instanceof SyntaxError) throw new Error('Could not connect to live coaching. Check your connection and try again.');
+    throw error;
+  } finally {
+    clearTimeout(timeout);
   }
-  // gemini
-  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${AI_PROVIDERS.gemini.model}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      systemInstruction: { parts: [{ text: sys }] },
-      contents: history.map((m) => ({ role: m.role === 'assistant' ? 'model' : 'user', parts: [{ text: m.content }] })),
-      generationConfig: { maxOutputTokens: 400 },
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 140)}`);
-  const j = await res.json();
-  return j.candidates[0].content.parts.map((p) => p.text || '').join('');
 }
 
 async function sendAI() {
   const inp = document.getElementById('aiInput');
   const text = inp ? inp.value.trim() : '';
   if (!text || aiBusy) return;
+  if (text.length > 400) { invalidField(inp, 'Keep your message to 400 characters or fewer.'); return; }
+  aiError = '';
   S.aiChat.push({ role: 'user', content: text });
   S.aiChat = S.aiChat.slice(-20);
   save();
@@ -6658,12 +7781,15 @@ async function sendAI() {
     const reply = await callAI(S.aiChat.map((m) => ({ role: m.role, content: m.content })));
     S.aiChat.push({ role: 'assistant', content: reply.trim() });
   } catch (err) {
-    S.aiChat.push({ role: 'assistant', content: `⚠️ Couldn't reach ${AI_PROVIDERS[S.ai.provider].label}: ${err.message}. Check your key (Coach → disconnect to re-enter) and connection.` });
+    aiError = err.message;
+    S.aiChat.pop();
   }
   S.aiChat = S.aiChat.slice(-20);
   save();
   aiBusy = false;
   render();
+  const nextInput = document.getElementById('aiInput');
+  if (nextInput) { if (aiError) nextInput.value = text; nextInput.focus(); }
 }
 
 function startForge() {
@@ -6688,19 +7814,28 @@ function viewProfile() {
     ${brandbar()}
     <header class="topbar">
       <div>
-        <h1>Profile</h1>
-        <div class="sub">${esc(S.profile.name)} · ${esc(S.profile.occupation)}</div>
+        <h1>You</h1>
+        <div class="sub">${[S.profile.name, S.profile.occupation].filter(Boolean).map(esc).join(' · ')}</div>
       </div>
     </header>
 
-    ${tabHeroCard(
-      'Current challenge',
-      esc(S.profile.goal || 'Set a target'),
-      `${fmtDate(startDate())} → ${fmtDate(end)} · becoming <b>${esc(S.profile.identity || 'the new you')}</b>${S.profile.motivation ? `<div class="th-quote">“${esc(S.profile.motivation)}”</div>` : ''}`,
-      [['Day', `${dayNumber()}<em>/90</em>`], ['Streak', `${dayStreak()}d`], ['Votes', totalReps()]]
-    )}
+    <div class="goal-shell you-shell">
+    <section class="you-arc" aria-labelledby="youArcTitle">
+      <span class="you-kicker">Your 90-day arc</span>
+      <h2 id="youArcTitle">${esc(S.profile.goal || 'Set your 90-day goal')}</h2>
+      <p>${fmtDate(startDate())} → ${fmtDate(end)}${S.profile.identity ? ` · becoming <b>${esc(S.profile.identity)}</b>` : ''}</p>
+      ${S.profile.motivation ? `<blockquote>“${esc(S.profile.motivation)}”</blockquote>` : ''}
+      <dl><div><dd>${dayNumber()}<small>/90</small></dd><dt>Day</dt></div><div><dd>${dayStreak()}<small>d</small></dd><dt>Streak</dt></div><div><dd>${totalReps()}</dd><dt>Reps</dt></div></dl>
+      <button class="you-edit" data-act="edit">Edit goal & profile</button>
+    </section>
+    </div>
 
-    ${emailCaptureCard()}
+    <div class="section-title">Today trackers</div>
+    <section class="card you-trackers">
+      <label class="rem-time-row" for="trackWater"><span><b>Water</b><small>Count glasses on Today.</small></span><input id="trackWater" type="checkbox" ${S.preferences.trackers?.water ? 'checked' : ''}></label>
+      <label class="rem-time-row" for="trackMood"><span><b>Mood</b><small>Log how you feel on Today.</small></span><input id="trackMood" type="checkbox" ${S.preferences.trackers?.mood ? 'checked' : ''}></label>
+      <div class="seg-hint">Off keeps Today focused on your goal. Your past entries are kept either way.</div>
+    </section>
 
     <div class="section-title">Reminders</div>
     <section class="card reminder-card">
@@ -6726,51 +7861,67 @@ function viewProfile() {
     <section class="card">
       <div class="theme-swatches">
         ${[
-          ['dark',  'Dark',  '#03040a', '#8f6bff'],
-          ['mono',  'Mono',  '#0a0a0a', '#f2f2f2'],
-          ['gold',  'Gold',  '#0c0b0a', '#e3c27d'],
-          ['light', 'Light', '#f2f2f2', '#111111'],
-          ['green', 'Green', '#050b08', '#34d399'],
-          ['red',   'Red',   '#0a0405', '#ff5d6c'],
+          ['auto',  'Auto',  '#737b82', '#b3dfbd'],
+          ['dark',  'Dark',  '#111315', '#b3dfbd'],
+          ['light', 'Light', '#f7f8fa', '#28613c'],
         ].map(([id, name, bg, ac]) => `
           <button class="theme-swatch${S.theme === id ? ' on' : ''}" data-act="theme" data-id="${id}" aria-pressed="${S.theme === id}" aria-label="${name} appearance">
             <span class="ts-chip" style="--sw-bg:${bg};--sw-ac:${ac}"><span class="ts-ring"></span></span>
             <span class="ts-name">${name}</span>
           </button>`).join('')}
       </div>
-      <div class="seg-hint">Six looks — same instrument. Pick the one you’ll want to open at night.</div>
+      <div class="seg-hint">Auto follows your iPhone appearance.</div>
+      <label class="rem-time-row" for="dayStartHour"><span><b>My day starts at</b><small>Check-offs before this hour belong to the previous day.</small></span><select id="dayStartHour" aria-label="My day starts at">${Array.from({length: 24}, (_, h) => `<option value="${h}"${S.preferences.dayStartHour === h ? ' selected' : ''}>${String(h).padStart(2, '0')}:00</option>`).join('')}</select></label>
+      <label class="rem-time-row" for="reducedMotion"><span><b>Reduce motion</b><small>Use gentle fades in place of chart movement.</small></span><input id="reducedMotion" type="checkbox" ${S.preferences.reducedMotion ? 'checked' : ''}></label>
+      <label class="rem-time-row" for="shareNames"><span><b>Details on shared stories</b><small>Include goal and habit names and life-area scores in exports.</small></span><input id="shareNames" type="checkbox" ${S.preferences.shareNames ? 'checked' : ''}></label>
     </section>
 
     ${isDevHost() ? productReadinessCard() : ''}
 
-    <div class="section-title">App organization</div>
-    <button class="prow" data-act="edit"><span class="pe">✏️</span><span class="pl">Edit name, occupation & goal</span><span class="arr">›</span></button>
-    <button class="prow" data-act="tab" data-id="habits"><span class="pe">☑</span><span class="pl">Habit library</span><span class="pv">${S.habits.length}${S.premium ? '' : `/${FREE_HABITS}`} active</span><span class="arr">›</span></button>
-    <button class="prow" data-act="tab" data-id="focus"><span class="pe">🎯</span><span class="pl">Focus system</span><span class="pv">${S.premium ? (focusStats().blockedCount ? focusStats().blockedCount + ' targets' : 'set up shield') : '🔒 Premium'}</span><span class="arr">›</span></button>
-    <button class="prow" data-act="tab" data-id="protocol"><span class="pe">🧬</span><span class="pl">Protocol tracker</span><span class="pv">${S.protocols.length ? S.protocols.length + ' tracked' : 'set up'}</span><span class="arr">›</span></button>
+    <div class="section-title">Account</div>
+    ${authPanel()}
+    <button class="btn btn-ghost" data-act="restore-premium">Restore Premium purchase</button>
 
-    <div class="premium-card profile-premium-card">
+    ${previewAccessPanel()}
+    ${previewAccessActive() ? '' : `<div class="premium-card profile-premium-card">
       <div class="pt">${S.premium ? 'Arc90 Premium · active' : PREMIUM_OFFER.name}</div>
       <div class="ps">${S.premium
-        ? 'Axis Dashboard, Forge Mode, unlimited habits, advanced exports, and deeper coaching are active on this device.'
-        : `Axis Dashboard · Forge Mode · unlimited habits · weekly reviews · advanced exports. ${PREMIUM_OFFER.note}`}</div>
+        ? 'Adaptive recovery, Focus Contract, full personal patterns, and unlimited routines are active on this device.'
+        : `Adaptive recovery · Focus Contract · full personal patterns · unlimited routines. ${PREMIUM_OFFER.note}`}</div>
       ${S.premium
         ? `<button class="btn btn-ghost" data-act="premium-off" style="padding:12px">Switch back to Free (demo)</button>`
         : `<button class="btn" data-act="paywall" style="padding:13px">${PREMIUM_OFFER.cta} · ${PREMIUM_OFFER.price}${PREMIUM_OFFER.interval}</button>`}
-    </div>
+    </div>`}
 
-    <div class="section-title">Data</div>
+    <div class="section-title">Data & privacy</div>
+    ${document.getElementById('privacy-consent') ? '<button class="prow" data-privacy-open aria-controls="privacy-consent" aria-expanded="false"><span class="pl">Privacy choices</span><span class="arr">›</span></button>' : ''}
     <button class="prow" data-act="export"><span class="pe">📤</span><span class="pl">Export my data (JSON)</span><span class="arr">›</span></button>
     <button class="prow" data-act="import"><span class="pe">📥</span><span class="pl">Restore from backup</span><span class="arr">›</span></button>
     <input id="importFile" class="import-input" type="file" accept="application/json,.json"/>
     <button class="danger-btn" data-act="reset">Start over (erases everything)</button>
 
+    <details class="profile-updates">
+      <summary>${S.subscribed ? 'Launch updates: subscribed' : 'Launch updates'}</summary>
+      ${emailCaptureCard()}
+    </details>
+
     <div class="empty-note">
-      🔒 All your data lives on this device. Export a backup before switching phones or clearing browser data.<br/><br/>
+      🔒 Your tracking records stay on this device. Optional connected features send the information described in Privacy. Export a backup before switching phones or clearing browser data.<br/><br/>
       📲 <b>iPhone:</b> open in Safari → Share → <b>Add to Home Screen</b> for the full-screen app.
     </div>
     ${legalLinks()}
   `;
+}
+
+function previewAccessPanel() {
+  const preview = window.Arc90PreviewAccess;
+  if (!preview || (!preview.available() && !preview.enrolled())) return '';
+  const available = preview.available();
+  const cutoff = new Date(preview.endsAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return `<label class="preview-access-row" for="previewAccessSwitch">
+    <span><b>Preview access</b><small>${available ? `This device only · until ${esc(cutoff)} · no charge` : 'Preview ended'}</small></span>
+    <input id="previewAccessSwitch" type="checkbox" role="switch" aria-label="Preview access" ${preview.active() ? 'checked' : ''} ${available ? '' : 'disabled'}>
+  </label>`;
 }
 
 function productReadinessCard() {
@@ -6812,7 +7963,16 @@ function legalLinks() {
    ============================================================ */
 
 function viewSheet() {
+  const arcSheetLabel = { 'brain': 'Map details', 'brain-link': 'Link to a goal', 'brain-goal': sheet.goalId ? 'Edit goal' : 'Add a goal', 'planning-task': 'Edit task' }[sheet.type];
   const inner = sheet.type === 'paywall' ? sheetPaywall()
+    : sheet.type === 'brain' ? brainDetailSheet() : sheet.type === 'brain-link' ? brainLinkSheet()
+    : sheet.type === 'brain-goal' ? brainGoalSheet()
+    : sheet.type === 'planning-task' ? planningTaskSheet()
+    : sheet.type === 'support' ? sheetSupport()
+    : sheet.type === 'daymode' ? `<div class="day-mode-sheet">${adaptiveDayPanel()}</div>`
+    : sheet.type === 'adaptive' ? sheetAdaptive()
+    : sheet.type === 'window' ? sheetBestWindow()
+    : sheet.type === 'ritual' ? sheetRitual()
     : sheet.type === 'task' ? sheetTask()
     : sheet.type === 'edit' ? sheetEdit()
     : sheet.type === 'day' ? sheetDay()
@@ -6825,7 +7985,7 @@ function viewSheet() {
   return `
     <div class="sheet-wrap">
       <div class="sheet-bg" data-act="close-sheet"></div>
-      <div class="sheet">
+      <div class="sheet" data-sheet-type="${esc(sheet.type)}" role="dialog" aria-modal="true" aria-label="${esc(arcSheetLabel || (sheet.type === 'paywall' ? 'Premium options' : sheet.type === 'edit' ? 'Edit profile' : sheet.type === 'daymode' ? 'Your day' : 'Arc90 ' + sheet.type))}" tabindex="-1">
         <button class="sheet-grab-zone" data-act="close-sheet" aria-label="Close"><span class="sheet-grab"></span></button>
         <button class="sheet-close" data-act="close-sheet" aria-label="Close">✕</button>
         ${inner}
@@ -6837,11 +7997,11 @@ function sheetPaywall() {
   const copy = paywallCopy(sheet.context);
   const compare = [
     ['Active habits', `${FREE_HABITS}`, 'Unlimited'],
-    ['Command Center dashboard', '—', 'Full'],
-    ['Vitals & biohacking metrics', '—', 'Full'],
-    ['Forge recovery mode', '—', 'Included'],
-    ['Weekly reviews & exports', '—', 'Included'],
-    ['Focus all-day lock', '—', 'Included'],
+    ['Personal patterns', 'Limited', 'Full history'],
+    ['Forge recovery', '—', 'Included'],
+    ['Sleep lab', '—', 'Included'],
+    ['Focus Shield', '—', 'Included'],
+    ['Proof photos', `${PROOF_FREE_PHOTOS}`, 'Unlimited'],
   ];
   return `
     <div class="paywall-hero">
@@ -6872,7 +8032,7 @@ function sheetPaywall() {
       <div class="pp2">${PREMIUM_OFFER.price}<span>${PREMIUM_OFFER.interval}</span></div>
       <div class="pp2-week">${esc(PREMIUM_OFFER.perWeek)}</div>
       <div class="pp2-anchor">${esc(PREMIUM_OFFER.anchor)}</div>
-      <div class="pp2-urgency">★ Founding price — locked in for early members</div>
+      <div class="pp2-urgency">Review the price and renewal terms at checkout.</div>
     </div>
 
     <button class="btn pay-cta" data-act="stripe-checkout">${PREMIUM_OFFER.cta} · ${PREMIUM_OFFER.price}${PREMIUM_OFFER.interval}</button>
@@ -6902,6 +8062,9 @@ function sheetTask() {
     <div class="sheet-section">Tune habit</div>
     <div class="field"><label>Name</label><input id="habitName" type="text" value="${esc(h.name)}" maxlength="56"/></div>
     <div class="field"><label>Minimum version</label><input id="habitMin" type="text" value="${esc(h.min || '2-minute version')}" maxlength="72"/></div>
+    <div class="field"><label for="habitGoal">Supports goal</label><select id="habitGoal"><option value="">No purpose linked</option>${(S.brain?.goals || []).filter(goal => goal.status === 'active' && goal.horizon !== 'long').map(goal => `<option value="${esc(goal.id)}"${goal.id === h.goal_id ? ' selected' : ''}>${esc(goal.title)}</option>`).join('')}</select></div>
+    <div class="field"><label for="habitArea">Life area</label><select id="habitArea"><option value="">Not set</option>${Object.entries(LIFE_AREAS).map(([id, label]) => `<option value="${id}"${h.life_area === id ? ' selected' : ''}>${label}</option>`).join('')}</select></div>
+    ${habitPurpose(h).length ? `<p class="habit-purpose-path">${habitPurpose(h).map(goal => esc(goal.title)).join(' → ')}</p>` : '<p class="habit-purpose-path">Link this habit to a short or mid-term goal in Arc.</p>'}
     <button class="btn btn-ghost tune-save" data-act="habit-save" data-id="${h.id}">Save habit tuning</button>
 
     <div class="sheet-section">Today</div>
@@ -6911,6 +8074,7 @@ function sheetTask() {
     <button class="act-row" data-act="task-set" data-id="clear"><span class="ae">↩️</span><div>Clear today’s status</div></button>
     <div class="sheet-section">Rhythm</div>
     ${rhythmPicker(h)}
+    <button class="habit-remove" data-act="remove" data-id="${h.id}">Remove this habit</button>
   `;
 }
 
@@ -7078,12 +8242,12 @@ const OCCUPATIONS = [
 function renderOnboarding() {
   if (!ob) ob = freshOb();
   const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  const steps = [obWelcome, obAbout, obGoal, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obEmail, obUpgrade];
+  const steps = [obWelcome, obAbout, obGoal, obBrain, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obEmail, obUpgrade];
   const dotCount = steps.length - 2;
   const dots = ob.step === 0 ? '' :
     `<div class="ob-dots">${Array.from({ length: dotCount }, (_, x) => x + 1).map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
   app.innerHTML = `
-    <div class="ob ${ob.step === 0 ? 'welcome' : ''} ${ob.step === 3 ? 'reps-step' : ''}">
+    <div class="ob ${ob.step === 0 ? 'welcome' : ''} ${ob.step === 4 ? 'reps-step' : ''}">
       ${ob.step > 0 ? `<div class="ob-top"><button class="ob-back" data-act="ob-back">← Back</button>${dots}</div>` : ''}
       <div class="ob-body">${steps[ob.step]()}</div>
     </div>`;
@@ -7095,10 +8259,7 @@ function obWelcome() {
   return `
     <div>
       <div class="logo-mark">
-        <svg viewBox="0 0 108 108">
-          <circle cx="54" cy="54" r="46" fill="none" stroke="var(--line-2)" stroke-width="10"/>
-          <circle cx="54" cy="54" r="46" fill="none" stroke="url(#ringGrad)" stroke-width="10" stroke-linecap="round" stroke-dasharray="217 72"/>
-        </svg>
+        ${logoMarkSvg('onboarding-symbol')}
       </div>
       <div class="brand-name">Arc<em>90</em></div>
       <p class="brand-tag">Build your next 90 days.<br/>One goal, a daily system, and <b>real momentum</b>.</p>
@@ -7139,6 +8300,13 @@ function obGoal() {
       </div>
       <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${ob.goal.trim() && ob.cats.size ? '' : 'disabled'}>Continue</button>
     </div>`;
+}
+
+function obBrain() {
+  return `<div><div class="ob-title">Empty your <em>head</em></div>
+    <div class="ob-sub">Tasks, ideas, worries, and goals. Your words stay as a draft until you choose to sort them.</div>
+    <div class="field"><label for="obBrainDump">Brain Dump</label><textarea id="obBrainDump" rows="8" maxlength="20000" placeholder="Everything on your mind. No order needed.">${esc(ob.brainDump)}</textarea></div>
+    <button class="btn ob-cta" data-act="ob-next">Continue</button></div>`;
 }
 
 function obSuggested() {
@@ -7249,7 +8417,7 @@ function obHealth() {
 
 function obContract() {
   const identity = obIdentity();
-  const end = addDays(atMidnight(new Date()), 89);
+  const end = addDays(atMidnight(operationalDate()), 89);
   const occ = obOccupation();
   const n = ob.picked.size + ob.customs.length;
   return `
@@ -7268,14 +8436,14 @@ function obEmail() {
   if (ob.emailDone || S.subscribed) return `
     <div>
       <div class="ob-title">You’re <em>in</em>.</div>
-      <div class="ob-sub">Your spot and founding price are saved. One more thing before you start.</div>
+      <div class="ob-sub">Your email preference is saved. Your progress stays on this device.</div>
       <div class="ob-health-ok">✓ ${esc(ob.email || 'Email saved')}</div>
       <button class="btn ob-cta" data-act="ob-next">Continue</button>
     </div>`;
   return `
     <div>
-      <div class="ob-title">Lock your <em>founding spot</em></div>
-      <div class="ob-sub">Drop your email to save your progress backup and lock the founding price before it goes up.</div>
+      <div class="ob-title">Stay in <em>the loop</em></div>
+      <div class="ob-sub">Get optional Arc90 launch and product updates. This does not back up your progress or reserve a price.</div>
       <div class="field" style="margin-top:6px">
         <label>Email</label>
         <input id="obEmail" type="email" inputmode="email" autocomplete="email" placeholder="you@example.com" value="${esc(ob.email || '')}" />
@@ -7283,22 +8451,23 @@ function obEmail() {
       </div>
       <label class="ob-consent" for="obEmailConsent">
         <input type="checkbox" id="obEmailConsent" />
-        <span>Email me occasional progress tips and founding updates. No spam, unsubscribe anytime.</span>
+        <span>Email me Arc90 launch and product updates. Withdraw consent by emailing <a href="mailto:michael28gh@gmail.com">the developer</a>. <a href="privacy.html">Privacy policy</a></span>
       </label>
       <div id="obEmailErr" class="ob-email-err" aria-live="polite"></div>
-      <button class="btn ob-cta" data-act="ob-email-save">Save my spot</button>
+      <button class="btn ob-cta" data-act="ob-email-save">Email me updates</button>
       <button class="ob-skip" data-act="ob-next">Skip for now</button>
     </div>`;
 }
 
 function obUpgrade() {
+  if (hasPremiumAccess()) return `<div><h2 class="ob-title">Ready for day one</h2><button class="btn ob-cta" data-act="ob-finish">Open Arc90</button></div>`;
   const benefits = [
-    ['♾️', 'Unlimited habits & custom routines', 'Go past the free 5-habit limit and build the whole system.'],
+    ['♾️', 'Unlimited habits & custom routines', `Go past the free ${FREE_HABITS}-habit limit and build the whole system.`],
     ['🧠', 'Coach AI + weekly reviews', 'Personal reads on your data and what to fix next.'],
     ['🔥', 'Forge recovery mode', 'A 7-day comeback plan for when you slip — before it becomes a lost week.'],
     ['📊', 'Axis dashboard & exports', 'Deeper analytics and a 90-day export you keep forever.'],
     ['🌙', 'Full Sleep toolkit', 'Sleep Score, Smart Alarm with Night Mode, spatial sounds & guided meditations.'],
-    ['🎯', 'Full Focus toolkit', 'Focus timer, app-blocking shield, and the all-day lock.'],
+    ['🎯', 'Full Focus toolkit', 'Focus timer and in-app shield. Blocking other apps requires supported native integration and permission.'],
   ];
   return `
     <div class="ob-pay">
@@ -7320,7 +8489,7 @@ function obUpgrade() {
         <div class="obp-anchor">${esc(PREMIUM_OFFER.anchor)}</div>
       </div>
       <button class="btn ob-pay-cta" data-act="ob-premium">${esc(PREMIUM_OFFER.cta)}</button>
-      <div class="ob-pay-fine">${esc(PREMIUM_OFFER.note)} · No commitment — you can start Free and upgrade anytime.</div>
+      <div class="ob-pay-fine">Optional. Start Free or review the price and renewal terms at checkout.</div>
       <button class="ob-pay-skip" data-act="ob-finish">Continue with the free version</button>
     </div>`;
 }
@@ -7344,6 +8513,17 @@ function finishOnboarding() {
     S.customSeq++;
     S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: c, cat: 'custom', min: '2-minute version', rhythm: 'daily' });
   }
+  const firstGoalId = crypto.randomUUID();
+  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'short', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
+  S.habits.forEach((habit) => { habit.goal_id = firstGoalId; });
+  const openDraft = !!ob.brainDump.trim();
+  if (openDraft) {
+    const draft = { id: crypto.randomUUID(), raw_text: ob.brainDump.trim(), status: 'draft', created_at: new Date().toISOString(), items: [], ids: {} };
+    S.brain.drafts.unshift(draft);
+    S.brain.activeDraftId = draft.id;
+    brainStage = 'dump';
+    arcWorkspace = 'brain';
+  }
   S.reminders = { mode: ob.remMode, time: ob.remTime };
   S.onboarded = true;
   save();
@@ -7352,7 +8532,7 @@ function finishOnboarding() {
   if (S.reminders.mode !== 'off' && 'Notification' in window && Notification.permission === 'default') {
     Notification.requestPermission();
   }
-  tab = 'today';
+  tab = openDraft ? 'progress' : 'today';
   render();
   confetti();
 }
@@ -7388,9 +8568,184 @@ document.addEventListener('click', (e) => {
   switch (act) {
     case 'side-open': navOpen = true; render(); break;
     case 'side-close': navOpen = false; render(); break;
-    case 'more-toggle': moreOpen = !moreOpen; render(); break;
-    case 'more-close': moreOpen = false; render(); break;
-    case 'tab': switchTab(id); break;
+    case 'more-toggle': setToolsMenu(!moreOpen); break;
+    case 'more-close': setToolsMenu(false); break;
+    case 'tab': if (id === 'progress' && el.classList.contains('pd-next')) arcWorkspace = 'map'; switchTab(id); break;
+    case 'habits-add-scroll': document.getElementById('habitsAdd')?.scrollIntoView({ behavior: Arc90Motion.reduced() ? 'auto' : 'smooth', block: 'start' }); document.getElementById('customName')?.focus({ preventScroll: true }); break;
+    case 'progress-range': {
+      const range = Number(id);
+      if (![7, 30, 90].includes(range) || range === progressRange) break;
+      progressRange = range;
+      progressSelected = range === 7 ? 6 : 5;
+      render();
+      document.querySelector('.approved-chart')?.classList.add('chart-refresh');
+      document.querySelector(`[data-act="progress-range"][data-id="${range}"]`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'progress-point': {
+      progressSelected = Math.max(0, Number(id) || 0);
+      render();
+      document.querySelector(`[data-act="progress-point"][data-id="${progressSelected}"]`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'mood-point': {
+      moodSelected = Math.max(0, Number(id) || 0);
+      render();
+      document.querySelector(`[data-act="mood-point"][data-id="${moodSelected}"]`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'support-capacity': {
+      if (![5, 15, 30, 60].includes(Number(id))) break;
+      S.daySupport = { ...daySupport(), capacity: Number(id), picks: [] }; save(); render();
+      document.querySelector('[data-act="support-reset"][data-id="capacity"]')?.focus({ preventScroll: true }); break;
+    }
+    case 'support-friction': {
+      if (!['time', 'energy', 'distractions', 'unsure'].includes(id)) break;
+      S.daySupport = { ...daySupport(), friction: id }; save(); render();
+      document.querySelector('[data-act="support-reset"][data-id="friction"]')?.focus({ preventScroll: true }); break;
+    }
+    case 'support-reset': {
+      const support = daySupport();
+      if (id === 'capacity') { support.capacity = null; support.picks = []; }
+      else if (id === 'friction') support.friction = '';
+      else break;
+      S.daySupport = support; save(); render();
+      document.querySelector(`[data-act="support-${id}"]`)?.focus({ preventScroll: true }); break;
+    }
+    case 'support-plan': sheet = { type: 'support', date: todayKey(), plan: supportPlan() }; render(); break;
+    case 'support-apply': {
+      if (sheet?.date !== todayKey()) { closeSheet(); showNudge('A new day has started. Choose today\'s capacity.'); break; }
+      const plan = supportPlan();
+      if (JSON.stringify(plan) !== JSON.stringify(sheet.plan)) {
+        sheet.plan = plan; render(); showNudge('Your habits changed. Review the updated picks before applying.'); break;
+      }
+      if (!plan.items.length) { render(); break; }
+      S.daySupport = { ...daySupport(), picks: plan.items.map((item) => String(item.id)) };
+      S.adaptive.date = todayKey(); S.adaptive.mode = 'busy'; save(); closeSheet();
+      document.querySelector('.today-habits-section')?.scrollIntoView({ block: 'start', behavior: 'instant' }); break;
+    }
+    case 'support-help': {
+      const friction = daySupport().friction;
+      if (friction === 'time') { S.adaptive.date = todayKey(); S.adaptive.mode = 'busy'; save(); render(); showNudge('Busy mode is on. Your previous check-offs are unchanged.'); }
+      else if (friction === 'energy') { sheet = { type: 'adaptive', pendingMode: 'recovery', date: todayKey() }; render(); }
+      else if (friction === 'distractions') {
+        const h = supportFocusHabit();
+        if (h || S.focus.active || S.focus.pendingCompletion) { sheet = { type: 'ritual', id: h?.id, date: todayKey() }; render(); }
+      } else if (friction === 'unsure') { sheet = { type: 'support', kind: 'next', date: todayKey() }; render(); }
+      break;
+    }
+    case 'support-pick': {
+      if (sheet?.date !== todayKey()) { closeSheet(); break; }
+      const h = pendingSupportHabits().find((item) => String(item.id) === id);
+      if (!h) { render(); break; }
+      S.daySupport = { ...daySupport(), picks: [String(h.id)] }; save(); closeSheet();
+      document.querySelector('.today-habits-section')?.scrollIntoView({ block: 'start', behavior: 'instant' }); break;
+    }
+    case 'daymode-open': sheet = { type: 'daymode', date: todayKey() }; render(); break;
+    case 'adaptive-mode': {
+      if (!['full', 'busy', 'recovery'].includes(id)) break;
+      if (sheet?.type === 'daymode' && sheet.date !== todayKey()) {
+        closeSheet(); showNudge('A new day has started. Open Your day again.'); break;
+      }
+      if (id === 'recovery' && !S.habits.some((h) => S.adaptive.essentialIds.includes(String(h.id)))) {
+        sheet = { type: 'adaptive', pendingMode: 'recovery', date: todayKey() }; render(); break;
+      }
+      S.adaptive.date = todayKey(); S.adaptive.mode = id; save();
+      if (sheet?.type === 'daymode') closeSheet(); else render();
+      break;
+    }
+    case 'adaptive-recommend': {
+      if (!['full', 'busy', 'recovery'].includes(id)) break;
+      if (sheet?.type !== 'daymode' || sheet.date !== todayKey()) {
+        closeSheet(); showNudge('A new day has started. Open Your day again.'); break;
+      }
+      if (adaptiveRecommendation().mode !== id) {
+        render(); showNudge('Your signals changed. Review the updated suggestion.'); break;
+      }
+      if (id === 'recovery' && !S.habits.some((h) => S.adaptive.essentialIds.includes(String(h.id)))) {
+        sheet = { type: 'adaptive', pendingMode: 'recovery', date: todayKey() }; render(); break;
+      }
+      S.adaptive.date = todayKey(); S.adaptive.mode = id; save(); closeSheet();
+      showNudge(`${{ full: 'Full', busy: 'Busy', recovery: 'Recovery' }[id]} day is on. Your check-offs are unchanged.`);
+      break;
+    }
+    case 'adaptive-essentials': sheet = { type: 'adaptive' }; render(); break;
+    case 'adaptive-save': {
+      if (sheet?.pendingMode && sheet.date !== todayKey()) { closeSheet(); showNudge('A new day has started. Choose today\'s essentials again.'); break; }
+      const ids = [...document.querySelectorAll('input[name="essential"]:checked')].map((input) => input.value);
+      if (!ids.length) { showNudge('Choose at least one essential.'); break; }
+      S.adaptive.essentialIds = ids;
+      if (sheet?.pendingMode) { S.adaptive.date = todayKey(); S.adaptive.mode = sheet.pendingMode; }
+      save(); closeSheet(); break;
+    }
+    case 'adaptive-reset-hints': S.adaptive.dismissed = {}; save(); render(); break;
+    case 'adaptive-check': {
+      const h = S.habits.find((item) => String(item.id) === id);
+      if (!h) break;
+      const sourceWasNextMove = el.classList.contains('next-move-action');
+      const activeArcRing = document.querySelector('.hero-card .ring-fill');
+      const previousArcOffset = activeArcRing ? parseFloat(getComputedStyle(activeArcRing).strokeDashoffset) : NaN;
+      const previousCompletion = todayCompletion();
+      const previousStreak = dayStreak();
+      const completing = !isCompleted(h.id, todayKey());
+      setStatus(h.id, todayKey(), completing ? adaptiveTarget(h).status : null);
+      const milestone = completing ? claimStreakMilestone(previousStreak, dayStreak()) : 0;
+      if (completing && !Arc90Motion.reduced() && navigator.vibrate) navigator.vibrate(12);
+      render();
+      animateHabitProgress(previousArcOffset);
+      animateHistoryProgress(completing);
+      const button = [...document.querySelectorAll('.adaptive-habit-item [data-act="adaptive-check"]')]
+        .find((node) => node.dataset.id === String(h.id));
+      if (completing) {
+        button?.closest('.adaptive-habit-item')?.classList.add('just-completed');
+        Arc90Motion.pulsePurpose(button?.closest('.adaptive-habit-item'));
+        if (milestone && !Arc90Motion.reduced()) {
+          document.querySelector('.hero-card')?.classList.add('streak-milestone');
+          if (navigator.vibrate) navigator.vibrate(35);
+        }
+      }
+      (sourceWasNextMove ? document.querySelector('.next-move-action') || button : button || document.querySelector('.next-move-action'))
+        ?.focus({ preventScroll: true });
+      celebrateTodayCompletion(previousCompletion);
+      if (completing) showFeelNudge(h, milestone);
+      break;
+    }
+    case 'adaptive-window': sheet = { type: 'window', id }; render(); break;
+    case 'adaptive-dismiss': S.adaptive.dismissed[id] = true; save(); closeSheet(); break;
+    case 'adaptive-remind': {
+      const h = S.habits.find((item) => String(item.id) === id);
+      const timing = h && bestHabitWindow(h);
+      if (!timing) break;
+      S.reminders.mode = 'daily'; S.reminders.time = `${String(timing.startHour).padStart(2, '0')}:00`;
+      save(); closeSheet(); syncPushSubscription();
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(() => syncPushSubscription()).catch(() => {});
+      showNudge('Daily reminder updated. Delivery depends on notification permission.'); break;
+    }
+    case 'ritual-open': sheet = { type: 'ritual', id, date: todayKey(), minutes: Number(el.dataset.minutes) || null }; render(); break;
+    case 'ritual-start': {
+      if (S.focus.active || S.focus.pendingCompletion) { render(); break; }
+      if (sheet?.date !== todayKey()) {
+        sheet = { type: 'ritual', id, date: todayKey() }; render();
+        showNudge('A new day has started. Review today\'s target before starting.'); break;
+      }
+      const h = S.habits.find((item) => String(item.id) === id);
+      const input = document.getElementById('ritualMinutes');
+      const minutes = Number(input?.value);
+      if (!h) break;
+      if (!input?.value || !Number.isInteger(minutes) || minutes < 1 || minutes > 180) { invalidField(input, 'Choose 1 to 180 whole minutes.'); break; }
+      const target = adaptiveTarget(h);
+      const strict = focusNativeBridgeAvailable() && !!document.getElementById('ritualShield')?.checked;
+      startFocusSession(minutes, target.label, strict, { habitId: String(h.id), goalDate: todayKey(), targetStatus: target.status, targets: [target.label] });
+      closeSheet(); break;
+    }
+    case 'ritual-stop': finishFocusSession('ended'); closeSheet(); showNudge('Session ended. Your habit is unchanged.'); break;
+    case 'ritual-complete': {
+      const pending = S.focus.pendingCompletion;
+      const h = pending && S.habits.find((item) => String(item.id) === pending.habitId);
+      if (h && !isCompleted(h.id, pending.date)) setStatus(h.id, pending.date, pending.status);
+      S.focus.pendingCompletion = null; save(); closeSheet(); break;
+    }
+    case 'ritual-dismiss': S.focus.pendingCompletion = null; save(); closeSheet(); break;
     case 'toggle': toggle(isNaN(+id) ? id : +id); break;
     case 'comeback': sheet = { type: 'comeback', n: 0 }; render(); track('comeback_opened'); break;
     case 'comeback-other': sheet = { type: 'comeback', n: ((sheet && sheet.n) || 0) + 1 }; render(); break;
@@ -7430,23 +8785,36 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'shuffle-tip': S.tipSeed++; save(); render(); break;
-    case 'close-sheet': sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false; render(); break;
+    case 'close-sheet': dismissSheet(); break;
+    case 'auth-request': submitAuth(false); break;
+    case 'auth-verify': submitAuth(true); break;
+    case 'auth-change': if (!authBusy) { authCodeSent = false; authStatus = ''; render(); } break;
+    case 'auth-out': window.arc90Auth?.signOut(); authCodeSent = false; authStatus = ''; aiError = ''; render(); break;
     case 'restore-premium': {
-      const email = window.prompt('Enter the email you used at checkout:');
-      if (!email || !email.trim()) break;
+      if (!window.arc90Auth?.isSignedIn()) {
+        sheet = null; tab = 'profile'; render();
+        showNudge('Sign in with your purchase email to restore Premium.');
+        document.getElementById('authEmail')?.focus();
+        break;
+      }
       showNudge('Checking your purchase…');
-      fetch('/api/entitlement?email=' + encodeURIComponent(email.trim()))
-        .then((r) => r.json())
+      authenticatedHeaders()
+        .then((headers) => fetch('/api/entitlement', { headers }))
+        .then((r) => {
+          if (r.status === 401) throw new Error('Sign in again to restore your purchase.');
+          if (!r.ok) throw new Error('Purchase verification is temporarily unavailable. Please try again later.');
+          return r.json();
+        })
         .then((d) => {
           if (d && d.premium) {
             S.premium = true; save(); sheet = null; render(); confetti();
             showNudge('Premium restored. Welcome back. ✨');
             track('premium_restored');
           } else {
-            showNudge('No active purchase found for that email.');
+            showNudge('No active purchase found for your signed-in account.');
           }
         })
-        .catch(() => showNudge('Could not reach the server — try again when online.'));
+        .catch((error) => showNudge(error instanceof TypeError || error instanceof SyntaxError ? 'Could not reach purchase verification. Please try again later.' : error.message));
       break;
     }
     case 'library-toggle': libraryOpen = !libraryOpen; render(); break;
@@ -7456,11 +8824,11 @@ document.addEventListener('click', (e) => {
     case 'lib-toggle': {
       const n = +id;
       if (S.habits.some((x) => x.id === n)) { removeHabit(n); render(); }
-      else if (!S.premium && S.habits.length >= FREE_HABITS) gate('habit-limit');
+      else if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) gate('habit-limit');
       else { addHabit(n); render(); }
       break;
     }
-    case 'remove': removeHabit(id); render(); break;
+    case 'remove': removeHabit(id); if (sheet?.type === 'task' && String(sheet.id) === String(id)) sheet = null; render(); break;
     case 'rhythm-sheet': sheet = { type: 'task', id }; render(); break;
     case 'rhythm-set': {
       const h = S.habits.find((x) => String(x.id) === String(id));
@@ -7476,8 +8844,16 @@ document.addEventListener('click', (e) => {
       if (!h) break;
       const name = document.getElementById('habitName');
       const min = document.getElementById('habitMin');
+      const goal = document.getElementById('habitGoal');
+      const area = document.getElementById('habitArea');
       if (name && name.value.trim()) h.name = name.value.trim();
       if (min && min.value.trim()) h.min = min.value.trim();
+      if (goal) {
+        const selected = (S.brain?.goals || []).find(item => item.id === goal.value && item.status === 'active' && item.horizon !== 'long');
+        h.goal_id = selected?.id || null;
+        if (S.brain) S.brain.dirty = true;
+      }
+      if (area) h.life_area = Object.hasOwn(LIFE_AREAS, area.value) ? area.value : null;
       save();
       render();
       showNudge('Habit tuned. Your tracker just got more personal.');
@@ -7510,6 +8886,7 @@ document.addEventListener('click', (e) => {
       if (!wasAll && allDoneToday()) confetti();
       break;
     }
+    case 'history-toggle': toggleTodayHistory(); break;
     case 'day-open': sheet = { type: 'day', date: id || todayKey() }; render(); break;
     case 'day-status': {
       const k = el.dataset.date || todayKey();
@@ -7521,7 +8898,10 @@ document.addEventListener('click', (e) => {
       if (k === todayKey() && !wasAll && allDoneToday()) confetti();
       break;
     }
-    case 'mood-quick': setQuickMood(id); break;
+    case 'mood-quick': {
+      const moodRect = document.querySelector('.today-mood .mood-cursor')?.getBoundingClientRect();
+      setQuickMood(id); animateSignalFeedback('mood-quick', id, { moodRect }); break;
+    }
     case 'energy-quick': setQuickEnergy(id); break;
     case 'stress-quick': setQuickScale('stress', id, 'Stress', stressLabel); break;
     case 'focusq-quick': setQuickScale('focusQ', id, 'Focus', focusQLabel); break;
@@ -7538,24 +8918,28 @@ document.addEventListener('click', (e) => {
       else document.querySelector('.today-stop-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
       break;
     }
-    case 'today-habits-scroll': document.querySelector('.today-reps-head')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
+    case 'today-habits-scroll': document.querySelector('.today-habits-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' }); break;
     case 'task-add': {
       const ti = document.getElementById('taskTitle');
       const du = document.getElementById('taskDue');
       const rm = document.getElementById('taskRemind');
       const title = ti ? ti.value.trim() : '';
       if (!title) { showNudge('Add a task name first.'); if (ti) ti.focus(); break; }
+      if (title.length > 200) { invalidField(ti, 'Keep the task name to 200 characters or fewer.'); break; }
+      if (du && (du.validity.badInput || (du.value && !Number.isFinite(new Date(du.value).getTime())))) { invalidField(du, 'Enter a valid deadline, or leave it blank.'); break; }
+      if (!planningCommit(() => {
       S.taskSeq = (S.taskSeq || 0) + 1;
       S.tasks.push({
         id: 't' + Date.now() + '-' + S.taskSeq,
         title,
+        horizon: 'short', goal_id: null,
         due: du && du.value ? du.value : '',
         remind: rm ? rm.checked : true,
         done: false,
         notified: false,
         created: Date.now(),
       });
-      save();
+      })) break;
       render();
       showNudge('Task added.');
       if (du && du.value && rm && rm.checked && 'Notification' in window && Notification.permission === 'default') {
@@ -7564,18 +8948,32 @@ document.addEventListener('click', (e) => {
       break;
     }
     case 'task-toggle': {
-      const t = S.tasks.find((x) => x.id === id);
-      if (t) { t.done = !t.done; if (t.done) t.notified = true; save(); render(); }
+      const t = S.tasks.find((x) => String(x.id) === id);
+      if (t && planningCommit(() => { t.done = !t.done; if (t.done) t.notified = true; S.brain.dirty = true; })) render();
       break;
     }
     case 'task-del': {
-      S.tasks = S.tasks.filter((x) => x.id !== id);
-      save();
-      render();
+      if (planningCommit(() => {
+        S.tasks = S.tasks.filter((x) => String(x.id) !== id);
+        S.brain.deletedTaskIds = [...new Set([...(S.brain.deletedTaskIds || []), id])];
+        S.brain.dirty = true;
+      })) render();
       break;
     }
     case 'feel-set': recordFeel(el.dataset.hid, id); break;
     case 'review': sheet = { type: 'review', date: todayKey() }; render(); break;
+    case 'practice-meditate': {
+      if (!S.focus.active && !S.focus.pendingCompletion) {
+        const minutes = Number(el.dataset.minutes);
+        if (![2, 5, 10].includes(minutes)) break;
+        startFocusSession(minutes, 'Meditation', false, { targets: ['Meditation'] });
+      }
+      if (tab === 'focus') {
+        window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+        render();
+      } else switchTab('focus');
+      break;
+    }
     case 'intention-save': {
       const k = todayKey();
       const l = dlog(k);
@@ -7606,8 +9004,8 @@ document.addEventListener('click', (e) => {
       break;
     }
 
-    case 'paywall': track('paywall_viewed'); sheet = { type: 'paywall' }; render(); break;
-    case 'paywall-ctx': track('paywall_viewed', { context: id }); sheet = { type: 'paywall', context: id }; render(); break;
+    case 'paywall': if (previewAccessActive()) break; track('paywall_viewed'); sheet = { type: 'paywall' }; render(); break;
+    case 'paywall-ctx': if (previewAccessActive()) break; track('paywall_viewed', { context: id }); sheet = { type: 'paywall', context: id }; render(); break;
     case 'premium-on': S.premium = true; save(); sheet = null; render(); confetti(); break;
     case 'premium-off': S.premium = false; save(); render(); break;
 
@@ -7615,12 +9013,30 @@ document.addEventListener('click', (e) => {
     case 'axis-mode': axisMode = id; render(); break;
     case 'forge-start': startForge(); break;
     case 'forge-end': S.forge = null; save(); render(); break;
-    case 'focus-start': {
-      const nativeSent = startFocusSession(Number(el.dataset.minutes) || 30, el.dataset.label || 'Focus session', el.dataset.strict !== '0');
+    case 'focus-settings-toggle': focusSettingsOpen = !focusSettingsOpen; render(); break;
+    case 'focus-duration-select': {
+      const minutes = Number(el.dataset.minutes);
+      if (S.focus.active || S.focus.pendingCompletion || !focusDurations().includes(minutes)) break;
+      focusLength = { mode: adaptiveMode(), minutes };
       render();
-      showNudge(nativeSent
-        ? `${el.dataset.label || 'Focus session'} started. Native shield requested.`
-        : `${el.dataset.label || 'Focus session'} started. This build tracks focus; native Screen Time blocking is not connected yet.`);
+      document.querySelector(`[data-act="focus-duration-select"][data-minutes="${minutes}"]`)?.focus({ preventScroll: true });
+      break;
+    }
+    case 'focus-start': {
+      if (S.focus.active || S.focus.pendingCompletion) { sheet = { type: 'ritual' }; render(); break; }
+      const habit = S.habits.find((item) => String(item.id) === String(el.dataset.habitId || ''));
+      const target = habit ? adaptiveTarget(habit) : null;
+      const ritual = habit ? {
+        habitId: String(habit.id),
+        goalDate: todayKey(),
+        targetStatus: el.dataset.targetStatus === 'min' || target?.status === 'min' ? 'min' : 'done',
+        targets: [habit.name],
+      } : null;
+      const protectionStatus = startFocusSession(Number(el.dataset.minutes) || 30, el.dataset.label || 'Focus session', el.dataset.strict !== '0', ritual);
+      render();
+      showNudge(protectionStatus === 'requested'
+        ? 'Focus started. Screen Time protection was requested.'
+        : 'Focus started. Your timer is running.');
       break;
     }
     case 'focus-end': {
@@ -7632,22 +9048,42 @@ document.addEventListener('click', (e) => {
     }
     case 'focus-unlock': {
       if (!S.focus.active) break;
-      if (!confirm('Emergency unlock?\n\nArc90 will log this break so you can spot the pattern later.')) break;
       S.focus.active.unlocks = (S.focus.active.unlocks || 0) + 1;
       S.focus.seq++;
-      S.focus.unlocks.unshift({ id: `fu${S.focus.seq}`, date: todayKey(), reason: 'Emergency unlock', label: S.focus.active.label });
+      S.focus.unlocks.unshift({ id: `fu${S.focus.seq}`, date: todayKey(), reason: 'Distraction', label: S.focus.active.label });
       save();
       render();
-      showNudge('Unlock logged. That is data, not failure.');
+      showNudge('Distraction noted. Come back to your focus.');
+      break;
+    }
+    case 'focus-native-stop-retry': {
+      const cleanup = S.focus.pendingNativeStop;
+      if (!cleanup || !focusNativeBridgeAvailable()) break;
+      const requestId = requestNativeFocusShield('stop', { scope: 'session-cleanup' });
+      if (!requestId) { showNudge('Screen Time could not receive the cleanup request.'); break; }
+      S.focus.pendingNativeStop = { requestId, status: 'requested', label: cleanup.label };
+      save();
+      render();
+      showNudge('Asking Screen Time to confirm protection is off.');
       break;
     }
     case 'focus-allday-toggle': {
+      if (!focusNativeBridgeAvailable()) { showNudge('App blocking needs Apple Screen Time access. The focus timer still works.'); break; }
       const cur = allDayLockActive();
       if (!cur && !focusStats().blockedCount) { showNudge('Add at least one app or site to lock first.'); break; }
-      S.focus.allDayLock = { on: !cur, date: todayKey() };
+      const pendingAction = cur ? 'stop' : 'start';
+      const requestId = requestNativeFocusShield(pendingAction, {
+        scope: 'all-day',
+        date: todayKey(),
+        until: (() => { const end = new Date(); end.setHours(S.preferences.dayStartHour, 0, 0, 0); if (end <= new Date()) end.setDate(end.getDate() + 1); return end.toISOString(); })(),
+        apps: S.focus.apps,
+        sites: S.focus.sites,
+      });
+      if (!requestId) { showNudge('Screen Time could not receive that request. Try again.'); break; }
+      S.focus.allDayLock = { on: cur, date: todayKey(), status: 'requested', confirmed: !!S.focus.allDayLock.confirmed, requestId, pendingAction };
       save();
       render();
-      showNudge(!cur ? 'All-day lock on — apps shielded until midnight. 🔒' : 'All-day lock off. Freedom restored.');
+      showNudge(cur ? 'Asking Screen Time to turn protection off.' : 'Asking Screen Time to protect the rest of today.');
       break;
     }
     case 'focus-app-toggle': toggleFocusItem('apps', id); render(); break;
@@ -7682,21 +9118,13 @@ document.addEventListener('click', (e) => {
       render();
       break;
 
-    case 'ai-provider': S.ai.provider = id; save(); render(); break;
-    case 'ai-connect': {
-      const k = document.getElementById('aiKey');
-      if (k && k.value.trim()) { S.ai.key = k.value.trim(); save(); render(); }
-      break;
-    }
-    case 'ai-disconnect': S.ai.key = ''; S.aiChat = []; save(); render(); break;
     case 'coach-ask': {
       const q = el.dataset.q || '';
-      if (!S.ai || !S.ai.key) { showNudge('Connect an AI provider below and your coach can answer this live.'); break; }
       const inp = document.getElementById('aiInput');
       if (inp) { inp.value = q; sendAI(); }
       break;
     }
-    case 'ai-clear': S.aiChat = []; save(); render(); break;
+    case 'ai-clear': if (!aiBusy) { S.aiChat = []; aiError = ''; save(); render(); } break;
     case 'ai-send': sendAI(); break;
     case 'weekly-ai-refresh': {
       S.weeklyReviews[weekReviewKey()] = weeklyCoachReview();
@@ -7757,7 +9185,8 @@ document.addEventListener('click', (e) => {
     }
     case 'proto-save': {
       const name = document.getElementById('pName');
-      if (!name || !name.value.trim()) break;
+      if (!name || !name.value.trim()) { invalidField(name, 'Enter a protocol name.'); break; }
+      if (name.value.trim().length > 120) { invalidField(name, 'Keep the protocol name to 120 characters or fewer.'); break; }
       const type = document.querySelector('#pTypeChips .chip.on');
       const freq = document.querySelector('#pFreqSeg button.on');
       const slot = document.querySelector('#pSlotSeg button.on');
@@ -7922,8 +9351,10 @@ document.addEventListener('click', (e) => {
     }
     case 'vital-save': {
       const key = el.dataset.key;
+      if (!['sleep', 'water', 'steps', 'weight', 'rhr', 'hrv', 'vo2', 'kcal', 'exercise', 'distance', 'flights', 'spo2', 'resp'].includes(key)) break;
       const inp = document.getElementById('vital-' + key);
       if (!inp) break;
+      if (!validNumberField(inp, { max: key === 'sleep' ? 18 : key === 'spo2' ? 100 : Infinity, integer: ['water', 'steps', 'flights'].includes(key) })) break;
       const raw = inp.value.trim();
       const k = todayKey();
       if (key === 'sleep') setSleepDay(k, { hours: raw === '' ? '' : Math.max(0, Math.min(18, Number(raw) || 0)) });
@@ -7940,6 +9371,7 @@ document.addEventListener('click', (e) => {
     case 'sleep-save': {
       const k = sleepEditKey && sleepDay(sleepEditKey) ? sleepEditKey : todayKey();
       const hours = document.getElementById('sleepHours');
+      if (!validNumberField(hours, { max: 18 })) break;
       const quality = document.querySelector('#sleepQualitySeg button.on');
       const raw = hours ? hours.value : '';
       setSleepDay(k, {
@@ -7954,15 +9386,16 @@ document.addEventListener('click', (e) => {
     case 'water-add': {
       const h = healthDay();
       setHealthDay(todayKey(), { water: h.water + 1 });
-      render(); break;
+      render(); animateSignalFeedback('water-add', undefined, { water: h.water }); break;
     }
     case 'water-sub': {
       const h = healthDay();
       setHealthDay(todayKey(), { water: h.water - 1 });
-      render(); break;
+      render(); animateSignalFeedback('water-sub', undefined, { water: h.water }); break;
     }
     case 'weight-save': {
       const inp = document.getElementById('weightInput');
+      if (!validNumberField(inp)) break;
       setHealthDay(todayKey(), { weight: inp ? inp.value : '' });
       render();
       showNudge('Weight saved privately on this device.');
@@ -7978,7 +9411,7 @@ document.addEventListener('click', (e) => {
 
     case 'reset': {
       if (confirm('Erase your challenge, habits and history?')) {
-        localStorage.removeItem(KEY); S = defaultState(); ob = null; tab = 'today'; sheet = null; render();
+        localStorage.removeItem(KEY); S = defaultState(); resetPlanningWorkspace(); ob = null; tab = 'today'; sheet = null; render();
       }
       break;
     }
@@ -8008,11 +9441,11 @@ document.addEventListener('click', (e) => {
             track('subscribed', { source: 'onboarding' });
             ob.step++; renderOnboarding();
           } else {
-            setErr((d && d.error) || 'Could not save — try again or skip.');
-            btn.disabled = false; btn.textContent = 'Save my spot';
+            setErr('Could not save your subscription. Try again later or skip.');
+            btn.disabled = false; btn.textContent = 'Email me updates';
           }
         })
-        .catch(() => { setErr('Network error — try again or skip.'); btn.disabled = false; btn.textContent = 'Save my spot'; });
+        .catch(() => { setErr('Network error — try again or skip.'); btn.disabled = false; btn.textContent = 'Email me updates'; });
       break;
     }
     case 'ob-back': ob.step--; renderOnboarding(); break;
@@ -8082,12 +9515,75 @@ document.addEventListener('click', (e) => {
 });
 
 document.addEventListener('keydown', (e) => {
+  const dialog = document.querySelector('.sheet[role="dialog"]');
+  if (e.key === 'Tab' && dialog) {
+    const items = [...dialog.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex="0"]')].filter((node) => node.getClientRects().length);
+    const first = items[0], last = items[items.length - 1];
+    if (!first) { e.preventDefault(); dialog.focus(); }
+    else if (!dialog.contains(document.activeElement) || document.activeElement === dialog || (e.shiftKey && document.activeElement === first) || (!e.shiftKey && document.activeElement === last)) {
+      e.preventDefault(); (e.shiftKey ? last : first).focus();
+    }
+  }
   if (e.key === 'Escape' && sheet) {
-    sheet = null; protoOpen = null; protoDetailOpen = null; protoAddOpen = false; protoUrgent = false;
-    render();
+    e.preventDefault();
+    dismissSheet();
+  } else if (e.key === 'Escape' && moreOpen) {
+    e.preventDefault();
+    setToolsMenu(false);
+  }
+});
+document.addEventListener('input', (e) => {
+  const field = e.target.dataset?.practiceField;
+  const date = e.target.dataset?.date;
+  if (['win', 'journal', 'gratitude'].includes(field) && /^\d{4}-\d{2}-\d{2}$/.test(date || '')) {
+    S.practices ||= {};
+    const entry = S.practices[date] || {};
+    if (field === 'win') S.log[date] = { ...dlog(date), intention: e.target.value };
+    if (field === 'journal') {
+      S.journal[date] = e.target.value;
+      entry.prompt = e.target.dataset.prompt;
+    }
+    if (field === 'gratitude') entry.gratitude = e.target.value;
+    S.practices[date] = entry;
+    try { save(); practiceSaveFailed = false; }
+    catch (_) { practiceSaveFailed = true; }
+    const status = document.getElementById('practiceSaveStatus');
+    if (status) status.textContent = practiceSaveFailed
+      ? 'Not saved. Keep this page open and try typing again.' : 'Saved on this device.';
+  }
+  if (typeof e.target.setCustomValidity === 'function') {
+    e.target.setCustomValidity('');
+    e.target.removeAttribute('aria-invalid');
   }
 });
 document.addEventListener('change', (e) => {
+  if (e.target.id === 'dayStartHour') {
+    const hour = Number(e.target.value);
+    if (Number.isInteger(hour) && hour >= 0 && hour <= 23) {
+      S.preferences.dayStartHour = hour; save(); render();
+    }
+  }
+  if (e.target.id === 'trackWater' || e.target.id === 'trackMood') { S.preferences.trackers = { ...(S.preferences.trackers || {}), [e.target.id === 'trackWater' ? 'water' : 'mood']: e.target.checked }; save(); render(); return; }
+  if (e.target.id === 'reducedMotion') {
+    S.preferences.reducedMotion = e.target.checked; save(); render();
+  }
+  if (e.target.id === 'shareNames') {
+    S.preferences.shareNames = e.target.checked; save(); render();
+  }
+  if (e.target.id === 'practiceDate') {
+    const date = e.target.value;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date) && date <= todayKey()) {
+      practiceDate = date === todayKey() ? null : date;
+      render();
+    } else e.target.value = practiceDate || todayKey();
+  }
+  if (e.target.id === 'previewAccessSwitch') {
+    const enabled = e.target.checked;
+    if (!window.Arc90PreviewAccess?.setEnabled(enabled)) showNudge('Could not update preview access on this device.');
+    lastPreviewAccess = previewAccessActive();
+    render();
+    document.getElementById('previewAccessSwitch')?.focus({ preventScroll: true });
+  }
   if (e.target.id === 'setTime') { S.reminders.time = e.target.value || '08:00'; save(); syncPushSubscription(); }
   if (e.target.id === 'importFile' && e.target.files && e.target.files[0]) {
     importDataFile(e.target.files[0]);
@@ -8103,41 +9599,221 @@ function closeSheet() {
   render();
 }
 
-/* Scroll choreography: collapsing header + subtle hero parallax.
-   Composited transform/opacity only; disabled under prefers-reduced-motion. */
-function wireScrollFX() {
-  if (window.__arcScrollFX) return;                 // one app-lifetime listener
-  if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-  window.__arcScrollFX = true;
-  let ticking = false;
-  window.addEventListener('scroll', () => {
-    if (ticking) return;
-    ticking = true;
-    requestAnimationFrame(() => {
-      ticking = false;
-      const y = Math.max(0, window.scrollY);
-      const top = document.querySelector('.topbar');
-      if (top) {
-        const k = Math.min(1, y / 150);
-        top.style.transform = `translateY(${(y * 0.16).toFixed(1)}px) scale(${(1 - k * 0.09).toFixed(3)})`;
-        top.style.transformOrigin = 'left top';
-        top.style.opacity = (1 - k * 0.5).toFixed(2);
-      }
-      const ring = document.querySelector('.hero-ring');
-      if (ring) ring.style.transform = y > 0 ? `translateY(${Math.min(34, y * 0.07).toFixed(1)}px)` : '';
-    });
-  }, { passive: true });
+function captureShellMotion() {
+  const nav = document.querySelector('.tabbar');
+  const active = nav?.querySelector('.tab-btn.open') || nav?.querySelector('.tab-btn.active');
+  return {
+    cursorLeft: document.querySelector('.tab-cursor')?.getBoundingClientRect().left,
+    activeKey: active?.dataset.id || (active ? 'tools' : null),
+    sheetType: document.querySelector('.sheet')?.dataset.sheetType,
+  };
+}
+
+function playShellMotion(previous) {
+  const reduced = Arc90Motion.reduced();
+  const nav = document.querySelector('.tabbar');
+  const cursor = nav?.querySelector('.tab-cursor');
+  const active = nav?.querySelector('.tab-btn.open') || nav?.querySelector('.tab-btn.active');
+  if (cursor && active) {
+    const rect = active.getBoundingClientRect();
+    const left = rect.left + rect.width / 2 - 12;
+    cursor.style.left = `${left - nav.getBoundingClientRect().left}px`;
+    const delta = previous.cursorLeft - left;
+    if (!reduced && typeof cursor.animate === 'function' && Number.isFinite(delta) && Math.abs(delta) > 1) {
+      cursor.animate([
+        { transform: `translateX(${delta}px) scaleX(1)` },
+        { transform: `translateX(${delta * .3}px) scaleX(1.35)`, offset: .45 },
+        { transform: 'translateX(0) scaleX(1)' },
+      ], { duration: 340, easing: 'cubic-bezier(.22,1,.36,1)' });
+      if (previous.activeKey !== (active.dataset.id || 'tools')) active.querySelector('svg')?.animate([
+        { transform: 'translateY(2px) scale(.9)' },
+        { transform: 'translateY(-1px) scale(1.06)', offset: .6 },
+        { transform: 'translateY(0) scale(1)' },
+      ], { duration: 300, easing: 'ease-out' });
+    }
+  }
+  const dialog = document.querySelector('.sheet');
+  if (!dialog || reduced || typeof dialog.animate !== 'function' || dialog.dataset.sheetType === previous.sheetType) return;
+  dialog.animate([
+    { transform: `translateY(${previous.sheetType ? 8 : 32}px)`, opacity: .45 },
+    { transform: 'translateY(0)', opacity: 1 },
+  ], { duration: 280, easing: 'cubic-bezier(.22,1,.36,1)' });
+  if (!previous.sheetType) document.querySelector('.sheet-bg')?.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 220 });
+}
+
+function dismissSheet() {
+  const dialog = document.querySelector('.sheet');
+  if (!sheet) return;
+  if (!dialog || document.hidden || typeof dialog.animate !== 'function' || Arc90Motion.reduced()) {
+    closeSheet(); return;
+  }
+  if (dialog.dataset.closing) return;
+  dialog.dataset.closing = 'true';
+  const closing = sheet;
+  const style = getComputedStyle(dialog);
+  const motion = dialog.animate([
+    { transform: style.transform, opacity: style.opacity },
+    { transform: `translateY(${dialog.getBoundingClientRect().height + 24}px)`, opacity: 0 },
+  ], { duration: 180, easing: 'cubic-bezier(.4,0,1,1)', fill: 'forwards' });
+  document.querySelector('.sheet-bg')?.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 180, fill: 'forwards' });
+  const finish = () => { if (sheet === closing && dialog.isConnected) closeSheet(); };
+  motion.finished.then(finish, finish);
+}
+
+function celebrateTodayCompletion(previous) {
+  const current = todayCompletion();
+  if (!previous.total || previous.done >= previous.total || !current.total || current.done !== current.total) return;
+  if (document.hidden || Arc90Motion.reduced()) return;
+  const hero = document.querySelector('.hero-card');
+  if (hero && !sheet) hero.classList.add('arc-fulfilled');
+  else confetti();
+}
+
+function animateSignalFeedback(act, id, previous = {}) {
+  const button = [...document.querySelectorAll('[data-act]')].find(node =>
+    node.dataset.act === act && (id === undefined || node.dataset.id === id));
+  const focusTarget = button?.disabled && act === 'water-sub'
+    ? document.querySelector('[data-act="water-add"]') : button;
+  focusTarget?.focus({ preventScroll: true });
+  if (Arc90Motion.reduced()) return;
+  button?.classList.add('signal-confirm');
+  if (act === 'water-add' || act === 'water-sub') {
+    const count = document.querySelector('.water-stepper strong');
+    count?.style.setProperty('--signal-travel', act === 'water-add' ? '6px' : '-6px');
+    count?.classList.add('signal-count-tick');
+    const current = count?.querySelector?.('.water-count-current');
+    if (current && Number.isFinite(previous.water) && previous.water !== Number(current.textContent) && typeof current.animate === 'function') {
+      count.classList.remove('signal-count-tick');
+      const outgoing = document.createElement('span');
+      outgoing.className = 'water-count-previous';
+      outgoing.setAttribute('aria-hidden', 'true');
+      outgoing.textContent = String(previous.water);
+      count.appendChild(outgoing);
+      const direction = act === 'water-add' ? 1 : -1;
+      current.animate([
+        { transform: `translateY(${direction * 100}%)`, opacity: 0 },
+        { transform: 'translateY(0)', opacity: 1 },
+      ], { duration: 240, easing: 'cubic-bezier(.22,1,.36,1)' });
+      const exit = outgoing.animate([
+        { transform: 'translateY(0)', opacity: 1 },
+        { transform: `translateY(${-direction * 100}%)`, opacity: 0 },
+      ], { duration: 240, easing: 'ease-out' });
+      exit.finished.then(() => outgoing.remove(), () => outgoing.remove());
+    }
+    const fill = document.querySelector('.water-progress > span');
+    if (fill && Number.isFinite(previous.water) && typeof fill.animate === 'function') {
+      fill.animate([
+        { transform: `scaleX(${Math.min(1, Math.max(0, previous.water) / Math.max(1, Number(S.health.settings.waterGoal) || 8))})` },
+        { transform: `scaleX(${fill.style.getPropertyValue('--water-progress')})` },
+      ], { duration: 240, easing: 'ease-out' });
+    }
+  }
+  if (act === 'mood-quick') {
+    const cursor = document.querySelector('.today-mood .mood-cursor');
+    if (!cursor || typeof cursor.animate !== 'function') return;
+    const to = cursor.getBoundingClientRect();
+    const from = previous.moodRect;
+    if (from && to.width && to.height) cursor.animate([
+      { transform: `translate(${from.left - to.left}px, ${from.top - to.top}px) scale(${from.width / to.width}, ${from.height / to.height})` },
+      { transform: 'translate(0, 0) scale(1)' },
+    ], { duration: 220, easing: 'cubic-bezier(.22,1,.36,1)' });
+    else cursor.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180 });
+  }
+}
+
+function animateHistoryProgress(completing) {
+  if (!completing || document.hidden || Arc90Motion.reduced()) return;
+  document.querySelectorAll('.today-history .cell.now').forEach(cell => {
+    cell.classList.add(cell.classList.contains('l3') ? 'history-fulfilled' : 'history-updated');
+  });
+}
+
+function animateHabitProgress(previousOffset) {
+  if (!Number.isFinite(previousOffset) || Arc90Motion.reduced()) return;
+  const ring = document.querySelector('.hero-card .ring-fill');
+  if (!ring) return;
+  ring.style.setProperty('--previous-arc-offset', String(previousOffset));
+  ring.style.setProperty('--next-arc-offset', ring.getAttribute('stroke-dashoffset'));
+  ring.classList.add('arc-updated');
+}
+
+let todayArcMotion = null;
+function cancelTodayArcAnimation() {
+  if (!todayArcMotion) return;
+  cancelAnimationFrame(todayArcMotion.frame);
+  todayArcMotion.animations.forEach(animation => animation.cancel());
+  todayArcMotion.counters.forEach(({ el, target, suffix }) => { el.textContent = target + suffix; });
+  todayArcMotion = null;
+}
+
+function animateTodayArc() {
+  if (tab !== 'today' || appRoom || sheet || moreOpen || document.hidden || document.getElementById('launchQuote')) return;
+  const hero = document.querySelector('.hero-card');
+  if (!hero || typeof hero.animate !== 'function' || Arc90Motion.reduced()) return;
+  if (todayArcMotion?.hero === hero) return;
+  cancelTodayArcAnimation();
+  const motion = { hero, animations: [], counters: [], frame: null };
+  todayArcMotion = motion;
+  const play = (el, frames, duration, delay = 0, easing = 'cubic-bezier(.22,1,.36,1)') => {
+    if (el) motion.animations.push(el.animate(frames, { duration, delay, easing, fill: 'backwards' }));
+  };
+  const reveal = (el, delay) => play(el, [{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'translateY(0)' }], 420, delay);
+  reveal(hero.querySelector('.hero-topline'), 0);
+  play(hero.querySelector('.hero-ring svg'), [
+    { opacity: .35, transform: 'rotate(-90deg) scale(.94)' },
+    { opacity: 1, transform: 'rotate(-90deg) scale(1)' },
+  ], 700, 40);
+  const fill = hero.querySelector('.ring-fill');
+  if (fill) {
+    const length = parseFloat(fill.getAttribute('stroke-dasharray')) || 364.425;
+    const offset = Math.max(0, Math.min(length, parseFloat(fill.getAttribute('stroke-dashoffset')) || 0));
+    play(fill, [{ strokeDashoffset: String(length) }, { strokeDashoffset: String(offset) }], 920, 120);
+  }
+  play(hero.querySelector('.arc-intro-trace'), [
+    { strokeDashoffset: '402.124', opacity: 0 },
+    { strokeDashoffset: '280', opacity: .8, offset: .25 },
+    { strokeDashoffset: '0', opacity: 0 },
+  ], 1100, 0, 'ease-in-out');
+  [...hero.querySelectorAll('.approved-hero-metrics > *, .hstat-note')].forEach((el, index) => reveal(el, 160 + index * 90));
+  reveal(hero.querySelector('.next-move'), 440);
+  motion.counters = [...hero.querySelectorAll('[data-countup]')].map(el => ({
+    el, target: parseInt(el.dataset.countup, 10) || 0, suffix: el.dataset.suffix || '',
+  }));
+  motion.counters.forEach(({ el, suffix }) => { el.textContent = '0' + suffix; });
+  const start = performance.now();
+  const tick = now => {
+    if (todayArcMotion !== motion) return;
+    if (!hero.isConnected || document.hidden || Arc90Motion.reduced()) {
+      cancelTodayArcAnimation(); return;
+    }
+    const progress = Math.max(0, Math.min(1, (now - start - 120) / 920));
+    const eased = 1 - Math.pow(1 - progress, 3);
+    motion.counters.forEach(({ el, target, suffix }) => { el.textContent = Math.round(target * eased) + suffix; });
+    if (now - start < 1120) motion.frame = requestAnimationFrame(tick);
+    else cancelTodayArcAnimation();
+  };
+  motion.frame = requestAnimationFrame(tick);
 }
 
 function wireAfterRender() {
-  wireScrollFX();
+  if (typeof brainWireMap === 'function') brainWireMap();
+  document.querySelectorAll('.field').forEach((field) => {
+    const label = field.querySelector('label');
+    const input = field.querySelector('input[id], textarea[id], select[id]');
+    if (label && input && !label.htmlFor) label.htmlFor = input.id;
+  });
+  const dialog = document.querySelector('.sheet[role="dialog"]');
+  document.querySelectorAll('#app > .screen').forEach((node) => { node.inert = !!dialog || moreOpen; });
+  document.querySelectorAll('#app > .tabbar-dock').forEach((node) => { node.inert = !!dialog; });
+  if (dialog) dialog.focus({ preventScroll: true });
   // Swipe the bottom sheet down to dismiss it back to the app (any sheet: share, paywall, proof…)
   const sheetEl = document.querySelector('.sheet');
   if (sheetEl && !sheetEl.dataset.swipe) {
     sheetEl.dataset.swipe = '1';
     let startY = 0, cur = 0, dragging = false;
     sheetEl.addEventListener('touchstart', (e) => {
-      if (sheetEl.scrollTop > 0) return;       // let inner content scroll first
+      if (sheetEl.scrollTop > 0 || sheetEl.dataset.closing || e.target.closest('input, textarea, select, a, button:not(.sheet-grab-zone)')) return;
+      sheetEl.getAnimations?.().forEach(animation => animation.cancel());
       startY = e.touches[0].clientY; cur = 0; dragging = true;
       sheetEl.style.transition = 'none';
     }, { passive: true });
@@ -8148,15 +9824,15 @@ function wireAfterRender() {
       sheetEl.style.transform = `translateY(${cur}px)`;
       sheetEl.style.opacity = String(Math.max(0.4, 1 - cur / 600));
     }, { passive: true });
-    const end = () => {
+    const end = (cancelled = false) => {
       if (!dragging) return;
       dragging = false;
       sheetEl.style.transition = '';
-      if (cur > 130) { closeSheet(); }
+      if (!cancelled && cur > 130) { dismissSheet(); }
       else { sheetEl.style.transform = ''; sheetEl.style.opacity = ''; }
     };
-    sheetEl.addEventListener('touchend', end, { passive: true });
-    sheetEl.addEventListener('touchcancel', end, { passive: true });
+    sheetEl.addEventListener('touchend', () => end(), { passive: true });
+    sheetEl.addEventListener('touchcancel', () => end(true), { passive: true });
   }
   // Pre-render sleep sounds so the first tap is instant and stays inside the gesture (iOS)
   if (tab === 'sleep' && SOUND_ENGINE.warm && !window.__arc90SoundsWarmed) {
@@ -8221,7 +9897,7 @@ function wireAfterRender() {
     if (list) list.innerHTML = libList();
   });
 
-  const map = [['obName', 'name'], ['obGoal', 'goal'], ['obWhy', 'motivation'], ['obTime', 'remTime'], ['obOcc', 'occCustom']];
+  const map = [['obName', 'name'], ['obGoal', 'goal'], ['obWhy', 'motivation'], ['obBrainDump', 'brainDump'], ['obTime', 'remTime'], ['obOcc', 'occCustom']];
   for (const [domId, key] of map) {
     const inp = document.getElementById(domId);
     if (inp) inp.addEventListener('input', () => {
@@ -8247,13 +9923,14 @@ function wireAfterRender() {
   }
 
   /* animated counters — only on tab entry; instant on in-place re-renders */
-  const animating = !!document.querySelector('.screen.anim');
+  const animating = !!document.querySelector('.screen.anim') && !Arc90Motion.reduced();
   document.querySelectorAll('[data-countup]').forEach((el) => {
     const target = parseInt(el.dataset.countup, 10) || 0;
     const suffix = el.dataset.suffix || '';
-    if (!animating) { el.textContent = target + suffix; return; }
+    if (!animating || el.closest('.hero-card')) { el.textContent = target + suffix; return; }
     const t0 = performance.now(), dur = 700;
     const tick = (t) => {
+      if (!el.isConnected) return;
       const p = Math.min(1, (t - t0) / dur);
       const eased = 1 - Math.pow(1 - p, 3);
       el.textContent = Math.round(target * eased) + suffix;
@@ -8320,14 +9997,12 @@ function shareCardSvg() {
       <stop offset="1" stop-color="#202131"/>
     </linearGradient>
     <linearGradient id="barGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#5ee4ff"/>
-      <stop offset="0.52" stop-color="#8f6bff"/>
-      <stop offset="1" stop-color="#c14cff"/>
+      <stop offset="0" stop-color="#9ac9ed"/>
+      <stop offset="1" stop-color="#b3dfbd"/>
     </linearGradient>
     <linearGradient id="ring" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5ee4ff"/>
-      <stop offset="0.52" stop-color="#8f6bff"/>
-      <stop offset="1" stop-color="#c14cff"/>
+      <stop offset="0" stop-color="#9ac9ed"/>
+      <stop offset="1" stop-color="#b3dfbd"/>
     </linearGradient>
     <style>
       .label{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;fill:#b8bbd4;font-size:28px;font-weight:800;letter-spacing:5px}
@@ -8339,8 +10014,8 @@ function shareCardSvg() {
     </style>
   </defs>
   <rect width="1080" height="1350" fill="url(#bgGrad)"/>
-  <circle cx="930" cy="90" r="260" fill="#8f6bff" opacity="0.18"/>
-  <circle cx="100" cy="1240" r="280" fill="#5ee4ff" opacity="0.08"/>
+  <circle cx="930" cy="90" r="260" fill="#b3dfbd" opacity="0.12"/>
+  <circle cx="100" cy="1240" r="280" fill="#9ac9ed" opacity="0.07"/>
   <rect x="70" y="70" width="940" height="1210" rx="58" fill="#11121c" opacity="0.94" stroke="#dce0ff" stroke-opacity="0.12"/>
 
   <text x="120" y="150" class="label">ARC90</text>
@@ -8391,6 +10066,7 @@ async function importDataFile(file) {
     const label = `${next.profile.name || 'Arc90 user'} · ${next.habits.length} habit${next.habits.length === 1 ? '' : 's'} · ${Object.keys(next.log).length} tracked day${Object.keys(next.log).length === 1 ? '' : 's'}`;
     if (!confirm(`Restore this backup?\n\n${label}\n\nThis replaces the Arc90 data on this device.`)) return;
     S = next;
+    resetPlanningWorkspace();
     ob = null;
     sheet = null;
     protoOpen = null;
@@ -8477,7 +10153,8 @@ function exportProtocolReport() {
    ============================================================ */
 
 function confetti() {
-  const colors = ['#5ee4ff', '#8f6bff', '#c14cff', '#f7f7ff', '#5ee4c2'];
+  if (document.hidden || Arc90Motion.reduced()) return;
+  const colors = ['#9ac9ed', '#b3dfbd', '#8fc99d', '#f2f4f6', '#d7e7da'];
   for (let i = 0; i < 30; i++) {
     const b = document.createElement('div');
     b.className = 'confetti-bit';
@@ -8515,7 +10192,10 @@ async function syncPushSubscription() {
   try {
     if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) return;
     if (Notification.permission !== 'granted') return;
-    if (!S.pushClientId) { S.pushClientId = 'c' + Math.random().toString(36).slice(2, 12) + Date.now().toString(36); save(); }
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(S.pushClientId)) {
+      S.pushClientId = crypto.randomUUID();
+      save();
+    }
     const reg = await navigator.serviceWorker.ready;
     const mode = S.reminders.mode;
     if (mode === 'off') {
@@ -8572,12 +10252,13 @@ function cheer() {
 }
 
 /* Post-habit check-in: a friendly, non-blocking nudge with feeling buttons. */
-function showFeelNudge(habit) {
+function showFeelNudge(habit, milestone = 0) {
   document.querySelector('.nudge')?.remove();
   const div = document.createElement('div');
   div.className = 'nudge feel-nudge';
   div.innerHTML = `
     <button class="nx" data-act="nudge-x" aria-label="Dismiss">✕</button>
+    ${milestone ? `<div class="streak-milestone-copy">${milestone} days. That's a pattern now.</div>` : ''}
     <div class="feel-q">How do you feel after <b>${esc(habit.name)}</b>?</div>
     <div class="feel-row">
       ${HABIT_FEELINGS.map((f) => `
@@ -8638,7 +10319,10 @@ function checkReminders() {
   for (const slot of reminderSlots()) {
     if (hhmm >= slot && !fired.includes(slot)) {
       fired.push(slot);
-      S.firedSlots = { [k]: fired };
+      S.firedSlots = {
+        ...Object.fromEntries(Object.entries(S.firedSlots).filter(([key]) => key.startsWith('streak:'))),
+        [k]: fired,
+      };
       save();
       const text = nudgeText();
       systemNotify('Arc90', text);
@@ -8655,7 +10339,7 @@ function checkTaskReminders() {
   let firedTab = false;
   for (const t of S.tasks) {
     if (t.done || t.notified || !t.remind || !t.due) continue;
-    if (new Date(t.due).getTime() <= now) {
+    if (taskDeadline(t.due).getTime() <= now) {
       t.notified = true; changed = true; firedTab = true;
       systemNotify('Arc90 · Task due', t.title);
       showNudge(`⏰ Task due: ${t.title}`);
@@ -8673,7 +10357,50 @@ setInterval(() => {
     if (changed || tab === 'focus') render();
   }
 }, 30000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { syncFocusState(); render(); checkReminders(); checkTaskReminders(); } });
+let lastAdaptiveDay = todayKey();
+let lastPreviewAccess = previewAccessActive();
+function closeStaleAdaptiveSheet() {
+  if (sheet?.type === 'daymode' || (sheet?.type === 'adaptive' && sheet.pendingMode)) sheet = null;
+}
+setInterval(() => {
+  if (!S.onboarded) return;
+  const preview = previewAccessActive();
+  if (lastPreviewAccess !== preview) {
+    lastPreviewAccess = preview;
+    if (preview && sheet?.type === 'paywall') sheet = null;
+    render();
+    return;
+  }
+  if (S.focus.active) {
+    if (syncFocusState()) { render(); return; }
+    document.querySelectorAll('.ritual-clock').forEach((node) => { node.textContent = ritualClock(S.focus.active); });
+    const angle = `${Math.round(focusProgress(S.focus.active) * 360)}deg`;
+    document.querySelectorAll('[data-focus-progress]').forEach((node) => { node.style.setProperty('--focus-angle', angle); });
+  }
+  const day = todayKey();
+  if (lastAdaptiveDay !== day) {
+    lastAdaptiveDay = day;
+    closeStaleAdaptiveSheet();
+    save();
+    render();
+  }
+}, 1000);
+let quoteHiddenAt = document.hidden ? Date.now() : null;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { quoteHiddenAt = Date.now(); return; }
+  const day = todayKey();
+  const showWelcome = day !== lastAdaptiveDay || (quoteHiddenAt !== null && Date.now() - quoteHiddenAt >= 60000);
+  const wasWriting = document.activeElement?.matches('input, textarea, [contenteditable="true"]');
+  quoteHiddenAt = null;
+  if (lastAdaptiveDay !== day) {
+    lastAdaptiveDay = day;
+    closeStaleAdaptiveSheet();
+    save();
+  }
+  syncFocusState(); render(); checkReminders(); checkTaskReminders();
+  if (showWelcome && !wasWriting && S.onboarded) showLaunchQuote();
+  if (!wasWriting) requestAnimationFrame(animateTodayArc);
+});
 
 /* sticky glass header: gains blur + hairline once the page scrolls */
 window.addEventListener('scroll', () => {
@@ -8693,7 +10420,7 @@ window.__seed = function (days = 30, premium = false) {
     S.onboarded = true;
   }
   S.premium = premium;
-  const today = atMidnight(new Date());
+  const today = atMidnight(operationalDate());
   S.profile.start = dkey(addDays(today, -(days - 1)));
   S.log = {};
   S.focus = defaultFocusState();
@@ -8709,7 +10436,7 @@ window.__seed = function (days = 30, premium = false) {
   const probs = S.habits.map((_, i) => i === 1 ? 0.93 : i === S.habits.length - 1 ? 0.34 : 0.72 + (i % 3) * 0.07);
   for (let i = days - 1; i >= 1; i--) {
     const k = dkey(addDays(today, -i));
-    const entry = { done: [], min: [], skip: [] };
+    const entry = { done: [], min: [], skip: [], scheduledIds: S.habits.filter((h) => scheduledFor(h, k)).map((h) => String(h.id)) };
     S.habits.forEach((h, j) => {
       const r = Math.random();
       if (r < probs[j] * 0.85) entry.done.push(h.id);
@@ -8736,7 +10463,12 @@ window.__seed = function (days = 30, premium = false) {
       }
     }
   }
-  S.log[todayKey()] = { done: S.habits.slice(0, 2).map((h) => h.id), min: [], skip: [] };
+  S.log[todayKey()] = {
+    done: S.habits.slice(0, 2).map((h) => h.id),
+    min: [],
+    skip: [],
+    scheduledIds: S.habits.filter((h) => scheduledFor(h, todayKey())).map((h) => String(h.id)),
+  };
   save(); render();
   return `seeded ${days} days (premium: ${premium})`;
 };
@@ -8750,6 +10482,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 }
 
 applyTheme();
-const bootNudge = consumeCheckoutReturn();
+if (captureTodaySchedule()) localStorage.setItem(KEY, JSON.stringify(S));
+const previewNudge = consumePreviewLink();
+lastPreviewAccess = previewAccessActive();
+const bootNudge = consumeCheckoutReturn() || previewNudge;
 render();
+if (!bootNudge) showLaunchQuote();
+Arc90LiveUpdate.confirmReady().then((confirmation) => {
+  if (confirmation.status !== 'confirmed') return confirmation;
+  return Arc90LiveUpdate.syncNativeUpdate();
+}).then((result) => {
+  if (result.status === 'ready') showNudge('Arc90 update ready. It will apply next time you open the app.');
+});
 if (bootNudge) setTimeout(() => showNudge(bootNudge), 500);

@@ -6,6 +6,7 @@
 //                    VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT, CRON_SECRET
 
 const webpush = require('web-push');
+const { validSubscription } = require('./_security');
 
 function sendJson(res, status, payload) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -31,6 +32,7 @@ function slotsFor(mode, remindTime) {
 }
 
 module.exports = async function handler(req, res) {
+  if (req.method !== 'GET') return sendJson(res, 405, { error: 'GET only' });
   const secret = process.env.CRON_SECRET;
   const auth = req.headers && req.headers.authorization;
   if (!secret || auth !== `Bearer ${secret}`) return sendJson(res, 401, { error: 'Unauthorized' });
@@ -55,6 +57,7 @@ module.exports = async function handler(req, res) {
     let sent = 0, skipped = 0, removed = 0;
 
     for (const row of subs) {
+      if (!validSubscription(row.subscription)) { skipped++; continue; }
       // This cron runs ONCE a day (Hobby-plan limit), so the old "past the slot"
       // gate (localMin >= slot) meant a reminder set later than the cron hour
       // could NEVER send. On a daily cron the only correct behavior is one nudge
@@ -66,7 +69,7 @@ module.exports = async function handler(req, res) {
 
       const copy = COPY[row.mode] || COPY.daily;
       try {
-        await webpush.sendNotification(row.subscription, JSON.stringify({ ...copy, url: '/app' }), { TTL: 4 * 3600 });
+        await webpush.sendNotification(row.subscription, JSON.stringify({ ...copy, url: '/app' }), { TTL: 4 * 3600, timeout: 10000 });
         sent++;
         await fetch(`${supabaseUrl}/rest/v1/push_subscriptions?client_id=eq.${encodeURIComponent(row.client_id)}`, {
           method: 'PATCH', headers, body: JSON.stringify({ last_sent_at: new Date().toISOString() }),
