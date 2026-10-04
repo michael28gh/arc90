@@ -48,4 +48,10 @@ assert.equal(c.S.habits[0].goal_id, null);
 assert.match(app, /title: ob\.goal\.trim\(\), horizon: 'mid'[\s\S]{0,200}S\.profile\.arcGoalId = firstGoalId;/);
 assert.match(app, /horizon: 'short', goal_id: arcGoalLink\(\),/, 'new tasks link to the arc goal');
 assert.match(app, /const arc = activeArcGoal\(\); if \(arc && arc\.title !== S\.profile\.goal\)/, 'editing the goal on You updates Arc');
-console.log('Goal model passed: mid-term arc goal, one-time safe migration, default links, synced titles.');
+// Onboarding: name, vision (focus areas + optional long-term vision), 90-day goal, habits; no brain dump step.
+assert.match(app, /const steps = \[obWelcome, obAbout, obVision, obGoal, obHabits, obReminders,/);
+assert.doesNotMatch(app, /function obBrain\(/, 'capture lives in Arc, not onboarding');
+assert.match(app, /if \(visionId\) S\.brain\.goals\.push\(\{ id: visionId, title: ob\.vision\.trim\(\), horizon: 'long'/);
+assert.match(app, /horizon: 'mid', parent_goal_id: visionId/, 'the 90-day goal rolls up to the vision when one is given');
+assert.match(app, /if \(key === 'goal'\) btn\.disabled = !ob\.goal\.trim\(\);/, 'the goal step only needs a goal');
+console.log('Goal model passed: mid-term arc goal, one-time safe migration, default links, synced titles, connected onboarding.');

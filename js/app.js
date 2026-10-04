@@ -194,7 +194,7 @@ let practiceSaveFailed = false;
 
 let ob = null;
 function freshOb() {
-  return { step: 0, name: '', occs: new Set(), occCustom: '', goal: '', motivation: '', brainDump: '', cats: new Set(), picked: new Set(), customs: [], remMode: 'daily', remTime: '08:00' };
+  return { step: 0, name: '', occs: new Set(), occCustom: '', goal: '', motivation: '', vision: '', brainDump: '', cats: new Set(), picked: new Set(), customs: [], remMode: 'daily', remTime: '08:00' };
 }
 
 function load() {
@@ -8273,7 +8273,7 @@ const OCCUPATIONS = [
 function renderOnboarding() {
   if (!ob) ob = freshOb();
   const isNative = !!(window.Capacitor && window.Capacitor.isNativePlatform && window.Capacitor.isNativePlatform());
-  const steps = [obWelcome, obAbout, obGoal, obBrain, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obEmail, obUpgrade];
+  const steps = [obWelcome, obAbout, obVision, obGoal, obHabits, obReminders, ...(isNative ? [obHealth] : []), obContract, obEmail, obUpgrade];
   const dotCount = steps.length - 2;
   const dots = ob.step === 0 ? '' :
     `<div class="ob-dots">${Array.from({ length: dotCount }, (_, x) => x + 1).map((i) => `<i class="${i <= ob.step ? 'on' : ''}"></i>`).join('')}</div>`;
@@ -8301,17 +8301,28 @@ function obWelcome() {
 function obAbout() {
   return `
     <div>
-      <div class="ob-title">First, <em>who's</em> doing this?</div>
-      <div class="ob-sub">Quick interview — 60 seconds, then we build your system. Pick everything that's true.</div>
-      <div class="field"><label>Your name</label>
-        <input id="obName" type="text" placeholder="e.g. Michael" value="${esc(ob.name)}" maxlength="32"/></div>
-      <div class="field"><label>What are you? <span style="color:var(--tx-3);font-weight:600">(select all that apply)</span></label>
-        <div class="chip-grid">
-          ${OCCUPATIONS.map((o) => `<button class="chip ${ob.occs.has(o) ? 'on' : ''}" data-act="ob-occ" data-id="${esc(o)}">${o}</button>`).join('')}
-        </div>
-        <div style="margin-top:10px"><input id="obOcc" type="text" placeholder="…add your own (e.g. Salsa dancer)" value="${esc(ob.occCustom)}" maxlength="40"/></div>
-      </div>
+      <div class="ob-title">First, what should we <em>call you</em>?</div>
+      <div class="ob-sub">Two minutes. You'll leave with a goal, your habits, and a map that connects them.</div>
+      <div class="field"><label for="obName">Your name</label>
+        <input id="obName" type="text" placeholder="e.g. Michael" value="${esc(ob.name)}" maxlength="32" autocomplete="given-name"/></div>
       <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${ob.name.trim() ? '' : 'disabled'}>Continue</button>
+    </div>`;
+}
+
+// Who you are becoming: 1-3 focus areas (they choose suggested habits) and an optional long-term vision.
+function obVision() {
+  return `
+    <div>
+      <div class="ob-title">Who are you <em>becoming</em>?</div>
+      <div class="ob-sub">Pick up to 3 areas to focus on. Add a big-picture vision if you have one.</div>
+      <div class="field"><label>Focus areas <span style="color:var(--tx-3);font-weight:600">(${ob.cats.size}/3)</span></label>
+        <div class="goal-grid">
+          ${GOAL_TYPES.map((g) => `<button class="goal-tile ${ob.cats.has(g.id) ? 'on' : ''}" data-act="ob-cat" data-id="${g.id}" aria-pressed="${ob.cats.has(g.id)}"><span class="ge">${g.emoji}</span><span class="gl">${g.label}</span></button>`).join('')}
+        </div>
+      </div>
+      <div class="field"><label for="obVision">Long-term vision <span style="color:var(--tx-3);font-weight:600">(optional)</span></label>
+        <input id="obVision" type="text" placeholder="e.g. Become a registered nurse" value="${esc(ob.vision)}" maxlength="80"/></div>
+      <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${ob.cats.size ? '' : 'disabled'}>Continue</button>
     </div>`;
 }
 
@@ -8319,25 +8330,13 @@ function obGoal() {
   return `
     <div>
       <div class="ob-title">Where are you in <em>90 days</em>?</div>
-      <div class="ob-sub">One headline goal — then pick up to 3 missions that feed it.</div>
-      <div class="field"><label>My 3-month goal</label>
+      <div class="ob-sub">${ob.vision.trim() ? `One goal that moves you toward <b>${esc(ob.vision.trim())}</b>.` : 'One headline goal for the next 90 days.'} Every habit you pick next will feed it.</div>
+      <div class="field"><label for="obGoal">My 90-day goal</label>
         <input id="obGoal" type="text" placeholder="e.g. Finish LVN school" value="${esc(ob.goal)}" maxlength="80"/></div>
-      <div class="field"><label>Why does it matter? <span style="color:var(--tx-3);font-weight:600">(optional)</span></label>
+      <div class="field"><label for="obWhy">Why does it matter? <span style="color:var(--tx-3);font-weight:600">(optional)</span></label>
         <input id="obWhy" type="text" placeholder="The reason you'll remember on hard days" value="${esc(ob.motivation)}" maxlength="100"/></div>
-      <div class="field"><label>Your missions <span style="color:var(--tx-3);font-weight:600">(pick up to 3 · ${ob.cats.size}/3)</span></label>
-        <div class="goal-grid">
-          ${GOAL_TYPES.map((g) => `<button class="goal-tile ${ob.cats.has(g.id) ? 'on' : ''}" data-act="ob-cat" data-id="${g.id}"><span class="ge">${g.emoji}</span><span class="gl">${g.label}</span></button>`).join('')}
-        </div>
-      </div>
-      <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${ob.goal.trim() && ob.cats.size ? '' : 'disabled'}>Continue</button>
+      <button class="btn ob-cta" data-act="ob-next" id="obNextBtn" ${ob.goal.trim() ? '' : 'disabled'}>Continue</button>
     </div>`;
-}
-
-function obBrain() {
-  return `<div><div class="ob-title">Empty your <em>head</em></div>
-    <div class="ob-sub">Tasks, ideas, worries, and goals. Your words stay as a draft until you choose to sort them.</div>
-    <div class="field"><label for="obBrainDump">Brain Dump</label><textarea id="obBrainDump" rows="8" maxlength="20000" placeholder="Everything on your mind. No order needed.">${esc(ob.brainDump)}</textarea></div>
-    <button class="btn ob-cta" data-act="ob-next">Continue</button></div>`;
 }
 
 function obSuggested() {
@@ -8424,7 +8423,7 @@ function obIdentity() {
 function obOccupation() {
   const parts = [...ob.occs].map((o) => o.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, '').trim());
   if (ob.occCustom.trim()) parts.push(ob.occCustom.trim());
-  return parts.filter(Boolean).slice(0, 3).join(' · ') || 'human';
+  return parts.filter(Boolean).slice(0, 3).join(' · ');
 }
 
 function obHealth() {
@@ -8456,7 +8455,7 @@ function obContract() {
       <div class="ob-title">Sign the <em>contract</em></div>
       <div class="ob-sub">A promise with a shape is harder to drop.</div>
       <div class="contract-card">
-        <div class="line">“I, <b>${esc(ob.name || 'me')}</b> — ${esc(occ)} by day, <b>${esc(identity)}</b> by choice — will show up for <b>${n} small habit${n === 1 ? '' : 's'}</b>, every day, for <b>90 days</b>, until: <b>${esc(ob.goal)}</b>.”</div>
+        <div class="line">“I, <b>${esc(ob.name || 'me')}</b>${occ ? ` — ${esc(occ)} by day,` : ' —'} <b>${esc(identity)}</b> by choice — will show up for <b>${n} small habit${n === 1 ? '' : 's'}</b>, every day, for <b>90 days</b>, until: <b>${esc(ob.goal)}</b>.”</div>
         <div class="dates">${fmtDate(new Date())} → ${fmtDate(end)}, ${end.getFullYear()}</div>
       </div>
       <button class="btn ob-cta" data-act="ob-next">Start Day 1</button>
@@ -8545,7 +8544,9 @@ function finishOnboarding() {
     S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: c, cat: 'custom', min: '2-minute version', rhythm: 'daily' });
   }
   const firstGoalId = crypto.randomUUID();
-  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'mid', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
+  const visionId = ob.vision.trim() ? crypto.randomUUID() : null;
+  if (visionId) S.brain.goals.push({ id: visionId, title: ob.vision.trim(), horizon: 'long', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
+  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'mid', parent_goal_id: visionId, status: 'active', created_at: new Date().toISOString() });
   S.profile.arcGoalId = firstGoalId;
   S.habits.forEach((habit) => { habit.goal_id = firstGoalId; });
   const openDraft = !!ob.brainDump.trim();
@@ -9502,7 +9503,7 @@ document.addEventListener('click', (e) => {
     case 'ob-occ': ob.occs.has(id) ? ob.occs.delete(id) : ob.occs.add(id); renderOnboarding(); break;
     case 'ob-cat': {
       if (ob.cats.has(id)) ob.cats.delete(id);
-      else if (ob.cats.size >= 3) { showNudge('Three missions max — focus is the feature. Swap one out first.'); break; }
+      else if (ob.cats.size >= 3) { showNudge('Three focus areas max — focus is the feature. Swap one out first.'); break; }
       else ob.cats.add(id);
       // re-seed picks round-robin across selected missions so each one contributes
       {
@@ -9929,7 +9930,7 @@ function wireAfterRender() {
     if (list) list.innerHTML = libList();
   });
 
-  const map = [['obName', 'name'], ['obGoal', 'goal'], ['obWhy', 'motivation'], ['obBrainDump', 'brainDump'], ['obTime', 'remTime'], ['obOcc', 'occCustom']];
+  const map = [['obName', 'name'], ['obGoal', 'goal'], ['obWhy', 'motivation'], ['obVision', 'vision'], ['obBrainDump', 'brainDump'], ['obTime', 'remTime'], ['obOcc', 'occCustom']];
   for (const [domId, key] of map) {
     const inp = document.getElementById(domId);
     if (inp) inp.addEventListener('input', () => {
@@ -9937,7 +9938,7 @@ function wireAfterRender() {
       const btn = document.getElementById('obNextBtn');
       if (btn) {
         if (key === 'name') btn.disabled = !ob.name.trim();
-        if (key === 'goal') btn.disabled = !(ob.goal.trim() && ob.cats.size);
+        if (key === 'goal') btn.disabled = !ob.goal.trim();
       }
     });
   }
