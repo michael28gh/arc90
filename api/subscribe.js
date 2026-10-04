@@ -1,8 +1,6 @@
-// Email capture → Supabase `subscribers` (RLS insert-only). Newsletter SENDING is deferred.
-// Uses the publishable (anon) key, which is public by design; the insert-only RLS policy
-// keeps the list unreadable. No service-role secret is involved.
-const SUPABASE_URL = 'https://agnnqsqjcobfmfyijsrs.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_Q_T8Qta5AgAt3aXXyDYYZw_wPTJPyz6';
+// Server-only email capture. Remove public INSERT policies in Supabase so clients
+// cannot bypass this endpoint's validation and abuse controls.
+const { guard, readBody } = require('./_security');
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function sendJson(res, status, payload) {
@@ -11,45 +9,39 @@ function sendJson(res, status, payload) {
   res.status(status).send(JSON.stringify(payload));
 }
 
-function readBody(req) {
-  return new Promise((resolve) => {
-    if (req.body && typeof req.body === 'object') return resolve(req.body);
-    if (typeof req.body === 'string') { try { return resolve(JSON.parse(req.body)); } catch (e) { return resolve({}); } }
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e4) req.destroy(); });
-    req.on('end', () => { try { resolve(JSON.parse(data || '{}')); } catch (e) { resolve({}); } });
-    req.on('error', () => resolve({}));
-  });
-}
-
 module.exports = async function handler(req, res) {
-  if (req.method === 'OPTIONS') return sendJson(res, 200, { ok: true });
-  if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+  if (!guard(req, res, 'POST', 5)) return;
 
-  const body = await readBody(req);
+  let body;
+  try { body = await readBody(req); } catch { return sendJson(res, 400, { error: 'Invalid JSON body.' }); }
   if (body.hp) return sendJson(res, 200, { ok: true }); // honeypot caught a bot — fake success
 
-  const email = String(body.email || '').trim().toLowerCase();
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
   const consent = body.consent === true;
-  const source = String(body.source || 'app').slice(0, 40);
+  const source = body.source === undefined ? 'app' : body.source;
+  if (typeof source !== 'string' || source.length > 40 || !/^[A-Za-z0-9 _-]+$/.test(source)) {
+    return sendJson(res, 400, { error: 'Invalid source.' });
+  }
 
   if (!EMAIL_RE.test(email) || email.length > 254) return sendJson(res, 400, { error: 'Enter a valid email address.' });
   if (!consent) return sendJson(res, 400, { error: 'Check the box to confirm you want updates.' });
+  const SUPABASE_URL = process.env.SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!SUPABASE_URL || !serviceKey) return sendJson(res, 503, { error: 'Not configured.' });
 
   try {
     const r = await fetch(`${SUPABASE_URL}/rest/v1/subscribers`, {
       method: 'POST',
       headers: {
-        apikey: SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        apikey: serviceKey,
+        Authorization: `Bearer ${serviceKey}`,
         'Content-Type': 'application/json',
         Prefer: 'return=minimal'
       },
       body: JSON.stringify({ email, consent: true, consent_at: new Date().toISOString(), source })
     });
     if (r.status === 200 || r.status === 201 || r.status === 409) return sendJson(res, 200, { ok: true });
-    const detail = (await r.text()).slice(0, 200);
-    return sendJson(res, 502, { error: 'Could not save right now. Please try again.', detail });
+    return sendJson(res, 502, { error: 'Could not save right now. Please try again.' });
   } catch (e) {
     return sendJson(res, 500, { error: 'Network error. Please try again.' });
   }

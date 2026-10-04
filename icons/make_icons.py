@@ -1,79 +1,102 @@
-"""Generate Arc90 app icons (pure stdlib PNG writer, no Pillow needed).
-Obsidian mark: cobalt→violet→magenta gradient arc on near-black, with a soft inner glow."""
-import struct, zlib, math, os
+"""Generate the graphite, sage, and cool-blue Arc90 app icon."""
+import math
+import os
+import struct
+import zlib
 
-def write_png(path, w, h, get_px):
+
+def write_png(path, width, height, get_pixel):
     raw = bytearray()
-    for y in range(h):
-        raw.append(0)  # filter: none
-        for x in range(w):
-            raw.extend(get_px(x, y))
+    for y in range(height):
+        raw.append(0)
+        for x in range(width):
+            raw.extend(get_pixel(x, y))
+
     def chunk(tag, data):
-        out = struct.pack('>I', len(data)) + tag + data
-        return out + struct.pack('>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+        body = struct.pack('>I', len(data)) + tag + data
+        return body + struct.pack('>I', zlib.crc32(tag + data) & 0xFFFFFFFF)
+
     png = b'\x89PNG\r\n\x1a\n'
-    png += chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 6, 0, 0, 0))
+    png += chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
     png += chunk(b'IDAT', zlib.compress(bytes(raw), 9))
     png += chunk(b'IEND', b'')
-    with open(path, 'wb') as f:
-        f.write(png)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'wb') as output:
+        output.write(png)
 
-def lerp(a, b, t):
-    return tuple(a[i] + (b[i] - a[i]) * t for i in range(3))
 
-COBALT  = (62, 109, 240)    # #3E6DF0
-VIOLET  = (139, 92, 246)    # #8B5CF6
-MAGENTA = (217, 70, 239)    # #D946EF
-TRACK   = (32, 36, 48)
-WHITE   = (244, 246, 252)
+BACKGROUND = (17, 19, 21)
+TRACK = (37, 41, 45)
+SAGE = (179, 223, 189)
+WHITE = (242, 244, 246)
+BLUE = (154, 201, 237)
 
-def grad3(t):
-    """cobalt -> violet -> magenta along t in [0,1]"""
-    if t < 0.5:
-        return lerp(COBALT, VIOLET, t / 0.5)
-    return lerp(VIOLET, MAGENTA, (t - 0.5) / 0.5)
 
-def icon_px(size):
-    cx, cy = size / 2, size / 2
-    ring_r = size * 0.31
-    ring_w = size * 0.092
-    def px(x, y):
-        # obsidian background: near-black with a subtle cool top-light + vignette
-        ny = y / size
-        base = lerp((16, 19, 28), (7, 8, 12), ny)
-        d = math.hypot(x - cx, y - cy)
-        # inner glow behind the arc (violet)
-        glow = max(0.0, 1.0 - abs(d - ring_r) / (size * 0.34))
-        gcol = grad3((math.degrees(math.atan2(y - cy, x - cx)) + 180) / 360)
-        r = base[0] + gcol[0] * 0.16 * glow * glow
-        g = base[1] + gcol[1] * 0.16 * glow * glow
-        b = base[2] + gcol[2] * 0.16 * glow * glow
-        # the gradient arc (300deg sweep, like the progress ring)
-        on_ring = abs(d - ring_r) <= ring_w / 2
-        if on_ring:
-            edge = 1.0 - max(0.0, (abs(d - ring_r) - (ring_w / 2 - 1.6)) / 1.6)
-            edge = max(0.0, min(1.0, edge))
-            ang = (math.degrees(math.atan2(y - cy, x - cx)) + 90) % 360
-            if ang <= 300:
-                col = grad3(ang / 300)
-            else:
-                col = TRACK
-            r += (col[0] - r) * edge
-            g += (col[1] - g) * edge
-            b += (col[2] - b) * edge
-        # bright tip dot at arc end
-        tip = math.radians(300 - 90)
-        tx, ty = cx + ring_r * math.cos(tip), cy + ring_r * math.sin(tip)
-        dd = math.hypot(x - tx, y - ty)
-        if dd < ring_w * 0.6:
-            k = 1.0 if dd < ring_w * 0.42 else 0.55
-            r += (WHITE[0] - r) * k
-            g += (WHITE[1] - g) * k
-            b += (WHITE[2] - b) * k
-        return bytes((max(0, min(255, int(r))), max(0, min(255, int(g))), max(0, min(255, int(b))), 255))
-    return px
+def clamp(value):
+    return max(0.0, min(1.0, value))
+
+
+def blend(base, overlay, amount):
+    amount = clamp(amount)
+    return tuple(int(base[i] + (overlay[i] - base[i]) * amount) for i in range(3))
+
+
+def rounded_box_distance(px, py, cx, cy, half_size, radius):
+    qx = abs(px - cx) - (half_size - radius)
+    qy = abs(py - cy) - (half_size - radius)
+    outside = math.hypot(max(qx, 0.0), max(qy, 0.0))
+    inside = min(max(qx, qy), 0.0)
+    return outside + inside - radius
+
+
+def icon_pixel(size):
+    center = size / 2.0
+    ring_radius = size * 0.330
+    ring_width = size * 0.094
+    half_width = ring_width / 2.0
+    core_radius = size * 0.053
+    marker_half = size * 0.046
+    marker_radius = size * 0.027
+    marker_angle = math.radians(-45)
+    marker_x = center + ring_radius * math.cos(marker_angle)
+    marker_y = center + ring_radius * math.sin(marker_angle)
+    end_points = [
+        (center + ring_radius * math.cos(math.radians(-45)), center + ring_radius * math.sin(math.radians(-45))),
+        (center + ring_radius * math.cos(math.radians(45)), center + ring_radius * math.sin(math.radians(45))),
+    ]
+
+    def pixel(x, y):
+        px, py = x + 0.5, y + 0.5
+        distance = math.hypot(px - center, py - center)
+        ring_coverage = clamp(0.5 - (abs(distance - ring_radius) - half_width))
+        color = blend(BACKGROUND, TRACK, ring_coverage)
+
+        angle = math.degrees(math.atan2(py - center, px - center))
+        arc_coverage = ring_coverage if abs(angle) >= 45 else 0.0
+        for end_x, end_y in end_points:
+            end_coverage = clamp(0.5 - (math.hypot(px - end_x, py - end_y) - half_width))
+            arc_coverage = max(arc_coverage, end_coverage)
+        color = blend(color, SAGE, arc_coverage)
+
+        marker_distance = rounded_box_distance(
+            px, py, marker_x, marker_y, marker_half, marker_radius
+        )
+        color = blend(color, WHITE, clamp(0.5 - marker_distance))
+        color = blend(color, BLUE, clamp(0.5 - (distance - core_radius)))
+        return bytes(color)
+
+    return pixel
+
 
 here = os.path.dirname(os.path.abspath(__file__))
-for size, name in [(180, 'icon-180.png'), (512, 'icon-512.png')]:
-    write_png(os.path.join(here, name), size, size, icon_px(size))
-    print('wrote', name)
+outputs = [
+    (180, os.path.join(here, 'icon-180.png')),
+    (192, os.path.join(here, 'icon-192.png')),
+    (512, os.path.join(here, 'icon-512.png')),
+    (1024, os.path.join(here, '..', 'ios', 'App', 'App', 'Assets.xcassets',
+                        'AppIcon.appiconset', 'AppIcon-512@2x.png')),
+]
+
+for size, path in outputs:
+    write_png(path, size, size, icon_pixel(size))
+    print('wrote', os.path.relpath(path, here))

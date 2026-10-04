@@ -4,14 +4,13 @@ import SwiftUI
 // Must match the App Group added to BOTH the App and this widget target.
 private let arc90AppGroup = "group.com.arc90.app"
 
-// Brand palette (aurora: obsidian + cyan/violet/magenta gradient).
-private let arcInk = Color(red: 0.969, green: 0.969, blue: 1.0)          // #f7f7ff
-private let arcBG = Color(red: 0.012, green: 0.016, blue: 0.039)         // #03040a
-private let arcAccent = Color(red: 0.561, green: 0.420, blue: 1.0)       // #8f6bff (violet)
+// Brand palette: graphite, sage, and cool blue.
+private let arcInk = Color(red: 0.949, green: 0.957, blue: 0.965)         // #f2f4f6
+private let arcBG = Color(red: 0.067, green: 0.075, blue: 0.082)          // #111315
+private let arcAccent = Color(red: 0.702, green: 0.875, blue: 0.741)      // #b3dfbd
 private let arcGrad = LinearGradient(
-    colors: [Color(red: 0.369, green: 0.894, blue: 1.0),                 // #5ee4ff cyan
-             Color(red: 0.561, green: 0.420, blue: 1.0),                 // #8f6bff violet
-             Color(red: 0.757, green: 0.298, blue: 1.0)],                // #c14cff magenta
+    colors: [Color(red: 0.604, green: 0.788, blue: 0.929),               // #9ac9ed
+             Color(red: 0.702, green: 0.875, blue: 0.741)],              // #b3dfbd
     startPoint: .topLeading, endPoint: .bottomTrailing)
 
 struct Arc90Entry: TimelineEntry {

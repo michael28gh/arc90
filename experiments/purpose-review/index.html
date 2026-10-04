@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="dark light">
+  <title>Arc90 | Direction & Playbook</title>
+  <link rel="icon" href="/brand.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="preview.css">
+  <script src="core.js" defer></script>
+  <script src="storage.js" defer></script>
+  <script src="sample.js" defer></script>
+  <script src="preview.js" defer></script>
+</head>
+<body>
+  <header class="shell masthead">
+    <a class="brand" href="./" aria-label="Arc90 review home"><img src="/brand.svg" width="32" height="32" alt=""><span>ARC<strong>90</strong></span></a>
+    <span class="preview-label">Product preview</span>
+    <label class="theme-label">Theme <select id="theme" aria-label="Color theme"><option value="dark">Dark</option><option value="light">Light</option></select></label>
+  </header>
+  <main class="shell">
+    <div class="workspace-bar">
+      <fieldset class="segmented"><legend class="sr-only">Workspace</legend><label><input type="radio" name="workspace" value="sample" checked><span>Example</span></label><label><input type="radio" name="workspace" value="personal"><span>My sandbox</span></label></fieldset>
+      <p id="workspace-note">Sample data. Separate from your Arc90 account.</p>
+    </div>
+    <div class="page-title"><div><p class="eyebrow">A little perspective</p><h1>Make the effort count.</h1></div><span class="date-stamp" id="today-label"></span></div>
+    <nav class="view-tabs" aria-label="Review views"><button type="button" data-view="direction" aria-current="page">Direction check</button><button type="button" data-view="playbook">Personal playbook <span id="rule-count" class="count">0</span></button></nav>
+    <div id="notice" role="status" aria-live="polite"></div>
+    <div id="content"></div>
+    <footer class="footer"><span id="save-state">Local preview</span><div><button type="button" class="text-button" id="export">Export records</button><button type="button" class="text-button danger" id="reset">Reset workspace</button></div></footer>
+  </main>
+  <dialog id="editor" aria-labelledby="editor-title"><div class="dialog-head"><h2 id="editor-title"></h2><button type="button" class="icon-button" id="close-editor" aria-label="Close dialog" title="Close dialog">&#215;</button></div><form id="editor-form"></form></dialog>
+  <noscript><p>This preview needs JavaScript. No account records have been changed.</p></noscript>
+</body>
+</html>

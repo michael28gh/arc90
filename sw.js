@@ -1,13 +1,40 @@
 /* Arc90 service worker — network-first app shell with offline fallback + Web Push */
-const CACHE = 'arc90-mark2-v100';
+const CACHE = 'arc90-mark2-v165';
 const SHELL = [
   '/',
   '/app',
   './css/styles.css',
+  './css/privacy-controls.css',
+  './js/auth.js',
+  './js/privacy-controls.js',
+  './css/adaptive-day.css',
+  './css/approved-design.css',
+  './js/adaptive-day.js',
+  './js/live-update.js',
+  './js/day-support.js',
+  './js/preview-access.js',
+  './js/daily-planning.js',
+  './js/daily-workspace.js',
+  './js/brain-core.js',
+  './js/brain-dump.js',
+  './css/brain-dump.css',
+  './css/progress-dashboard.css',
+  './js/progress-dashboard.js',
+  './js/story-mode.js',
+  './css/story-mode.css',
+  './js/progress-insights.js',
+  './js/charts/purpose-flow.js',
+  './js/motion.js',
+  './js/vendor/d3-array.min.js',
+  './js/vendor/d3-path.min.js',
+  './js/vendor/d3-shape.min.js',
+  './js/vendor/d3-sankey.min.js',
+  './css/daily-planning.css',
   './js/data.js',
   './js/app.js',
   './manifest.webmanifest',
   './icons/icon-180.png',
+  './icons/icon-192.png',
   './icons/icon-512.png',
   './assets/welcome-bg.jpg',
 ];
@@ -31,7 +58,11 @@ self.addEventListener('activate', (e) => {
    - The HTML shell is only ever served as a fallback for navigations, never for assets. */
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
-  if (new URL(e.request.url).origin !== self.location.origin) return;
+  const requestURL = new URL(e.request.url);
+  if (requestURL.origin !== self.location.origin) return;
+  // Account, payment and analytics responses must never enter the offline cache.
+  if (requestURL.pathname.startsWith('/api/') || requestURL.pathname.startsWith('/_vercel/')) return;
+  if (requestURL.searchParams.has('session_id') || requestURL.searchParams.has('checkout')) return;
   e.respondWith(
     fetch(e.request)
       .then((res) => {

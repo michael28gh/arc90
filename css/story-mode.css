@@ -1,0 +1,46 @@
+.arc90-story {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 12px;
+  background: rgba(0, 0, 0, .88);
+  color: #f2f4f6;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+  overscroll-behavior: contain;
+}
+.arc90-story, .arc90-story * { box-sizing: border-box; }
+.arc90-story-shell { width: min(100%, 610px); min-width: 0; max-height: 100%; display: grid; grid-template-rows: auto auto minmax(0, 1fr) auto; gap: 9px; }
+.arc90-story-top, .arc90-story-actions { display: flex; align-items: center; gap: 10px; }
+.arc90-story-top { justify-content: space-between; }
+.arc90-story-heading { font-size: 13px; font-weight: 650; }
+.arc90-story button { flex: none; border: 0; cursor: pointer; font: inherit; }
+.arc90-story button:focus-visible { outline: 2px solid #b3dfbd; outline-offset: 3px; }
+.arc90-story button:disabled { opacity: .35; cursor: default; }
+.arc90-story-icon { display: grid; place-items: center; width: 40px; height: 40px; padding: 0; border-radius: 5px; background: #29332e; color: #f2f4f6; font-size: 27px !important; line-height: 1; }
+.arc90-story-progress { display: flex; gap: 5px; height: 4px; }
+.arc90-story-track { flex: 1; height: 4px; overflow: hidden; border-radius: 2px; background: #42514a; }
+.arc90-story-fill { display: block; width: 100%; height: 100%; background: #b3dfbd; transform: scaleX(0); transform-origin: left; }
+.arc90-story-stage { position: relative; width: min(100%, calc((100dvh - 148px) * .8)); aspect-ratio: 4 / 5; min-height: 0; justify-self: center; overflow: hidden; background: #111315; border: 1px solid #36443e; touch-action: none; user-select: none; -webkit-user-select: none; }
+.arc90-story-content { display: flex; flex-direction: column; width: 100%; height: 100%; padding: 7% 8%; }
+.arc90-story-brand { color: #b3dfbd; font-size: clamp(16px, 3.5vmin, 27px); font-weight: 800; }
+.arc90-story-period { margin-top: 4%; color: #a7b0b5; font-size: clamp(10px, 2vmin, 15px); font-weight: 700; text-transform: uppercase; overflow-wrap: anywhere; }
+.arc90-story-title { margin: 6% 0 0; padding-bottom: 4%; border-bottom: 1px solid #36443e; font-size: clamp(25px, 5vmin, 42px); line-height: 1.1; letter-spacing: 0; overflow-wrap: anywhere; }
+.arc90-story-list { display: flex; flex: 1; flex-direction: column; justify-content: center; gap: clamp(10px, 2.8vmin, 24px); min-height: 0; overflow: hidden; }
+.arc90-story-row { min-width: 0; }
+.arc90-story-row-line { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; font-size: clamp(12px, 2.8vmin, 21px); }
+.arc90-story-row-line span { min-width: 0; color: #c3cacd; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc90-story-row-line strong { flex: none; font-size: 1.08em; font-variant-numeric: tabular-nums; }
+.arc90-story-row small { display: block; margin-top: 2px; color: #a7b0b5; font-size: clamp(10px, 1.8vmin, 13px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arc90-story-meter { height: 5px; margin-top: 7px; background: #304039; }
+.arc90-story-meter i { display: block; height: 100%; background: #b3dfbd; }
+.arc90-story-empty { color: #a7b0b5; font-size: clamp(15px, 3vmin, 23px); }
+.arc90-story-footer { display: flex; justify-content: space-between; gap: 8px; padding-top: 4%; border-top: 1px solid #36443e; color: #a7b0b5; font-size: clamp(9px, 1.8vmin, 13px); font-weight: 700; }
+.arc90-story-actions { justify-content: space-between; }
+.arc90-story-command { min-height: 40px; padding: 8px 13px; border-radius: 5px; background: #b3dfbd; color: #182019; font-size: 13px !important; font-weight: 650 !important; }
+.arc90-story-command + .arc90-story-command { background: #29332e; color: #f2f4f6; }
+.arc90-story-reduced .arc90-story-track { background: #42514a; }
+.arc90-story-reduced .arc90-story-fill { background: #b3dfbd; }
+@media (max-height: 580px) { .arc90-story { padding: 4px; } .arc90-story-shell { gap: 4px; } .arc90-story-icon, .arc90-story-command { min-height: 32px; height: 32px; } .arc90-story-stage { width: min(100%, calc((100dvh - 108px) * .8)); } }
+@media (prefers-reduced-motion: reduce) { .arc90-story, .arc90-story * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }

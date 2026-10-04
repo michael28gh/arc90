@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Arc90 Map Gallery</title>
+<link rel="stylesheet" href="/css/styles.css"><link rel="stylesheet" href="/css/approved-design.css"><link rel="stylesheet" href="/css/brain-dump.css">
+<style>body{overflow:auto;background:var(--bg)}.gallery-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;max-width:760px;margin:auto;padding:12px;color:var(--tx-2);font-size:12px}.gallery-controls select{color:var(--tx);background:var(--card);border:1px solid var(--line);padding:7px;border-radius:5px}#app{width:100%;max-width:760px;padding:12px;margin:auto;min-height:0}.gallery-controls label{display:flex;gap:5px;align-items:center}</style>
+</head><body>
+<div class="gallery-controls"><strong>Arc90 · Sample map</strong><label>Theme<select id="galleryTheme"><option value="dark">Dark</option><option value="light">Light</option></select></label><label>Data<select id="galleryData"><option value="connected">Connected</option><option value="planned">Planned</option><option value="unlinked">Unlinked</option></select></label></div>
+<main id="app"></main>
+<script src="/js/vendor/d3-array.min.js"></script><script src="/js/vendor/d3-path.min.js"></script><script src="/js/vendor/d3-shape.min.js"></script><script src="/js/vendor/d3-sankey.min.js"></script><script src="/js/brain-core.js"></script>
+<script>
+const demo = /* DEMO_DATA */;
+let S = structuredClone(demo);
+let tab = 'progress', arcWorkspace = 'map', sheet = null;
+const todayKey = () => '2026-08-29';
+const operationalDate = () => new Date(todayKey() + 'T12:00:00');
+const atMidnight = date => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+const dkey = date => date.toLocaleDateString('en-CA');
+const addDays = (date, days) => { const next = new Date(date); next.setDate(next.getDate() + days); return next; };
+const esc = value => String(value).replace(/[&<>"']/g, char => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[char]);
+const save = () => {};
+const app = document.getElementById('app');
+function render() { app.innerHTML = brainAlignment(); brainWireMap(); }
+</script><script src="/js/brain-dump.js"></script>
+<script>
+brainRange = 'month'; render();
+document.getElementById('galleryTheme').addEventListener('change', event => { document.documentElement.dataset.theme = event.target.value; });
+document.getElementById('galleryData').addEventListener('change', event => {
+  S = structuredClone(demo);
+  if (event.target.value === 'planned') S.log = {};
+  if (event.target.value === 'unlinked') {
+    S.brain.goals = S.brain.goals.filter(goal => ['mid','short'].includes(goal.horizon)).slice(0, 2);
+    S.habits.forEach(habit => { habit.goal_id = null; });
+  }
+  brainLayoutCache = null; brainSelected = null; render();
+});
+</script></body></html>

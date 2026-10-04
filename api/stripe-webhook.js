@@ -10,7 +10,12 @@ function sendJson(res, status, payload) {
 async function rawBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
-    req.on('data', (c) => chunks.push(typeof c === 'string' ? Buffer.from(c) : c));
+    let size = 0;
+    req.on('data', (c) => {
+      size += Buffer.byteLength(c);
+      if (size > 1048576) { reject(new Error('Body too large')); return; }
+      chunks.push(typeof c === 'string' ? Buffer.from(c) : c);
+    });
     req.on('end', () => resolve(Buffer.concat(chunks)));
     req.on('error', reject);
   });
@@ -20,6 +25,7 @@ async function stripeGet(path, secret) {
   const r = await fetch(`https://api.stripe.com/v1${path}`, {
     headers: { Authorization: `Bearer ${secret}` },
   });
+  if (!r.ok) throw new Error('Stripe lookup failed');
   return r.json();
 }
 
@@ -55,10 +61,11 @@ function constructEvent(payload, sig, secret) {
     if (key === 't') ts = val;
     else if (key === 'v1') v1s.push(val);
   }
-  if (!ts || !v1s.length) throw new Error('Malformed stripe-signature header.');
+  if (!/^\d{10}$/.test(ts) || !v1s.length) throw new Error('Malformed stripe-signature header.');
   const expected = crypto.createHmac('sha256', secret).update(`${ts}.${payload}`, 'utf8').digest();
   const match = v1s.some((v) => {
     try {
+      if (!/^[a-fA-F0-9]{64}$/.test(v)) return false;
       const candidate = Buffer.from(v, 'hex');
       // timing-safe comparison — string !== leaks timing information
       return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
@@ -100,18 +107,19 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 400, { error: err.message });
   }
 
-  const obj = event.data.object;
+  const obj = event?.data?.object;
+  if (!obj || typeof event.type !== 'string') return sendJson(res, 400, { error: 'Invalid event.' });
 
   try {
     switch (event.type) {
       case 'checkout.session.completed': {
-        if (obj.mode !== 'subscription') break;
+        if (obj.mode !== 'subscription' || obj.metadata?.app !== 'arc90') break;
         const sub = await stripeGet(`/subscriptions/${obj.subscription}`, stripeKey);
         await upsertEntitlement(supabaseUrl, serviceKey, {
           stripe_customer_id: obj.customer,
           stripe_subscription_id: obj.subscription,
           email: obj.customer_details?.email || obj.customer_email || null,
-          status: 'active',
+          status: ['active', 'trialing'].includes(sub.status) ? 'active' : 'inactive',
           plan: 'premium',
           current_period_end: sub.current_period_end
             ? new Date(sub.current_period_end * 1000).toISOString()
@@ -153,9 +161,10 @@ module.exports = async function handler(req, res) {
       }
     }
   } catch (err) {
-    console.error('arc90 webhook handler error:', err);
+    console.error('arc90 webhook handler failed');
     return sendJson(res, 500, { error: 'Internal error processing event.' });
   }
 
   return sendJson(res, 200, { received: true });
 };
+module.exports.config = { api: { bodyParser: false } };

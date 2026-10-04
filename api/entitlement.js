@@ -2,6 +2,7 @@
 // The Stripe webhook (api/stripe-webhook.js) writes rows to Supabase; this reads them back.
 // Required env vars: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 
+const { guard } = require('./_security');
 function sendJson(res, status, payload) {
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
@@ -9,7 +10,11 @@ function sendJson(res, status, payload) {
 }
 
 module.exports = async function handler(req, res) {
-  if (req.method !== 'GET') return sendJson(res, 405, { error: 'GET only' });
+  if (!guard(req, res, 'GET', 20)) return;
+  const auth = req.headers.authorization;
+  if (typeof auth !== 'string' || !/^Bearer [A-Za-z0-9._-]{20,4096}$/.test(auth)) {
+    return sendJson(res, 401, { premium: false, error: 'Sign in to restore purchases.' });
+  }
 
   const supabaseUrl = process.env.SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -17,12 +22,15 @@ module.exports = async function handler(req, res) {
     return sendJson(res, 503, { premium: false, error: 'Not configured — set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
   }
 
-  const email = String((req.query && req.query.email) || '').trim().toLowerCase();
-  if (!email || email.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    return sendJson(res, 400, { premium: false, error: 'Valid email required.' });
-  }
-
   try {
+    const userResponse = await fetch(`${supabaseUrl}/auth/v1/user`, {
+      headers: { apikey: serviceKey, Authorization: auth },
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!userResponse.ok) return sendJson(res, 401, { premium: false, error: 'Invalid session.' });
+    const user = await userResponse.json();
+    const email = typeof user.email === 'string' ? user.email.trim().toLowerCase() : '';
+    if (!email || !user.email_confirmed_at) return sendJson(res, 403, { premium: false, error: 'Verified email required.' });
     const r = await fetch(
       `${supabaseUrl}/rest/v1/entitlements?select=status&email=eq.${encodeURIComponent(email)}`,
       { headers: { apikey: serviceKey, Authorization: `Bearer ${serviceKey}` } }
