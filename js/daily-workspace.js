@@ -268,7 +268,7 @@ function convertPlanningIdeas() {
     for (const idea of ideas) {
       let id;
       do { id = 't' + (++S.taskSeq); } while (S.tasks.some((t) => String(t.id) === id));
-      S.tasks.push({ id, title: idea.title.trim(), horizon: 'short', goal_id: null, due: '', remind: false, done: false, notified: false, created: Date.now() });
+      S.tasks.push({ id, title: idea.title.trim(), horizon: 'short', goal_id: typeof arcGoalLink === 'function' ? arcGoalLink() : null, due: '', remind: false, done: false, notified: false, created: Date.now() });
       idea.taskId = id;
     }
   })) return false;

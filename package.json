@@ -12,7 +12,7 @@
     "check:focus": "node scripts/focus-tab-check.cjs",
     "check:practice": "node scripts/practice-check.cjs",
     "check:planning": "node --check js/daily-planning.js && node --check js/daily-workspace.js && node scripts/daily-planning-check.cjs",
-    "check:arc": "node --check js/brain-dump.js && node scripts/arc-workspace-check.cjs && node scripts/brain-core-check.cjs && node scripts/brain-map-check.cjs && node scripts/brain-links-check.cjs && node scripts/brain-cloud-check.cjs",
+    "check:arc": "node --check js/brain-dump.js && node scripts/arc-workspace-check.cjs && node scripts/brain-core-check.cjs && node scripts/brain-map-check.cjs && node scripts/brain-links-check.cjs && node scripts/brain-cloud-check.cjs && node scripts/goal-model-check.cjs",
     "check:guidance": "node scripts/guidance-check.cjs",
     "check:support": "node scripts/day-support-check.cjs && node scripts/day-support-flow-check.cjs",
     "check:preview": "node scripts/preview-access-check.cjs && node scripts/preview-access-flow-check.cjs",

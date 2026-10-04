@@ -45,7 +45,7 @@ function defaultState() {
     premium: false,
     theme: 'auto',
     preferences: { dayStartHour: 4, reducedMotion: false, shareNames: false, trackers: { water: false, mood: false } },
-    profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null },
+    profile: { name: '', occupation: '', goal: '', goalCats: [], identity: '', motivation: '', start: null, arcGoalId: null },
     ai: { provider: 'anthropic' },
     aiChat: [],                  // [{role:'user'|'assistant', content}]
     habits: [],                  // [{id, emoji, name, cat, min}]
@@ -4553,11 +4553,42 @@ function libList() {
   }).join('')}</div>`;
 }
 
+// The goal this 90-day arc is about. Everything new links here by default.
+function activeArcGoal() {
+  const goal = (S.brain?.goals || []).find((g) => g.id === S.profile.arcGoalId);
+  return goal && goal.status === 'active' && goal.horizon === 'mid' ? goal : null;
+}
+function arcGoalLink() { return activeArcGoal()?.id || null; }
+
+// Goal model v2 (one-time): older onboarding saved the 90-day goal as a parentless
+// 'short' goal, which could never roll up to a vision or take tasks. Relabel it 'mid'
+// and remember it as the active arc goal. A parentless short goal has no children, so
+// nothing can break; a backup of the previous data is kept first.
+function migrateGoalModelV2() {
+  if (S.product.goalModelV2 || !S.onboarded) return;
+  try {
+    const title = (S.profile.goal || '').trim().toLowerCase();
+    const goals = S.brain.goals.filter((g) => g.status === 'active');
+    let goal = goals.find((g) => g.id === S.profile.arcGoalId);
+    if (!goal && title) goal = goals.find((g) => g.horizon === 'mid' && g.title.trim().toLowerCase() === title);
+    const legacy = !goal && title && goals.find((g) => g.horizon === 'short' && !g.parent_goal_id && g.title.trim().toLowerCase() === title);
+    if (legacy && !S.brain.goals.some((g) => g.parent_goal_id === legacy.id)) {
+      try { localStorage.setItem(KEY + '.pre-goalv2', JSON.stringify(S)); } catch {}
+      legacy.horizon = 'mid';
+      S.brain.dirty = true;
+      goal = legacy;
+    }
+    if (goal && goal.horizon === 'mid') S.profile.arcGoalId = goal.id;
+  } catch (error) { console.warn('Goal model update skipped', error); }
+  S.product.goalModelV2 = true;
+  save();
+}
+
 function addHabit(libId) {
   const h = HABIT_LIBRARY.find((x) => x.id === libId);
   if (!h || S.habits.some((x) => x.id === h.id)) return true;
   if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) return gate('habit-limit') && addHabit(libId);
-  S.habits.push({ id: h.id, emoji: h.emoji, name: h.name, cat: h.cat, min: h.min, rhythm: 'daily' });
+  S.habits.push({ id: h.id, emoji: h.emoji, name: h.name, cat: h.cat, min: h.min, rhythm: 'daily', goal_id: arcGoalLink() });
   save();
   return true;
 }
@@ -4571,7 +4602,7 @@ function addCustom(name) {
   if (!hasPremiumAccess() && S.habits.length >= FREE_HABITS) return gate('habit-limit');
   if (!hasPremiumAccess() && customCount() >= FREE_CUSTOM) return gate('custom-limit');
   S.customSeq++;
-  S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: n, cat: 'custom', min: '2-minute version', rhythm: 'daily' });
+  S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: n, cat: 'custom', min: '2-minute version', rhythm: 'daily', goal_id: arcGoalLink() });
   save();
   return true;
 }
@@ -8290,7 +8321,7 @@ function obGoal() {
       <div class="ob-title">Where are you in <em>90 days</em>?</div>
       <div class="ob-sub">One headline goal — then pick up to 3 missions that feed it.</div>
       <div class="field"><label>My 3-month goal</label>
-        <input id="obGoal" type="text" placeholder="e.g. Run a 10K · Save $1,500 · Conversational Spanish" value="${esc(ob.goal)}" maxlength="80"/></div>
+        <input id="obGoal" type="text" placeholder="e.g. Finish LVN school" value="${esc(ob.goal)}" maxlength="80"/></div>
       <div class="field"><label>Why does it matter? <span style="color:var(--tx-3);font-weight:600">(optional)</span></label>
         <input id="obWhy" type="text" placeholder="The reason you'll remember on hard days" value="${esc(ob.motivation)}" maxlength="100"/></div>
       <div class="field"><label>Your missions <span style="color:var(--tx-3);font-weight:600">(pick up to 3 · ${ob.cats.size}/3)</span></label>
@@ -8514,7 +8545,8 @@ function finishOnboarding() {
     S.habits.push({ id: 'c' + S.customSeq, emoji: '✨', name: c, cat: 'custom', min: '2-minute version', rhythm: 'daily' });
   }
   const firstGoalId = crypto.randomUUID();
-  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'short', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
+  S.brain.goals.push({ id: firstGoalId, title: ob.goal.trim(), horizon: 'mid', parent_goal_id: null, status: 'active', created_at: new Date().toISOString() });
+  S.profile.arcGoalId = firstGoalId;
   S.habits.forEach((habit) => { habit.goal_id = firstGoalId; });
   const openDraft = !!ob.brainDump.trim();
   if (openDraft) {
@@ -8932,7 +8964,7 @@ document.addEventListener('click', (e) => {
       S.tasks.push({
         id: 't' + Date.now() + '-' + S.taskSeq,
         title,
-        horizon: 'short', goal_id: null,
+        horizon: 'short', goal_id: arcGoalLink(),
         due: du && du.value ? du.value : '',
         remind: rm ? rm.checked : true,
         done: false,
@@ -9150,7 +9182,7 @@ document.addEventListener('click', (e) => {
       const n = document.getElementById('editName'), o = document.getElementById('editOcc'), g = document.getElementById('editGoal');
       if (n && n.value.trim()) S.profile.name = n.value.trim();
       if (o && o.value.trim()) S.profile.occupation = o.value.trim();
-      if (g && g.value.trim()) S.profile.goal = g.value.trim();
+      if (g && g.value.trim()) { S.profile.goal = g.value.trim(); const arc = activeArcGoal(); if (arc && arc.title !== S.profile.goal) { arc.title = S.profile.goal; S.brain.dirty = true; } }
       save(); sheet = null; render(); break;
     }
 
@@ -10481,6 +10513,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
+migrateGoalModelV2();
 applyTheme();
 if (captureTodaySchedule()) localStorage.setItem(KEY, JSON.stringify(S));
 const previewNudge = consumePreviewLink();
